@@ -17,6 +17,7 @@ import {
   getIssue,
   ghApi,
   hasLabel,
+  isReleasedMarker,
   BRANCH_PREFIX,
   CLAIM_REF_PREFIX,
   isRallypointPull,
@@ -103,7 +104,7 @@ const leaseHolder = async (pr: number): Promise<string | null> => {
       `repos/${REPO}/git/commits/${r.object.sha}`,
     ).catch(() => null);
     if (!c) return "unknown"; // unreadable is never free
-    if (c.message.startsWith("rallypoint: released")) continue;
+    if (isReleasedMarker(c.message)) continue;
     return (
       /^Rallypoint-Lease-Agent:\s*(\S+)\s*$/m.exec(c.message)?.[1] ?? "unknown"
     );
@@ -576,14 +577,25 @@ export const deliveredIssue = (pull: Pull) => {
   return n ? { issue: n, closes: Boolean(closes) } : null;
 };
 
-/** Whether the claim reservation ref for an issue still exists. */
+/**
+ * Whether the claim reservation for an issue is still live. A ref whose tip is a
+ * `rallypoint: released` marker is released: that is how a cloud session (which may not delete
+ * refs) removes one, and the maintenance workflow deletes it for good later. `ghApi` is a raw read,
+ * so it is checked here exactly as the Rallypoint scripts' REST transport checks it.
+ */
 const hasReservation = async (issue: number) => {
   const ref = `refs/heads/${CLAIM_REF_PREFIX}${issue}`;
-  const refs = await ghApi<{ ref: string }[]>(
+  const refs = await ghApi<{ ref: string; object: { sha: string } }[]>(
     "GET",
     `repos/${REPO}/git/matching-refs/heads/${CLAIM_REF_PREFIX}${issue}`,
   );
-  return refs.some((r) => r.ref === ref);
+  const hit = refs.find((r) => r.ref === ref);
+  if (!hit) return false;
+  const tip = await ghApi<{ message: string }>(
+    "GET",
+    `repos/${REPO}/git/commits/${hit.object.sha}`,
+  );
+  return !isReleasedMarker(tip.message);
 };
 
 /**
@@ -637,13 +649,15 @@ const reconcileClaim = async (pull: Pull, sha: string) => {
         `clear-status-labels exited ${r.code}: ${(r.stderr || r.stdout).trim().slice(0, 300)}`,
       );
   }
-  if (state.closed && state.reserved)
-    await ghApi(
-      "DELETE",
-      `repos/${REPO}/git/refs/heads/${CLAIM_REF_PREFIX}${target.issue}`,
-    ).catch((e) =>
-      log(`could not delete the reservation: ${String(e).slice(0, 200)}`),
-    );
+  // Through cleanup.mjs, not a raw DELETE: the session proxy refuses ref deletes (403), and the
+  // scripts' transport releases the ref with a marker commit instead.
+  if (state.closed && state.reserved) {
+    const r = await rp("cleanup", ["--issue", String(target.issue)]);
+    if (r.code !== 0)
+      log(
+        `could not release the reservation: cleanup exited ${r.code}: ${(r.stderr || r.stdout).trim().slice(0, 200)}`,
+      );
+  }
   const after = await read().catch(() => null);
   if (!after)
     return `reconciled: could not read #${target.issue} back; a janitor pass will check it`;
