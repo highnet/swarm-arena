@@ -8,7 +8,14 @@ import { ARENA_HOME, ENGINES_DIR, log, MOVE_MS, run, RUN_ID } from "./config";
 import { arenaEngine } from "./engine";
 import { reference } from "./references";
 import { formatMessages, postMessage, readMessages } from "./messages";
-import { claimNext, currentVersion, prepare, release, submit } from "./seat";
+import {
+  claimNext,
+  currentVersion,
+  logProgress,
+  prepare,
+  release,
+  submit,
+} from "./seat";
 import { buildWasm } from "./wasm";
 import { getStore } from "./store";
 import { applyPlan, brief } from "./strategist";
@@ -146,6 +153,19 @@ const main = async () => {
     }
     case "release":
       return release(args[0]);
+    case "progress": {
+      const i = process.argv.indexOf("--detail");
+      const text = args.find(
+        (a, k) => k > 0 && !a.startsWith("--") && args[k - 1] !== "--detail",
+      );
+      await logProgress(
+        args[0],
+        text ?? "",
+        i > 0 ? process.argv[i + 1] : null,
+      );
+      console.log(`Logged progress on ${args[0]}.`);
+      return;
+    }
     case "brief":
       console.log(await brief());
       return;

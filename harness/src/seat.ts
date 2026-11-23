@@ -64,6 +64,23 @@ export const progress = (
     detail,
   });
 
+/** `arena progress`: a step logged by the seat that claimed the task. */
+export const logProgress = async (
+  taskId: string,
+  title: string,
+  detail: string | null = null,
+) => {
+  if (!taskId || !title.trim())
+    throw new Error('usage: progress <task-id> "<text>" [--detail "<more>"]');
+  const [task] = await getStore().select<Task>("tasks", {
+    id: taskId,
+    run_id: RUN_ID,
+  });
+  if (!task || task.status !== "claimed" || !task.claimed_by)
+    throw new Error(`task ${taskId} is not claimed`);
+  await progress(task, task.claimed_by, title.trim(), detail?.trim() || null);
+};
+
 const seatOf = async (task: Task) => {
   const opened = (await records()).find(
     (r) => r.task_id === task.id && r.kind === "task_opened",
