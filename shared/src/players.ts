@@ -1,5 +1,5 @@
-import { isEye, goParse, goScore, GO_SIZE, type GoState } from "./games/go9";
-import type { GameRules, Outcome } from "./games/types";
+import { isEye, goParse, goScore, GO_SIZE, type GoState } from './games/go9';
+import type { GameRules, Outcome } from './games/types';
 
 /** Deterministic PRNG (mulberry32) so reference players are reproducible. */
 export const rng = (seed: number) => {
@@ -25,15 +25,10 @@ export type Mover = {
 /** Moves a sensible random player would consider (Go: never fill your own eye). */
 const playoutMoves = <S>(rules: GameRules<S>, state: S): string[] => {
   const moves = rules.legalMoves(state);
-  if (rules.id !== "go9") return moves;
-  const s = state as unknown as {
-    cells: (("b" | "w") | null)[];
-    turn: "b" | "w";
-  };
-  const filtered = moves.filter(
-    (m) => m !== "pass" && !isEye(s.cells, goParse(m), s.turn),
-  );
-  return filtered.length ? filtered : ["pass"];
+  if (rules.id !== 'go9') return moves;
+  const s = state as unknown as { cells: (('b' | 'w') | null)[]; turn: 'b' | 'w' };
+  const filtered = moves.filter((m) => m !== 'pass' && !isEye(s.cells, goParse(m), s.turn));
+  return filtered.length ? filtered : ['pass'];
 };
 
 const pick = <T>(xs: T[], rand: Rand) => xs[Math.floor(rand() * xs.length)];
@@ -41,7 +36,7 @@ const pick = <T>(xs: T[], rand: Rand) => xs[Math.floor(rand() * xs.length)];
 export const randomPlayer = (seed = 1): Mover => {
   const rand = rng(seed);
   return {
-    id: "random",
+    id: 'random',
     choose: async (rules, state) => pick(playoutMoves(rules, state), rand),
   };
 };
@@ -162,8 +157,7 @@ export const fastGoRollout = (
 };
 
 const rollout = <S>(rules: GameRules<S>, start: S, rand: Rand): Outcome => {
-  if (rules.id === "go9")
-    return fastGoRollout(start as unknown as GoState, rules.maxPlies, rand);
+  if (rules.id === 'go9') return fastGoRollout(start as unknown as GoState, rules.maxPlies, rand);
   let s = start;
   for (;;) {
     const o = rules.outcome(s);
@@ -200,8 +194,7 @@ export const mctsPlayer = (playouts: number, seed = 7): Mover => {
           const ucb =
             visits[i] === 0
               ? Infinity
-              : wins[i] / visits[i] +
-                Math.sqrt((2 * Math.log(n + 1)) / visits[i]);
+              : wins[i] / visits[i] + Math.sqrt((2 * Math.log(n + 1)) / visits[i]);
           if (ucb > bestUcb) {
             bestUcb = ucb;
             best = i;
@@ -211,11 +204,9 @@ export const mctsPlayer = (playouts: number, seed = 7): Mover => {
         wins[best] += me === 0 ? o : 1 - o;
         visits[best] += 1;
       }
-      const value = (i: number) =>
-        visits[i] + (visits[i] ? wins[i] / visits[i] : 0);
+      const value = (i: number) => visits[i] + (visits[i] ? wins[i] / visits[i] : 0);
       let choice = 0;
-      for (let i = 1; i < moves.length; i++)
-        if (value(i) > value(choice)) choice = i;
+      for (let i = 1; i < moves.length; i++) if (value(i) > value(choice)) choice = i;
       return moves[choice];
     },
   };
