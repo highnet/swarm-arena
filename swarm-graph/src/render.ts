@@ -564,7 +564,6 @@ export const createSwarmGraph = (
       .style('paint-order', 'stroke')
       .style('stroke', theme.panel)
       .attr('stroke-width', 3)
-      .attr('dy', (n) => n.r + (n.kind === 'sector' ? 16 : 13))
       .text((n) => labelOf(n));
 
     groups
@@ -572,20 +571,10 @@ export const createSwarmGraph = (
       .style('font-family', theme.font)
       .attr('font-size', 10)
       .style('fill', theme.fgFaint)
-      .attr('dy', (n) => n.r + (n.kind === 'sector' ? 29 : n.kind === 'hub' ? 15 : 25))
-      .text((n) => {
-        if (n.kind === 'hub') return 'integration branch';
-        if (n.kind === 'sector') {
-          const live = [...nodeById.values()].filter(
-            (a) => a.kind === 'agent' && a.active && a.sectorId === n.sectorId,
-          ).length;
-          return live ? `${live} live` : '';
-        }
-        if (n.kind === 'agent' && n.active) return n.agent?.role ?? '';
-        if (n.kind === 'work' && n.phase === 'pr' && n.workItem)
-          return STAGE_LABEL[n.workItem.stage];
-        return '';
-      });
+      .style('paint-order', 'stroke')
+      .style('stroke', theme.panel)
+      .attr('stroke-width', 3)
+      .text((n) => subOf(n));
 
     groups
       .on('pointerenter', (e: PointerEvent, n) => {
@@ -663,13 +652,141 @@ export const createSwarmGraph = (
   /** Sectors, live agents, branches and pull requests are always named; the rest on hover. */
   const labelOf = (n: SimNode) => {
     if (n.kind === 'sector') return n.label;
-    if (n.kind === 'agent') return n.active || n === hovered ? shortLabel(n.label, 22) : '';
+    // Narrow canvases (phones) get shorter names so there is room to place them.
+    const narrow = width < 560;
+    if (n.kind === 'agent')
+      return n.active || n === hovered ? shortLabel(n.label, narrow ? 16 : 22) : '';
     if (n.kind === 'work') {
       if (n.phase === 'branch' || n.phase === 'pr')
-        return shortLabel(n.label, n === hovered ? 48 : 30);
-      return n === hovered ? shortLabel(n.label, 34) : '';
+        return shortLabel(n.label, n === hovered ? (narrow ? 30 : 48) : narrow ? 18 : 30);
+      return n === hovered ? shortLabel(n.label, narrow ? 24 : 34) : '';
     }
     return '';
+  };
+
+  const subOf = (n: SimNode) => {
+    if (n.kind === 'hub') return 'integration branch';
+    if (n.kind === 'sector') {
+      const live = [...nodeById.values()].filter(
+        (a) => a.kind === 'agent' && a.active && a.sectorId === n.sectorId,
+      ).length;
+      return live ? `${live} live` : '';
+    }
+    if (n.kind === 'agent' && n.active) return n.agent?.role ?? '';
+    if (n.kind === 'work' && n.phase === 'pr' && n.workItem) return STAGE_LABEL[n.workItem.stage];
+    return '';
+  };
+
+  /** Who gets first pick of label room: the hovered node, sectors, live agents, PRs, branches. */
+  const labelRank = (n: SimNode) =>
+    n === hovered
+      ? 0
+      : n.kind === 'sector' || n.kind === 'hub'
+        ? 1
+        : n.kind === 'agent'
+          ? 2
+          : n.phase === 'pr'
+            ? 3
+            : 4;
+
+  /**
+   * Place every visible label (name + sub-line) where it collides with nothing placed before it:
+   * below the node, else above, right, left. Text widths are estimated from character counts, so
+   * this runs every tick without forcing a layout.
+   */
+  const lastSpot = new Map<string, number>();
+  const layoutLabels = () => {
+    type Box = { x0: number; y0: number; x1: number; y1: number };
+    const hit = (a: Box, b: Box) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+    const bodies = [...nodeById.values()].map((n) => ({
+      n,
+      box: {
+        x0: (n.x ?? 0) - n.r,
+        y0: (n.y ?? 0) - n.r,
+        x1: (n.x ?? 0) + n.r,
+        y1: (n.y ?? 0) + n.r,
+      },
+    }));
+    const placed: Box[] = [];
+    const ordered = [...nodeById.values()]
+      .filter((n) => labelOf(n) || subOf(n))
+      .sort((a, b) => labelRank(a) - labelRank(b) || a.id.localeCompare(b.id));
+    const spot = new Map<string, { anchor: string; x: number; label: number; sub: number }>();
+    for (const n of ordered) {
+      const label = labelOf(n);
+      const sub = subOf(n);
+      const big = n.kind === 'sector';
+      const mono = n.kind === 'work' && (n.phase === 'branch' || n.phase === 'pr');
+      const lw = label.length * (big ? 7.6 : mono ? 6.7 : 6.1);
+      const sw = sub.length * 5.4;
+      const w = Math.max(lw, sw);
+      const lh = label ? (big ? 16 : 14) : 0;
+      const h = lh + (sub ? 13 : 0);
+      const cx = n.x ?? 0;
+      const cy = n.y ?? 0;
+      const gap = 4;
+      // Each candidate: the block's box, its anchor and baselines relative to the node.
+      const below = {
+        box: { x0: cx - w / 2, y0: cy + n.r + gap, x1: cx + w / 2, y1: cy + n.r + gap + h },
+        anchor: 'middle',
+        x: 0,
+        top: n.r + gap,
+      };
+      const above = {
+        box: { x0: cx - w / 2, y0: cy - n.r - gap - h, x1: cx + w / 2, y1: cy - n.r - gap },
+        anchor: 'middle',
+        x: 0,
+        top: -n.r - gap - h,
+      };
+      const right = {
+        box: { x0: cx + n.r + 6, y0: cy - h / 2, x1: cx + n.r + 6 + w, y1: cy + h / 2 },
+        anchor: 'start',
+        x: n.r + 6,
+        top: -h / 2,
+      };
+      const left = {
+        box: { x0: cx - n.r - 6 - w, y0: cy - h / 2, x1: cx - n.r - 6, y1: cy + h / 2 },
+        anchor: 'end',
+        x: -n.r - 6,
+        top: -h / 2,
+      };
+      const inside = (c: typeof below) =>
+        c.box.x0 >= -width / 2 + 2 &&
+        c.box.x1 <= width / 2 - 2 &&
+        c.box.y0 >= -height / 2 + 2 &&
+        c.box.y1 <= height / 2 - 2;
+      const clashes = (c: typeof below) =>
+        placed.filter((b) => hit(b, c.box)).length +
+        bodies.filter((o) => o.n !== n && hit(o.box, c.box)).length;
+      const free = (c: typeof below) => inside(c) && clashes(c) === 0;
+      const candidates = [below, above, right, left];
+      const prev = lastSpot.get(n.id);
+      const pick =
+        (prev !== undefined && free(candidates[prev]) ? candidates[prev] : undefined) ??
+        candidates.find(free) ??
+        // Nowhere clear: the on-canvas spot with the fewest collisions.
+        [...candidates.filter(inside)].sort((a, b) => clashes(a) - clashes(b))[0] ??
+        below;
+      lastSpot.set(n.id, candidates.indexOf(pick));
+      placed.push(pick.box);
+      spot.set(n.id, {
+        anchor: pick.anchor,
+        x: pick.x,
+        label: pick.top + lh - (big ? 4 : 3),
+        sub: pick.top + lh + 10,
+      });
+    }
+    const groups = gNodes.selectAll<SVGGElement, SimNode>('g.sg-node');
+    groups
+      .select<SVGTextElement>('text.sg-label')
+      .attr('text-anchor', (n) => spot.get(n.id)?.anchor ?? 'middle')
+      .attr('x', (n) => spot.get(n.id)?.x ?? 0)
+      .attr('y', (n) => spot.get(n.id)?.label ?? 0);
+    groups
+      .select<SVGTextElement>('text.sg-sub')
+      .attr('text-anchor', (n) => spot.get(n.id)?.anchor ?? 'middle')
+      .attr('x', (n) => spot.get(n.id)?.x ?? 0)
+      .attr('y', (n) => spot.get(n.id)?.sub ?? 0);
   };
 
   const applyHover = () => {
@@ -682,6 +799,7 @@ export const createSwarmGraph = (
       .attr('opacity', (n) => (!near || near.has(n.id) ? 1 : 0.2))
       .select<SVGTextElement>('text.sg-label')
       .text((n) => labelOf(n));
+    layoutLabels();
     gLinks
       .selectAll<SVGPathElement, SimLink>('path')
       .interrupt()
@@ -720,6 +838,7 @@ export const createSwarmGraph = (
       .attr('cx', (n) => n.x ?? 0)
       .attr('cy', (n) => n.y ?? 0)
       .attr('r', (n) => n.r + 5);
+    layoutLabels();
   };
 
   // ---- motion ------------------------------------------------------------------------------
@@ -798,14 +917,7 @@ export const createSwarmGraph = (
       .filter((n) => n.kind === 'sector')
       .text((n) => String(Math.round(effortOf(n))))
       .attr('font-size', (n) => Math.max(10, Math.min(15, n.r * 0.5)));
-    gNodes
-      .selectAll<SVGGElement, SimNode>('g.sg-node')
-      .select<SVGTextElement>('text.sg-label')
-      .attr('dy', (n) => n.r + (n.kind === 'sector' ? 16 : 13));
-    gNodes
-      .selectAll<SVGGElement, SimNode>('g.sg-node')
-      .select<SVGTextElement>('text.sg-sub')
-      .attr('dy', (n) => n.r + (n.kind === 'sector' ? 29 : n.kind === 'hub' ? 15 : 25));
+    layoutLabels();
     (simulation.force('collide') as d3.ForceCollide<SimNode>).radius(
       (n) => n.r + (n.kind === 'agent' ? 6 : 4),
     );
