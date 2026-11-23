@@ -1,45 +1,51 @@
 # Agent sessions cannot delete refs, so they never do: a released claim or lease is moved onto a
 # "rallypoint: released" marker commit, and merged or abandoned agent branches are left behind.
-# This workflow is the janitor for both. It deletes:
+# This workflow is the janitor for both, and it also runs release-please. It deletes:
 #   - released claim and lease refs (rallypoint-claims/*, rallypoint-sessions/*)
 #   - the claim ref of any closed issue
 #   - agent/<issue>-… branches once their pull request is closed, or when their issue is closed
 #     or no longer claimed and no pull request is open from them
-name: rallypoint-refs
+#
+# GitHub Actions minutes are capped, so this is the repository's only workflow: one job, once a
+# day (Actions bills each job rounded up to a whole minute, so a single job keeps it at one).
+# Every check that judges a change — tests, the referee's games, preflight, review — runs in the
+# Claude cloud sessions, never here. Waiting a day costs nothing: released refs already read as
+# absent to every Rallypoint script, and release-please batches the day's merges into its PR.
+# Run it by hand with "Run workflow" (workflow_dispatch) when a release is wanted sooner.
+name: maintenance
 
 on:
-  pull_request:
-    types: [closed]
-  issues:
-    types: [closed]
   schedule:
-    - cron: "17 */6 * * *"
+    - cron: "17 4 * * *"
   workflow_dispatch:
 
 permissions:
   contents: write
   issues: read
-  pull-requests: read
+  pull-requests: write
 
 concurrency:
-  group: rallypoint-refs
+  group: maintenance
   cancel-in-progress: false
 
 jobs:
-  sweep:
+  maintenance:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
+      - name: Release
+        uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
       - name: Delete released and orphaned coordination refs
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          CLOSED_HEAD: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
           del() { echo "delete $1"; gh api -X DELETE "repos/$REPO/git/refs/heads/$1" >/dev/null || echo "  (already gone)"; }
-
-          # The branch of a pull request that just closed.
-          case "${CLOSED_HEAD:-}" in agent/*) del "$CLOSED_HEAD" ;; esac
 
           # Released or closed-issue claims and leases.
           for prefix in rallypoint-claims rallypoint-sessions; do

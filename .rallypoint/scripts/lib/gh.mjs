@@ -154,11 +154,11 @@ const gitDataWrite = (args) => {
   if (kind === "refs" && method === "DELETE") {
     // Sessions may not delete branches. A coordination ref is released instead: it moves to a
     // marker commit that every read treats as absent and the next claim may take over. The
-    // rallypoint-refs workflow deletes released refs and merged agent branches for good.
+    // maintenance workflow (daily) deletes released refs and merged agent branches for good.
     const ref = `refs/${rest}`;
     const current = remoteSha(ref);
     if (!current || isReleased(current)) throw new Error(`HTTP 422: Reference does not exist: ${ref}`);
-    if (!/^refs\/heads\/rallypoint-/.test(ref)) return ""; // agent branches: the workflow deletes them on merge
+    if (!/^refs\/heads\/rallypoint-/.test(ref)) return ""; // agent branches: the daily maintenance workflow deletes them
     const tree = run("rev-parse", `${current}^{tree}`);
     const mark = run("commit-tree", tree, "-p", current, "-m", `${releasedMark} ${ref} at ${new Date().toISOString()}`);
     run("push", "--quiet", `--force-with-lease=${ref}:${current}`, "origin", `${mark}:${ref}`);
