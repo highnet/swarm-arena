@@ -92,13 +92,26 @@ export const pinAgentId = (id: string) => {
   writeFileSync(file, JSON.stringify({ session: sessionKey, "*": id }));
 };
 
+/** Issue options a plan can set: a priority (`prio:p0`…`prio:p9`) and the issue it waits on. */
+export type IssueOptions = { prio?: string | number; blockedBy?: number };
+
+/** The `prio:p<n>` label for a plan's priority (2, "p2" or "prio:p2"); `prio:p2` by default. */
+export const prioLabel = (prio?: string | number) => {
+  if (prio === undefined || prio === "") return "prio:p2";
+  const n = /^(?:prio:)?p?([0-9])$/.exec(String(prio).trim())?.[1];
+  if (n === undefined)
+    throw new Error(`prio is 0-9 (or p0-p9, prio:p0-prio:p9); not "${prio}"`);
+  return `prio:p${n}`;
+};
+
 export const issueBody = (
   task: Pick<Task, "id" | "spec" | "track_id" | "type"> & {
     concept?: string | null;
   },
+  { blockedBy }: IssueOptions = {},
 ) =>
   `${task.spec}
-
+${blockedBy ? `\nBlocked-By: #${blockedBy}\n` : ""}
 ---
 Arena task: \`${task.id}\` · engine \`${task.track_id}\` · type \`${task.type}\`${task.concept ? ` · concept \`${task.concept}\`` : ""}
 
@@ -109,18 +122,41 @@ export const openIssue = async (
   task: Pick<Task, "id" | "title" | "spec" | "track_id" | "type"> & {
     concept?: string | null;
   },
+  options: IssueOptions = {},
 ) => {
   const created = await ghApi<{ number: number }>(
     "POST",
     `repos/${REPO}/issues`,
     {
       title: task.title,
-      body: issueBody(task),
-      labels: ["arena", `engine:${task.track_id}`, `type:${task.type}`],
+      body: issueBody(task, options),
+      labels: [
+        "arena",
+        `engine:${task.track_id}`,
+        `type:${task.type}`,
+        prioLabel(options.prio),
+        // Held out of the claimable pool until the blocker closes, when
+        // close-referenced-issues.mjs clears the label from the Blocked-By: line.
+        ...(options.blockedBy ? ["status:blocked"] : []),
+      ],
     },
   );
   return created.number;
 };
+
+export type Issue = {
+  number: number;
+  title: string;
+  body: string | null;
+  state: "open" | "closed";
+  labels: { name: string }[];
+  assignees?: { login: string }[];
+  pull_request?: unknown;
+  html_url: string;
+};
+
+export const getIssue = (issue: number) =>
+  ghApi<Issue>("GET", `repos/${REPO}/issues/${issue}`);
 
 /** Reserve the task's issue for this session with Rallypoint's atomic claim. Returns the branch. */
 export const claimIssue = async (issue: number, agentId: string) => {
@@ -154,17 +190,22 @@ export type Pull = {
 export const openPulls = () =>
   ghApi<Pull[]>("GET", `repos/${REPO}/pulls?state=open&per_page=50`);
 
-/** The branch prefix `claim.mjs` prescribes (`agent/` unless `.rallypoint/config.json` says otherwise). */
-export const BRANCH_PREFIX: string = (() => {
+const config: { branchPrefix?: string; claimRefPrefix?: string } = (() => {
   try {
-    const config = JSON.parse(
+    return JSON.parse(
       readFileSync(resolve(ARENA_ROOT, ".rallypoint/config.json"), "utf8"),
-    ) as { branchPrefix?: string };
-    return config.branchPrefix || "agent/";
+    );
   } catch {
-    return "agent/";
+    return {};
   }
 })();
+
+/** The branch prefix `claim.mjs` prescribes (`agent/` unless `.rallypoint/config.json` says otherwise). */
+export const BRANCH_PREFIX: string = config.branchPrefix || "agent/";
+
+/** Where `claim.mjs` writes an issue's reservation ref: `refs/heads/<prefix><issue>`. */
+export const CLAIM_REF_PREFIX: string =
+  config.claimRefPrefix || "rallypoint-claims/issue-";
 
 /**
  * A pull request the Rallypoint loop owns: delivered from a claimed `agent/<issue>-…` branch, or
