@@ -1,0 +1,1 @@
+- 2026-11-23 · **playout policy** · Go 9×9 · v0.4 rated 1341 (+382) · Tactical playout policy: capture or escape atari near the last move, and refuse self-atari, ported from Hex's bridge-preserving fill-in
