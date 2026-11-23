@@ -60,6 +60,38 @@ One thread, modest memory, and every reply within the `go <ms>` budget (200 ms i
   same rung at 1173 ± 115** (v0.2's stored 1459 was an Edax-1 sweep lower bound). Judge the next
   Othello candidate (the #44 transposition table first) against v0.3's Edax-4 1265, not 1459.
 
+- **Exact endgame solver (task #94).** At `SOLVE_EMPTIES` = 14 empties or fewer, `best_move()`
+  first runs the normal midgame search for 10% of `go <ms>` (the fallback move, also the root's
+  first move), then `solve_root()` solves to the end until 80% of the budget. Its own negamax
+  (`Solver::solve`) on the final disc difference, empties to the winner, no `evaluate()` calls;
+  two passes end the game as in the midgame terminal. Fail-soft alpha-beta in [-64, 64] with PVS
+  (null window after the first child, root included). Order: fastest-first (fewest opponent
+  replies) with an odd-quadrant parity tiebreak; from 6 empties down parity only; the last empty
+  is a special case (mover, else opponent, else nobody). Shares the 1024-node clock check. An
+  unfinished solve still plays its best root move once the first root move is exact (any later
+  replacement was proven better); otherwise the midgame move. No TT inside the solve. About 45 M
+  nodes/s here.
+- Solve-time table (`solve_report` ignored test, 8 seeded positions per empty count, release,
+  wall clock, 2 s cap per position; "<=100" counts solves within half a go-200 budget):
+
+  | empties | plain (no order) | fastest+parity | fastest+parity+PVS (shipped) |
+  | --- | --- | --- | --- |
+  | 12 | median 22 ms, max 162, 7/8 | 7.4 / 15.5, 8/8 | 6.8 / 19.1, 8/8, 0.34 M nodes |
+  | 13 | 47 / 473, 6/8 | 16.0 / 24.9, 8/8 | 13.0 / 28.3, 8/8, 0.70 M |
+  | 14 | 82 / 2000+, 5/8 | 37.1 / 77.7, 8/8 | 33.7 / 55.7, 8/8, 1.37 M |
+  | 15 | - | 94 / 432, 5/8 | 64 / 368, 5/8, 5.0 M |
+  | 16 | - | 256 / 333, 0/8 | 162 / 382, 1/8, 8.8 M |
+  | 17 | - | 745 / 2000+, 0/8 | 646 / 2000+, 0/8 |
+  | 18-20 | - | 2000+ (cap) | 2000+ (cap) |
+
+  Fastest-first is the big win (5-15× fewer nodes than plain at 12-14); parity alone halves
+  nodes, on top of fastest-first it adds ~10%; PVS another 15-30%. Each extra empty costs ~3×.
+  N = 14 is the largest count with every position under 100 ms. Re-measured for #112 (shipped
+  config, median / max ms): 14 empties 18.2 / 31.7, 15 empties 36.7 / 194.7 (7/8 <= 100), 16
+  90.3 / 187.2 (5/8): about 2× faster hardware, yet one 15-empty position still overruns the
+  ~140 ms solve window of a go-200 move, so N stays 14. The spec's "16-20 empties in
+  200 ms" needs a TT and/or faster move generation than the crate's `make_move` per child.
+
 ## Ideas worth trying
 
 - Resubmit the #44 transposition table (see "What failed": its burial was judged against v0.2's
@@ -71,8 +103,7 @@ One thread, modest memory, and every reply within the `go <ms>` budget (200 ms i
   (a few random plies or an opening list) before small weight differences can be read: without
   one, repeats of the same setting differed by ±10 games out of 40.
 - Evaluation: edge patterns (an edge-configuration table), interior stability, parity.
-- Endgame solver (#94 built one at N = 14, buried on a near-deterministic gate; see "What failed"):
-  resubmit it once the gate varies its openings, then try a small TT inside the
+- Endgame solver follow-ups (#94's plain solver at N = 14, resubmitted in #112): a small TT inside the
   solve (from ~10 empties up; transpositions are common late); scale N with the budget (each
   empty ~3×: N 15 at ~0.6 s, 16 at ~1.8 s, the site's 0.5-3 s); a win/loss/draw null-window
   solve (-1, 1) one or two empties beyond N, since only the result counts for the rating;
@@ -211,7 +242,10 @@ differently. Never re-propose an idea from this list unchanged.
 
   Fastest-first is the big win (5-15× fewer nodes than plain at 12-14); parity alone halves
   nodes, on top of fastest-first it adds ~10%; PVS another 15-30%. Each extra empty costs ~3×.
-  N = 14 is the largest count with every position under 100 ms. The spec's "16-20 empties in
+  N = 14 is the largest count with every position under 100 ms. Re-measured for #112 (shipped
+  config, median / max ms): 14 empties 18.2 / 31.7, 15 empties 36.7 / 194.7 (7/8 <= 100), 16
+  90.3 / 187.2 (5/8): about 2× faster hardware, yet one 15-empty position still overruns the
+  ~140 ms solve window of a go-200 move, so N stays 14. The spec's "16-20 empties in
   200 ms" needs a TT and/or faster move generation than the crate's `make_move` per child.
 - Measured (#94): `arena versus othello --pairs 20` vs main v0.3: +20 −20, but every game was
   won by the second player: with no opening variety each colour pair replays one game, so it
@@ -240,3 +274,4 @@ differently. Never re-propose an idea from this list unchanged.
 - 2026-11-23 17:28 UTC · buried · Frontier (potential mobility) and edge-anchored stable discs in the Othello evaluation · Rated 1309 ± 108, not above 1459.
 - 2026-11-23 18:29 UTC · v0.3 passed the referee · Resubmit #67: potential mobility + edge-anchored stable discs, measured on the fixed gate · rated 1265 (+92 vs v0.2 on the same rung)
 - 2026-11-23 19:34 UTC · buried · Exact endgame solver: search to the final disc count once few empties remain · Rated 541 ± 485, not above 1265.
+- 2026-11-23 20:14 UTC · v0.4 passed the referee · Resubmit #94's exact endgame solver on the varied-opening gate · rated 1317 (+52)
