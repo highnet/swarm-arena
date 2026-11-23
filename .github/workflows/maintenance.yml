@@ -56,7 +56,8 @@ jobs:
               if [[ "$msg" == "rallypoint: released"* ]]; then del "$name"; continue; fi
               if [[ "$name" =~ ^rallypoint-claims/issue-([0-9]+)$ ]]; then
                 state=$(gh api "repos/$REPO/issues/${BASH_REMATCH[1]}" --jq .state)
-                [ "$state" = closed ] && del "$name"
+                # An `if`, not `&&`: under `set -e` + pipefail a false test ending the loop fails the job.
+                if [ "$state" = closed ]; then del "$name"; fi
               fi
             done
           done
