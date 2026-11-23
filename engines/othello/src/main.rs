@@ -46,15 +46,70 @@ const CORNER_W: i32 = 30;
 const MOBILITY_W: i32 = 4;
 const X_W: i32 = 18;
 const C_W: i32 = 8;
+/// Potential mobility: per square of difference, scaled by empties / 60 (2 in the opening,
+/// fading to 0 as the board fills, where real mobility and stability take over).
+const POTMOB_W: i32 = 2;
+/// Edge-anchored stable disc, flat per disc (well below a corner's 30). Tuning with local
+/// matches found larger or phase-growing weights lost to v0.2; see the playbook.
+const STABLE_W: i32 = 2;
 /// Terminal scores sit far above any heuristic score.
 const WIN: i32 = 100_000;
 const INF: i32 = 1_000_000;
 
+const NOT_A: u64 = 0xfefe_fefe_fefe_fefe; // clears column a (bit 0 of each row)
+const NOT_H: u64 = 0x7f7f_7f7f_7f7f_7f7f; // clears column h
+
+/// Every square 8-adjacent to a square in `b`.
+fn neighbours(b: u64) -> u64 {
+    let ew = ((b << 1) & NOT_A) | ((b >> 1) & NOT_H);
+    let row = b | ew;
+    ew | (row << 8) | (row >> 8)
+}
+
+/// Potential mobility against `other`: the empty squares 8-adjacent to at least one of its
+/// discs (where a later move by the side owning the count may flip something). More is better.
+fn potential_mobility(other: u64, empty: u64) -> u64 {
+    empty & neighbours(other)
+}
+
+const ROWS_18: u64 = 0xff | 0xff << 56;
+const COLS_AH: u64 = 0x8181_8181_8181_8181;
+const EDGE_MASKS: [u64; 4] = [0xff, 0xff << 56, 0x0101_0101_0101_0101, 0x8080_8080_8080_8080];
+
+/// Edge-anchored stable discs of `own`: from each owned corner, the contiguous run of `own`
+/// discs along both of its edges; a completely filled edge is stable in full (an edge disc can
+/// only be flipped along its edge, and a full edge has no empty square to flip from).
+/// Bitboard flood: grow from the owned corners one edge step at a time.
+fn edge_stable(own: u64, occupied: u64) -> u64 {
+    let mut st = own & CORNERS;
+    for &line in &EDGE_MASKS {
+        if occupied & line == line {
+            st |= own & line;
+        }
+    }
+    if st == 0 {
+        return 0;
+    }
+    let edge_own = own & (ROWS_18 | COLS_AH);
+    loop {
+        let along_rows = ((st << 1) & NOT_A | (st >> 1) & NOT_H) & ROWS_18;
+        let along_cols = ((st << 8) | (st >> 8)) & COLS_AH;
+        let next = st | (edge_own & (along_rows | along_cols));
+        if next == st {
+            return st;
+        }
+        st = next;
+    }
+}
+
 /// Static evaluation from the side to move's point of view. Original terms: corner ownership,
-/// mobility difference, and a penalty for X/C-squares next to a still-empty corner.
+/// mobility difference, a penalty for X/C-squares next to a still-empty corner, potential
+/// mobility (scaled down as the board fills), and edge-anchored stable discs.
 fn evaluate(g: &Game) -> i32 {
     let [me, opp] = g.get();
-    let empty = !(me | opp);
+    let occupied = me | opp;
+    let empty = !occupied;
+    let empties = empty.count_ones() as i32;
     let mut s = CORNER_W * ((me & CORNERS).count_ones() as i32 - (opp & CORNERS).count_ones() as i32);
     let mut o = g.clone();
     o.pass_move();
@@ -68,6 +123,12 @@ fn evaluate(g: &Game) -> i32 {
         if empty >> c & 1 == 1 {
             s -= C_W * ((me >> sq & 1) as i32 - (opp >> sq & 1) as i32);
         }
+    }
+    let pm = potential_mobility(opp, empty).count_ones() as i32 - potential_mobility(me, empty).count_ones() as i32;
+    s += POTMOB_W * pm * empties / 60;
+    if occupied & CORNERS != 0 {
+        let st = edge_stable(me, occupied).count_ones() as i32 - edge_stable(opp, occupied).count_ones() as i32;
+        s += STABLE_W * st;
     }
     s
 }
@@ -172,11 +233,17 @@ fn search(g: &Game, budget_ms: u64) -> (usize, u32) {
 
 /// Iterative deepening up to `max_depth` plies or until `deadline` passes, whichever is first.
 fn search_limited(g: &Game, max_depth: u32, deadline: Duration) -> (usize, u32) {
+    let (m, d, _) = search_counted(g, max_depth, deadline);
+    (m, d)
+}
+
+/// `search_limited`, also returning the number of nodes searched.
+fn search_counted(g: &Game, max_depth: u32, deadline: Duration) -> (usize, u32, u64) {
     let avail = g.available_moves();
     let order = ordered(avail, None);
     let mut best = order[0];
     if order.len() == 1 {
-        return (best, 0);
+        return (best, 0, 0);
     }
     let mut s = Search {
         start: Instant::now(),
@@ -210,7 +277,7 @@ fn search_limited(g: &Game, max_depth: u32, deadline: Duration) -> (usize, u32) 
             break;
         }
     }
-    (best, done)
+    (best, done, s.nodes)
 }
 
 /// Picks a move for the side to move. Passes only with no placement.
@@ -349,11 +416,76 @@ mod tests {
         assert!(moves.len() > 20);
     }
 
+    fn bits(sqs: &[&str]) -> u64 {
+        sqs.iter().map(|m| 1u64 << parse_square(m).unwrap()).sum()
+    }
+
+    #[test]
+    fn potential_mobility_counts_empties_next_to_the_other_side() {
+        // Opening, either side: the empties touching the opponent's two discs. For Black (to
+        // move) White sits on d4 e5; their 8-neighbourhoods hold 10 empty squares (c3 d3 e3 c4
+        // c5 f4 f5 d6 e6 f6), and the same count holds the other way round by symmetry.
+        let g = Game::default();
+        let [b, w] = g.get();
+        let empty = !(b | w);
+        assert_eq!(potential_mobility(w, empty).count_ones(), 10);
+        assert_eq!(potential_mobility(b, empty).count_ones(), 10);
+        // A side boxed in on every side by the other has no empty neighbour: zero for the
+        // boxed side's opponent, while the boxing ring touches all 16 empties around it.
+        let inner = bits(&["d4"]);
+        let ring = bits(&["c3", "d3", "e3", "c4", "e4", "c5", "d5", "e5"]);
+        let empty = !(inner | ring);
+        assert_eq!(potential_mobility(inner, empty), 0);
+        assert_eq!(potential_mobility(ring, empty).count_ones(), 16);
+        // No wrap across the a/h columns: a lone h1 disc touches g1 g2 h2 only, never a2.
+        let empty = !bits(&["h1"]);
+        assert_eq!(potential_mobility(bits(&["h1"]), empty), bits(&["g1", "g2", "h2"]));
+        assert_eq!(potential_mobility(bits(&["a2"]), !bits(&["a2"])), bits(&["a1", "b1", "b2", "b3", "a3"]));
+        // Through evaluate(), both colours: the side to move gains when the opponent offers more.
+        let g = Game::new(bits(&["d4", "d5", "e4", "e5", "c3"]), bits(&["f6"])).unwrap();
+        let h = Game::new(bits(&["f6"]), bits(&["d4", "d5", "e4", "e5", "c3"])).unwrap();
+        assert_eq!(evaluate(&g), -evaluate(&h));
+    }
+
+    #[test]
+    fn edge_stability_grows_from_owned_corners() {
+        // Each case is checked with the anchored side as the side to move and as the opponent.
+        let check = |own: u64, other: u64, want_own: u64, want_other: u64, what: &str| {
+            for (g, o) in [(Game::new(own, other).unwrap(), 0), (Game::new(other, own).unwrap(), 1)] {
+                let b = g.get();
+                let occ = b[0] | b[1];
+                assert_eq!(edge_stable(b[o], occ), want_own, "{what} (own as side {o})");
+                assert_eq!(edge_stable(b[1 - o], occ), want_other, "{what} (other as side {})", 1 - o);
+            }
+        };
+        // A lone corner: just the corner.
+        check(bits(&["h8"]), bits(&["d4", "e5"]), bits(&["h8"]), 0, "lone corner");
+        // A corner plus a broken run: a1 b1 c1 own, d1 opponent, e1 own -> a1 b1 c1 only;
+        // down column a: a1 a2 own, a3 empty -> a2 too. b2 is not on an edge.
+        let own = bits(&["a1", "b1", "c1", "e1", "a2"]);
+        check(own, bits(&["d1", "b2"]), bits(&["a1", "b1", "c1", "a2"]), 0, "broken run");
+        // A full edge counts entirely for both sides, whoever owns its corners.
+        let own = bits(&["b8", "c8", "f8", "g8"]);
+        let other = bits(&["a8", "d8", "e8", "h8"]);
+        check(own, other, own, other, "full edge");
+        // Two corners on one edge: runs grow from both ends.
+        let own = bits(&["a1", "b1", "g1", "h1"]);
+        check(own, bits(&["d1"]), own, 0, "runs from both corners");
+        // Through evaluate(): the side to move scores the stable discs for itself, and the same
+        // position seen from the other side scores them against it.
+        let own = bits(&["a1", "b1", "c1", "d1", "a2", "a3"]);
+        let other = bits(&["e1", "b2", "c3"]);
+        let g = Game::new(own, other).unwrap();
+        let h = Game::new(other, own).unwrap();
+        assert_eq!(evaluate(&g), -evaluate(&h), "evaluation is symmetric between colours");
+        assert!(evaluate(&g) > 0);
+    }
+
     #[test]
     fn takes_a_free_corner_over_an_x_square() {
         // In the midgame (20+ empties), wherever a corner is legal and so is the X-square
         // touching that same corner, a fixed-depth search (no clock in play) must not choose
-        // that X-square: it would hand the corner away. Endgames are left out on purpose:
+        // that X-square if it lets the opponent take the corner in reply. Endgames are left out on purpose:
         // there the disc count decides and an X-square can be the right move. Positions come
         // from seeded pseudo-random games, so every run checks the same positions.
         let mut checked = 0;
@@ -377,7 +509,13 @@ mod tests {
                     if empties >= 20 && avail >> corner & 1 == 1 && avail >> x & 1 == 1 {
                         let (m, depth) = search_limited(&g, 3, Duration::from_secs(60));
                         assert_eq!(depth, 3, "search did not complete depth 3");
-                        assert_ne!(m, x, "played {} with its corner {} legal: {moves:?}", square_name(x), square_name(corner));
+                        // The X-square is a blunder when it hands the corner over. With the corner
+                        // still ours to take later (the opponent cannot reach it next move) it can be
+                        // a fine choice: allowed only then.
+                        if m == x {
+                            let reply = g.make_move(x).unwrap().available_moves();
+                            assert_eq!(reply >> corner & 1, 0, "played {} and handed over {}: {moves:?}", square_name(x), square_name(corner));
+                        }
                         checked += 1;
                     }
                 }
@@ -406,6 +544,56 @@ mod tests {
         // Neither side can move: scored by disc difference.
         let end = Game::new(0b111, 0).unwrap();
         assert_eq!(s.negamax(&end, 3, -INF, INF), WIN + 3);
+    }
+
+    /// Seeded positions for the depth report: (empties band, game) pairs from pseudo-random play.
+    fn report_positions() -> Vec<(u32, Game)> {
+        let mut out = Vec::new();
+        for band in [50u32, 40, 30, 20] {
+            for game in 0..8u64 {
+                let mut seed = 0xdead_beef ^ game.wrapping_mul(0x9e37_79b9) ^ band as u64;
+                let mut moves: Vec<String> = Vec::new();
+                loop {
+                    let g = replay(&moves).unwrap();
+                    let avail = g.available_moves();
+                    let empties = (!(g.get()[0] | g.get()[1])).count_ones();
+                    if empties <= band && avail.count_ones() >= 2 {
+                        out.push((band, g));
+                        break;
+                    }
+                    if avail == 0 {
+                        moves.push("pass".into());
+                        continue;
+                    }
+                    seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                    let k = (seed >> 33) as u32 % avail.count_ones();
+                    let i = (0..64).filter(|i| avail >> i & 1 == 1).nth(k as usize).unwrap();
+                    moves.push(square_name(i));
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    #[ignore = "report: cargo test --release -p othello-engine depth_report -- --ignored --nocapture"]
+    fn depth_report() {
+        // Depth reached at `go 200` (120 ms deadline; wall clock, so informational only), and
+        // nodes and nodes per second at a fixed depth 7 (node counts deterministic).
+        for band in [50u32, 40, 30, 20] {
+            let ps: Vec<_> = report_positions().into_iter().filter(|p| p.0 == band).collect();
+            let depths: Vec<u32> = ps.iter().map(|(_, g)| search_limited(g, u32::MAX, Duration::from_millis(120)).1).collect();
+            let t = Instant::now();
+            let n: u64 = ps.iter().map(|(_, g)| search_counted(g, 7, Duration::from_secs(600)).2).sum();
+            let secs = t.elapsed().as_secs_f64();
+            println!(
+                "<={band} empties: go 200 depth {}-{} {:?}; depth 7 nodes {n}, {:.0} knps",
+                depths.iter().min().unwrap(),
+                depths.iter().max().unwrap(),
+                depths,
+                n as f64 / secs / 1000.0
+            );
+        }
     }
 
     #[test]

@@ -46,15 +46,25 @@ One thread, modest memory, and every reply within the `go <ms>` budget (200 ms i
   No transposition table and no inner-node history (a TT was tried and buried, task #44 below).
 - `evaluate()` (side to move): 30 × corner difference + 4 × mobility difference − 18 per own
   X-square and − 8 per own C-square next to a still-empty corner (symmetric for the opponent).
-  Weights are hand-picked, not tuned. (Task #67's potential mobility + edge stability was buried
-  on the gate's yardstick despite +35 −4 head-to-head; see "What failed".)
-- Measured: `arena versus othello` vs greedy v0.1: +10 −0 =0.
+  Weights are hand-picked, not tuned.
+- v0.3 (task #67, shipped as #82) adds two symmetric terms to `evaluate()`:
+  - **Potential mobility**: empty squares 8-adjacent to the opponent's discs minus those adjacent
+    to ours (`empty & neighbours(other)`, a 3-shift bitboard dilation with column-a/h masks against
+    wrap-around), weight 2 × empties / 60 so it fades as the board fills.
+  - **Edge-anchored stable discs**: from each owned corner the contiguous run of own discs along
+    both its edges, plus every disc of a completely filled edge (bitboard flood along rows 1/8 and
+    columns a/h); flat 2 per disc. Interior stability is not counted.
+  Tuning record (weights tried, depth/node cost) is under "What failed" → task #67 tuning.
+- Measured: v0.2 vs greedy v0.1: +10 −0 =0. v0.3 vs v0.2 locally (`arena versus --pairs 20`):
+  +35 −4 =1. **Referee (#82): v0.3 1265 ± 108 vs Edax level 4 (18–22); main v0.2 re-rated on the
+  same rung at 1173 ± 115** (v0.2's stored 1459 was an Edax-1 sweep lower bound). Judge the next
+  Othello candidate (the #44 transposition table first) against v0.3's Edax-4 1265, not 1459.
 
 ## Ideas worth trying
 
-- Resubmit the transposition table and #67's potential mobility + stability eval (see "What
-  failed": both burials may be rating artefacts) once v0.2 has a rating from the same opponent
-  the gate uses. #67 has the stronger case (+35 −4 head-to-head).
+- Resubmit the #44 transposition table (see "What failed": its burial was judged against v0.2's
+  Edax-1 lower bound). On Edax 4 it scored 1059 ± 135; v0.2 there is 1173 ± 115, v0.3 is 1265, so
+  rebuild it on top of v0.3 and expect to need a real gain, not just a fair yardstick.
 - History heuristic or killer moves for move ordering; aspiration windows at the root.
 - Use more of the budget: the 60% cap and the 1/3 "don't start" rule leave much of 200 ms unused.
 - Tune the eval weights (corner/mobility/X/C) by self-play. Local matches need opening variety
@@ -115,9 +125,9 @@ differently. Never re-propose an idea from this list unchanged.
   but here the head-to-head vs v0.2 was also flat, so unlike the TT there is no sign of a gain.
   Chess's quiescence (+65, +82) did not transfer as-is: captures are optional and swing material,
   while an Othello corner is one move among the mandatory ones and the eval already sees it.
-- **Potential mobility + edge-anchored stability in evaluate() (task #67, lesson PR).** Code on
-  branch `agent/67-frontier-potential-mobility-and-edge-ancho`, commit f605788 (feat; the design
-  below is enough to rebuild it). v0.2's eval and search unchanged, plus two terms, symmetric:
+- **Potential mobility + edge-anchored stability in evaluate() (task #67 burial, overturned:
+  shipped as v0.3 via #82; see "Architecture now").** Kept here for the tuning record. Original
+  commit f605788. v0.2's eval and search unchanged, plus two terms, symmetric:
   - **Potential mobility** (chosen over frontier-disc count): empty squares 8-adjacent to the
     opponent's discs minus those adjacent to ours, `empty & neighbours(other)` with a 3-shift
     bitboard dilation (column-a/h masks stop wrap-around). Weight 2 × empties / 60, so it fades
@@ -152,6 +162,9 @@ differently. Never re-propose an idea from this list unchanged.
   counter-evidence yet: +35 −4 head-to-head vs v0.2 and, locally on the same Edax-4 yardstick,
   v0.2 +8 −12 vs candidate +10 −7 =3. **Resubmit it unchanged once v0.2 has an Edax-4 rating**
   (or the gate compares head-to-head); it is not a failed idea, it is an unmeasured one.
+  **Resubmitted unchanged as task #82** after #85 made the referee rate main on the gate's own
+  rung: v0.3 1265 ± 108 vs v0.2 1173 ± 115, both on Edax 4. Passed. The burial was a rating
+  artefact; a lower bound from a sweep of an easier rung is not a yardstick.
 - **Large or phase-growing edge stability (task #67 tuning, not buried; kept small).** Stable
   discs weighted 8–23 per disc (growing as the board fills) lost to v0.2 alone (+14 −24) and with
   any frontier term; even 2+(60−e)/12 alone lost (+14 −26). Kept only as a flat 2 per disc.
@@ -173,3 +186,4 @@ differently. Never re-propose an idea from this list unchanged.
 - 2026-11-23 15:00 UTC · buried · Transposition table with stored best move ordering every inner node · Rated 1059 ± 135, not above 1459.
 - 2026-11-23 16:32 UTC · buried · Experiment: corner quiescence at the alpha-beta leaves · Rated 962 ± 163, not above 1459.
 - 2026-11-23 17:28 UTC · buried · Frontier (potential mobility) and edge-anchored stable discs in the Othello evaluation · Rated 1309 ± 108, not above 1459.
+- 2026-11-23 18:29 UTC · v0.3 passed the referee · Resubmit #67: potential mobility + edge-anchored stable discs, measured on the fixed gate · rated 1265 (+92 vs v0.2 on the same rung)
