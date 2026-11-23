@@ -47,6 +47,12 @@ export type SwarmGraphRenderer = {
   /** Play the event history back over `durationMs` (default 30 s). */
   replay: (durationMs?: number) => void;
   stopReplay: () => void;
+  /**
+   * Emphasise a node as if the pointer were on it, from outside the graph (a list item the
+   * host links to it, say). `null` clears it. Does not call `onHover`, so hosts can mirror the
+   * graph's hover into their own UI and back without a loop.
+   */
+  highlight: (nodeId: string | null) => void;
   /** Recentre and reset zoom. */
   reset: () => void;
   destroy: () => void;
@@ -580,8 +586,14 @@ export const createSwarmGraph = (
 
   const applyHover = () => {
     const near = hovered ? neighbours(hovered) : null;
-    gNodes
-      .selectAll<SVGGElement, SimNode>('g.sg-node')
+    const groups = gNodes.selectAll<SVGGElement, SimNode>('g.sg-node');
+    groups
+      .select<SVGCircleElement>('circle.sg-body')
+      .interrupt()
+      .transition()
+      .duration(180)
+      .attr('r', (n) => (n === hovered ? n.r + 4 : n.r));
+    groups
       .attr('opacity', (n) => (!near || near.has(n.id) ? 1 : 0.2))
       .select<SVGTextElement>('text.sg-label')
       .text((n) => {
@@ -953,6 +965,13 @@ export const createSwarmGraph = (
     replayTimers.push(setTimeout(stopReplay, Math.max(flows.length * 40, at) + 1600));
   };
 
+  const highlight = (nodeId: string | null) => {
+    const next = nodeId ? (nodeById.get(nodeId) ?? null) : null;
+    if (next === hovered) return;
+    hovered = next;
+    applyHover();
+  };
+
   const reset = () => {
     svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity);
   };
@@ -979,5 +998,5 @@ export const createSwarmGraph = (
     svg.remove();
   };
 
-  return { update, replay, stopReplay, reset, destroy };
+  return { update, replay, stopReplay, highlight, reset, destroy };
 };
