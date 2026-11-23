@@ -42,13 +42,32 @@ export type Agent = {
   /** Seat name, e.g. "chess/search". */
   seat: string;
   track_id: GameId | null;
-  role: 'strategist' | 'builder' | 'tester' | 'referee';
+  role:
+    | 'strategist'
+    | 'builder'
+    | 'tester'
+    | 'referee'
+    | 'worker'
+    | 'reviewer'
+    | 'merger'
+    | 'improver'
+    | 'planner';
   status: AgentStatus;
   last_seen: string;
   sessions: number;
+  /** The Rallypoint role this seat holds in its current session. */
+  rp_role?: RallypointRole | null;
+  task_id?: string | null;
+  pr?: number | null;
+  /** One line: what the seat is doing this minute. */
+  activity?: string | null;
+  session_id?: string | null;
+  started_at?: string | null;
 };
 
-export type TaskStatus = 'open' | 'claimed' | 'landed' | 'dead';
+export type RallypointRole = 'worker' | 'reviewer' | 'merger' | 'fixer' | 'improver' | 'planner';
+
+export type TaskStatus = 'open' | 'claimed' | 'review' | 'landed' | 'dead';
 
 export const TASK_TYPES = [
   'foundation',
@@ -73,6 +92,14 @@ export type Task = {
   spec: string;
   /** What kind of work this is; shown as a chip everywhere the task appears. */
   type: TaskType;
+  /** The general idea this task tests, shared across games (e.g. "transposition table"). */
+  concept?: string | null;
+  /** The GitHub issue that mirrors this task (Rallypoint). */
+  issue?: number | null;
+  /** The pull request that delivers it. */
+  pr?: number | null;
+  /** What the referee measured on the branch; applied when the pull request merges. */
+  result?: Record<string, unknown> | null;
   status: TaskStatus;
   claimed_by: string | null;
   created_at: string;
@@ -88,7 +115,8 @@ export type RecordKind =
   | 'patch_rejected'
   | 'match_verdict'
   | 'rung_cleared'
-  | 'idea_dead';
+  | 'idea_dead'
+  | 'protocol';
 
 /** One structured line on the board. Never a chat transcript. */
 export type BoardRecord = {
@@ -106,7 +134,7 @@ export type BoardRecord = {
   data: Record<string, unknown>;
 };
 
-export type MessageKind = 'note' | 'question' | 'proposal' | 'answer' | 'handoff';
+export type MessageKind = 'note' | 'question' | 'proposal' | 'answer' | 'handoff' | 'retro';
 
 /** The agent message board: what agents say to each other, in their own words. */
 export type Message = {

@@ -1,0 +1,68 @@
+# Agent sessions cannot delete refs, so they never do: a released claim or lease is moved onto a
+# "rallypoint: released" marker commit, and merged or abandoned agent branches are left behind.
+# This workflow is the janitor for both. It deletes:
+#   - released claim and lease refs (rallypoint-claims/*, rallypoint-sessions/*)
+#   - the claim ref of any closed issue
+#   - agent/<issue>-… branches once their pull request is closed, or when their issue is closed
+#     or no longer claimed and no pull request is open from them
+name: rallypoint-refs
+
+on:
+  pull_request:
+    types: [closed]
+  issues:
+    types: [closed]
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: rallypoint-refs
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete released and orphaned coordination refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CLOSED_HEAD: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          del() { echo "delete $1"; gh api -X DELETE "repos/$REPO/git/refs/heads/$1" >/dev/null || echo "  (already gone)"; }
+
+          # The branch of a pull request that just closed.
+          case "${CLOSED_HEAD:-}" in agent/*) del "$CLOSED_HEAD" ;; esac
+
+          # Released or closed-issue claims and leases.
+          for prefix in rallypoint-claims rallypoint-sessions; do
+            gh api "repos/$REPO/git/matching-refs/heads/$prefix" --jq '.[] | "\(.ref) \(.object.sha)"' |
+            while read -r ref sha; do
+              name="${ref#refs/heads/}"
+              msg=$(gh api "repos/$REPO/git/commits/$sha" --jq .message)
+              if [[ "$msg" == "rallypoint: released"* ]]; then del "$name"; continue; fi
+              if [[ "$name" =~ ^rallypoint-claims/issue-([0-9]+)$ ]]; then
+                state=$(gh api "repos/$REPO/issues/${BASH_REMATCH[1]}" --jq .state)
+                [ "$state" = closed ] && del "$name"
+              fi
+            done
+          done
+
+          # Agent branches nobody is working from any more.
+          open_heads=$(gh api "repos/$REPO/pulls?state=open&per_page=100" --jq '.[].head.ref')
+          gh api "repos/$REPO/git/matching-refs/heads/agent/" --jq '.[].ref' |
+          while read -r ref; do
+            name="${ref#refs/heads/}"
+            grep -qxF "$name" <<<"$open_heads" && continue
+            [[ "$name" =~ ^agent/([0-9]+)- ]] || continue
+            issue=$(gh api "repos/$REPO/issues/${BASH_REMATCH[1]}" --jq '[.state, ([.labels[].name] | index("status:claimed") != null)] | @tsv')
+            state=$(cut -f1 <<<"$issue"); claimed=$(cut -f2 <<<"$issue")
+            if [ "$state" = closed ] || [ "$claimed" = false ]; then del "$name"; fi
+          done

@@ -10,6 +10,7 @@ import {
   tracks,
 } from "./board";
 import { log, RUN_ID } from "./config";
+import { openIssue } from "./rallypoint";
 import { getStore } from "./store";
 import { formatMessages, readMessages } from "./messages";
 
@@ -24,6 +25,7 @@ export type Plan = {
     track: GameId;
     seat: string;
     type?: TaskType;
+    concept?: string;
     title: string;
     spec: string;
   }[];
@@ -84,9 +86,12 @@ ${board || "- quiet"}
 Write plan.json and run: npm run arena -- plan plan.json
 {
   "update": { "title": "one-line decision", "detail": "one or two sentences of reasoning" },
-  "tasks": [{ "track": "${TRACK_IDS.join("|")}", "seat": "e.g. chess/search", "type": "${TASK_TYPES.join("|")}", "title": "...", "spec": "..." }]
+  "tasks": [{ "track": "${TRACK_IDS.join("|")}", "seat": "e.g. chess/search", "type": "${TASK_TYPES.join("|")}", "concept": "the general idea, e.g. transposition table", "title": "...", "spec": "..." }]
 }
 At most one new task per engine that has nothing open or in progress.
+Concepts: the four games exist to find general ideas that make each engine better. Name the concept
+each task tests, prefer porting a concept that already gained Elo in one game to the others, and
+read the concepts skill (.claude/skills/concepts/SKILL.md) for what transferred and what did not.
 Types: foundation (protocol, rules wiring, legality), search, evaluation, playout (MCTS policy),
 time (clock management), speed (raw nodes per second), tuning (constants, weights), novel (an idea
 no engine is known for), fix (a bug or forfeit), experiment (anything else).`;
@@ -118,7 +123,7 @@ export const applyPlan = async (raw: unknown) => {
   });
   const busy = new Set(
     (await tasks())
-      .filter((k) => ["open", "claimed"].includes(k.status))
+      .filter((k) => ["open", "claimed", "review"].includes(k.status))
       .map((k) => k.track_id),
   );
   let opened = 0;
@@ -134,6 +139,7 @@ export const applyPlan = async (raw: unknown) => {
       run_id: RUN_ID,
       track_id: t.track,
       type: t.type ?? "experiment",
+      concept: t.concept?.trim().toLowerCase() || null,
       title: t.title,
       spec: t.spec,
       status: "open",
@@ -141,13 +147,28 @@ export const applyPlan = async (raw: unknown) => {
       created_at: now(),
       closed_at: null,
     });
+    // Rallypoint: every task is a GitHub issue the worker claims atomically.
+    const issue = await openIssue({
+      id,
+      track_id: t.track,
+      type: t.type ?? "experiment",
+      title: t.title,
+      spec: t.spec,
+      concept: t.concept ?? null,
+    }).catch((e) => {
+      log(
+        `issue for ${id} not opened yet (${String(e).slice(0, 120)}); the worker opens it on claim`,
+      );
+      return null;
+    });
+    if (issue) await getStore().update("tasks", { id }, { issue });
     await post("task_opened", {
       track_id: t.track,
       agent_id: "strategist",
       task_id: id,
       title: t.title,
       detail: t.spec,
-      data: { seat: t.seat },
+      data: { seat: t.seat, issue, concept: t.concept ?? null },
     });
     log(`opened [${t.track}] ${t.title} (${id})`);
     opened++;

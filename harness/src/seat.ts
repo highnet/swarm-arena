@@ -38,6 +38,13 @@ import { arenaEngine } from "./engine";
 import { gateRung, runMatch } from "./match";
 import { reference } from "./references";
 import { getStore } from "./store";
+import {
+  claimIssue,
+  ghApi,
+  openIssue,
+  REPO,
+  sessionAgentId,
+} from "./rallypoint";
 
 /**
  * Agent sessions run as Claude Code cloud sessions on this repository. A session calls
@@ -73,7 +80,7 @@ const seatOf = async (task: Task) => {
   );
 };
 
-const briefing = async (task: Task, seat: string) => {
+const briefing = async (task: Task, seat: string, branch = "") => {
   const t = await track(task.track_id);
   const ladder = await rungs(task.track_id);
   const recent = (await records())
@@ -85,7 +92,10 @@ const briefing = async (task: Task, seat: string) => {
     .slice(-12)
     .map((r) => `- [${r.kind}] ${r.title}${r.detail ? `: ${r.detail}` : ""}`)
     .join("\n");
-  return `TASK ${task.id}
+  return `ROLE worker (Rallypoint)
+TASK ${task.id}${task.issue ? ` · issue #${task.issue} https://github.com/${REPO}/issues/${task.issue}` : ""}
+Branch: ${branch || "(none)"}: you are on it. Commit nothing to main; the referee opens the pull request.
+Type: ${task.type}${task.concept ? ` · concept: ${task.concept} (see the concepts skill for how it did in other games)` : ""}
 You are ${agentName(seat)}, seat ${seat}. Sign messages with --as ${seat}.
 Engine: ${GAMES[task.track_id].name}, crate ${relative(ARENA_ROOT, resolve(ENGINES_DIR, task.track_id))}
 Title: ${task.title}
@@ -101,8 +111,10 @@ ${recent || "- none yet"}
 Message board (latest for this engine and engine-wide):
 ${formatMessages(await readMessages(task.track_id, 12)) || "- quiet"}
 
+Log progress as you go: npm run arena -- progress ${task.id} "..."
 When cargo build --release and cargo test pass in the crate, run:
   npm run arena -- submit ${task.id}
+It measures the branch and opens the pull request (Closes #${task.issue ?? "?"}) for an independent reviewer.
 If you cannot finish, run:
   npm run arena -- release ${task.id}`;
 };
@@ -132,15 +144,44 @@ export const claimNext = async (onlyTrack?: string) => {
       { status: "claimed", claimed_by: seatId },
     );
     if (!claimed) continue;
+    // Rallypoint: the task is a GitHub issue, reserved atomically for this session.
+    let issue = task.issue ?? null;
+    if (!issue) {
+      issue = await openIssue(task);
+      await db.update("tasks", { id: task.id }, { issue });
+      task.issue = issue;
+    }
+    const agentId = sessionAgentId(seat);
+    const rpClaim = await claimIssue(issue, agentId);
+    if (!rpClaim.ok) {
+      await db.update(
+        "tasks",
+        { id: task.id },
+        { status: "open", claimed_by: null },
+      );
+      log(`issue #${issue} could not be claimed: ${rpClaim.why}`);
+      continue;
+    }
+    await git(["fetch", "origin", "main"]);
+    await git(["checkout", "-B", rpClaim.branch, "origin/main"]);
     await bumpSessions(seatId);
-    await setAgent(seatId, { status: "working" });
+    await setAgent(seatId, {
+      status: "working",
+      rp_role: "worker",
+      task_id: task.id,
+      pr: null,
+      activity: `Claimed issue #${issue}`,
+      session_id: process.env.CLAUDE_CODE_REMOTE_SESSION_ID ?? null,
+      started_at: now(),
+    });
     await post("task_claimed", {
       track_id: task.track_id,
       agent_id: seatId,
       task_id: task.id,
       title: `${seat} claimed “${task.title}”`,
+      detail: `Issue #${issue}, branch ${rpClaim.branch}.`,
     });
-    return briefing(task, seat);
+    return briefing(task, seat, rpClaim.branch);
   }
   return null;
 };
@@ -156,7 +197,21 @@ export const release = async (taskId: string) => {
     { id: taskId },
     { status: "open", claimed_by: null },
   );
-  if (task.claimed_by) await setAgent(task.claimed_by, { status: "idle" });
+  if (task.claimed_by)
+    await setAgent(task.claimed_by, {
+      status: "idle",
+      activity: null,
+      task_id: null,
+    });
+  if (task.issue && task.claimed_by) {
+    const { rp } = await import("./rallypoint");
+    await rp("release-claim", [
+      "--issue",
+      String(task.issue),
+      "--agent-id",
+      sessionAgentId(task.claimed_by.replace(/-/, "/")),
+    ]);
+  }
   log(`released ${taskId}`);
 };
 
@@ -175,6 +230,17 @@ const logVerdict = (trackId: string, line: string) => {
     );
 };
 
+const CONCEPTS = resolve(ARENA_ROOT, ".claude/skills/concepts/SKILL.md");
+
+/** One line of cross-game evidence: what a concept did for one engine. */
+const logConcept = (task: Task, outcome: string) => {
+  if (!task.concept || !existsSync(CONCEPTS)) return;
+  appendFileSync(
+    CONCEPTS,
+    `- ${now().slice(0, 10)} · **${task.concept}** · ${GAMES[task.track_id].name} · ${outcome} · ${task.title}\n`,
+  );
+};
+
 /** Take back the last verdict line (a ship that could not be pushed). */
 const unlogVerdict = (trackId: string) => {
   const p = playbook(trackId);
@@ -184,21 +250,72 @@ const unlogVerdict = (trackId: string) => {
     writeFileSync(p, `${lines.slice(0, -1).join("\n")}\n`);
 };
 
-/** Commit the given paths, rebase onto the latest main and push. Retries on a race. */
-const commitAndPush = async (paths: string[], message: string) => {
+/** The Rallypoint branch this checkout is on, or null when it is not an agent branch. */
+const currentBranch = async () => {
+  const b = (await git(["rev-parse", "--abbrev-ref", "HEAD"])).stdout.trim();
+  return b.startsWith("agent/") ? b : null;
+};
+
+/**
+ * Commit on the agent branch, rebase onto main, push the branch, and open (or update) the pull
+ * request. Nothing goes to main here: an independent reviewer and a merger do that.
+ */
+const deliver = async (
+  task: Task,
+  paths: string[],
+  message: string,
+  pr: { title: string; body: string; labels: string[] },
+) => {
+  const branch = await currentBranch();
+  if (!branch)
+    throw new Error("not on an agent/ branch: claim with `arena next` first");
   await git(["add", "-A", ...paths.map((p) => relative(ARENA_ROOT, p))]);
-  const commit = await git(["commit", "-m", message]);
-  if (commit.code !== 0) return true; // nothing to commit
-  for (let attempt = 0; attempt < 3; attempt++) {
-    await git(["fetch", "origin", "main"]);
-    const rebase = await git(["rebase", "--autostash", "origin/main"]);
-    if (rebase.code !== 0) {
-      await git(["rebase", "--abort"]);
-      return false;
-    }
-    if ((await git(["push", "origin", "HEAD:main"])).code === 0) return true;
+  await git(["commit", "-m", message]);
+  await git(["fetch", "origin", "main"]);
+  if ((await git(["rebase", "--autostash", "origin/main"])).code !== 0) {
+    await git(["rebase", "--abort"]);
+    return null;
   }
-  return false;
+  if (
+    (await git(["push", "--force-with-lease", "-u", "origin", branch])).code !==
+    0
+  )
+    return null;
+  const existing = await ghApi<{ number: number; html_url: string }[]>(
+    "GET",
+    `repos/${REPO}/pulls?state=open&head=${REPO.split("/")[0]}:${encodeURIComponent(branch)}`,
+  );
+  const pull = existing[0]
+    ? await ghApi<{ number: number; html_url: string }>(
+        "PATCH",
+        `repos/${REPO}/pulls/${existing[0].number}`,
+        {
+          title: pr.title,
+          body: pr.body,
+        },
+      )
+    : await ghApi<{ number: number; html_url: string }>(
+        "POST",
+        `repos/${REPO}/pulls`,
+        {
+          title: pr.title,
+          body: pr.body,
+          head: branch,
+          base: "main",
+        },
+      );
+  await ghApi("POST", `repos/${REPO}/issues/${pull.number}/labels`, {
+    labels: pr.labels,
+  });
+  for (const stale of ["arena:referee-passed", "arena:lesson"].filter(
+    (l) => !pr.labels.includes(l),
+  )) {
+    await ghApi(
+      "DELETE",
+      `repos/${REPO}/issues/${pull.number}/labels/${encodeURIComponent(stale)}`,
+    ).catch(() => null);
+  }
+  return pull;
 };
 
 /** What the main version of an engine is made of: its crate tree plus the lockfile. */
@@ -324,20 +441,40 @@ export const prepare = async () => {
 export const submit = async (taskId: string) => {
   const db = getStore();
   const [task] = await db.select<Task>("tasks", { id: taskId, run_id: RUN_ID });
-  if (!task || task.status !== "claimed")
-    throw new Error(`task ${taskId} is not claimed`);
+  if (!task || !["claimed", "review"].includes(task.status))
+    throw new Error(`task ${taskId} is not claimed or in review`);
   const seatId = task.claimed_by ?? "referee";
+  const closes = task.issue ? `Closes #${task.issue}` : "";
   const crateDir = resolve(ENGINES_DIR, task.track_id);
 
   const bury = async (why: string, matchId: string | null = null) => {
-    // The engine change is discarded; the playbook keeps the lesson.
-    await git(["checkout", "--", relative(ARENA_ROOT, crateDir)]);
+    // The engine change is discarded; the playbook keeps the lesson, delivered as its own PR.
+    await git([
+      "checkout",
+      "origin/main",
+      "--",
+      relative(ARENA_ROOT, crateDir),
+    ]);
     await git(["clean", "-fdq", "--", relative(ARENA_ROOT, crateDir)]);
     logVerdict(task.track_id, `buried · ${task.title} · ${why}`);
-    await commitAndPush(
-      [playbook(task.track_id)],
+    logConcept(task, `buried: ${why}`);
+    const lesson = await deliver(
+      task,
+      [playbook(task.track_id), CONCEPTS],
       `docs(${task.track_id}): playbook lesson from “${task.title}”\n\nBuried: ${why}`,
-    );
+      {
+        title: `docs(${task.track_id}): lesson from “${task.title}”`,
+        body: `${closes}\n\nThe referee buried this idea: ${why}\n\nOnly the playbook lesson is delivered; the engine change was discarded.\n\nArena task: \`${task.id}\``,
+        labels: [
+          "arena",
+          "arena:lesson",
+          `engine:${task.track_id}`,
+          `type:${task.type}`,
+        ],
+      },
+    ).catch(() => null);
+    if (lesson)
+      await db.update("tasks", { id: task.id }, { pr: lesson.number });
     await db.update(
       "tasks",
       { id: task.id },
@@ -510,89 +647,166 @@ export const submit = async (taskId: string) => {
       await candidate.close?.();
     }
 
-    // Ship: the crate and its playbook go to main together.
+    // Deliver: the crate, its playbook and the browser build go to review as one pull request.
     const delta =
       prev === null
         ? "first rated version"
         : `${gate.est.elo - prev >= 0 ? "+" : ""}${Math.round(gate.est.elo - prev)}`;
     logVerdict(
       task.track_id,
-      `${version} shipped · ${task.title} · rated ${Math.round(gate.est.elo)} (${delta})`,
+      `${version} passed the referee · ${task.title} · rated ${Math.round(gate.est.elo)} (${delta})`,
     );
-    // The browser build: visitors play the version that just shipped.
+    logConcept(task, `${version} rated ${Math.round(gate.est.elo)} (${delta})`);
     const wasm = await buildWasm(task.track_id, {
       version,
       elo: Math.round(gate.est.elo),
     });
-    const pushed = await commitAndPush(
+    const result = {
+      version,
+      elo: Math.round(gate.est.elo),
+      error: Math.round(gate.est.error),
+      prev,
+      delta,
+      matchId: gate.matchId,
+      score: {
+        wins: gate.result.wins,
+        draws: gate.result.draws,
+        losses: gate.result.losses,
+      },
+      opponent: rung ? rung.label : `${t.name} ${t.current_version}`,
+    };
+    const pull = await deliver(
+      task,
       [
         crateDir,
         resolve(ENGINES_DIR, "Cargo.lock"),
         playbook(task.track_id),
+        CONCEPTS,
         ...(wasm ? wasmPaths(task.track_id) : []),
       ],
       `feat(${task.track_id}): ${task.title}\n\nArena ${version}, rated ${Math.round(gate.est.elo)} (${delta}).`,
+      {
+        title: `feat(${task.track_id}): ${task.title}`,
+        body: `${closes}
+
+## Referee
+- Gate: ${version} vs ${result.opponent}: ${gate.result.wins}–${gate.result.losses}–${gate.result.draws}, rated **${result.elo} ± ${result.error}** (${delta}).
+- Checks passed: no outside help, build and tests, browser build (wasm32-wasip1), smoke test, head-to-head with the version on main.
+- Games: https://swarm-arena-race.vercel.app/matches/${gate.matchId}
+
+## For the reviewer
+Judge the change against the issue and the arena rules: original search and evaluation (nothing ported from open-source engines), one thread, no network or processes, tests for anything that could make an illegal move, playbook updated truthfully.
+
+Arena task: \`${task.id}\``,
+        labels: [
+          "arena",
+          "arena:referee-passed",
+          `engine:${task.track_id}`,
+          `type:${task.type}`,
+        ],
+      },
     );
-    if (!pushed) {
-      // Undo the local ship commit so the burial pushes only the playbook lesson.
-      await git(["reset", "--mixed", "HEAD~1"]);
+    if (!pull) {
       unlogVerdict(task.track_id);
       return await bury(
-        "Rated higher, but the change no longer applies on main.",
+        "Passed the referee, but the branch no longer rebases on main.",
         gate.matchId,
       );
     }
-
     await db.update(
       "tasks",
       { id: task.id },
-      { status: "landed", closed_at: now() },
+      { status: "review", pr: pull.number, result },
     );
-    await db.update(
-      "tracks",
-      { run_id: RUN_ID, id: task.track_id },
-      { current_elo: Math.round(gate.est.elo), current_version: version },
+    await progress(
+      task,
+      "referee",
+      `Passed. Pull request #${pull.number} opened for an independent review.`,
+      `${version} rated ${result.elo} ± ${result.error} (${delta}). It lands when a reviewer approves and a merger merges.`,
+      gate.matchId,
     );
-    await db.insert("elo_points", {
-      run_id: RUN_ID,
-      track_id: task.track_id,
-      at: now(),
-      engine_version: version,
-      elo: Math.round(gate.est.elo),
-      elo_error: Math.round(gate.est.error),
-      match_id: gate.matchId,
+    await setAgent(seatId, {
+      pr: pull.number,
+      activity: `Waiting for review on #${pull.number}`,
     });
-    await post("patch_landed", {
-      track_id: task.track_id,
-      agent_id: seatId,
-      task_id: task.id,
-      match_id: gate.matchId,
-      title: `${version} shipped: ${task.title}`,
-      detail:
-        prev === null
-          ? "First rated version."
-          : `${delta} over the previous version.`,
-    });
-    for (const r of ladder) {
-      if (!r.cleared_at && gate.est.elo - gate.est.error / 2 > r.elo) {
-        await db.update(
-          "rungs",
-          { id: r.id },
-          { cleared_at: now(), cleared_by_match: gate.matchId },
-        );
-        await post("rung_cleared", {
-          track_id: task.track_id,
-          agent_id: "referee",
-          match_id: gate.matchId,
-          title: `${t.name} cleared ${r.label} (${r.elo})`,
-        });
-      }
-    }
-    log(`shipped ${task.track_id} ${version} at ${Math.round(gate.est.elo)}`);
-    return { shipped: true as const, version, elo: Math.round(gate.est.elo) };
+    log(
+      `${task.track_id} ${version} passed at ${result.elo}: ${pull.html_url}`,
+    );
+    return {
+      shipped: false as const,
+      review: pull.number,
+      version,
+      elo: result.elo,
+    };
   } catch (e) {
     return await bury(`Referee error: ${String(e).slice(0, 160)}`);
   } finally {
     await setAgent(seatId, { status: "idle" });
   }
+};
+
+type TaskResult = {
+  version: string;
+  elo: number;
+  error: number;
+  prev: number | null;
+  delta: string;
+  matchId: string;
+};
+
+/**
+ * After a merger merges a referee-passed pull request: the version becomes current, its rating
+ * goes on the curve, and any rung it beat is cleared. The games were played at submit time.
+ */
+export const land = async (taskId: string, mergedBy = "merger") => {
+  const db = getStore();
+  const [task] = await db.select<Task>("tasks", { id: taskId, run_id: RUN_ID });
+  if (!task) throw new Error(`no task ${taskId}`);
+  if (task.status === "landed") return log(`${taskId} already landed`);
+  const r = task.result as TaskResult | null;
+  if (!r) throw new Error(`${taskId} has no referee result to land`);
+  const t = await track(task.track_id);
+  await db.update(
+    "tasks",
+    { id: task.id },
+    { status: "landed", closed_at: now() },
+  );
+  await db.update(
+    "tracks",
+    { run_id: RUN_ID, id: task.track_id },
+    { current_elo: r.elo, current_version: r.version },
+  );
+  await db.insert("elo_points", {
+    run_id: RUN_ID,
+    track_id: task.track_id,
+    at: now(),
+    engine_version: r.version,
+    elo: r.elo,
+    elo_error: r.error,
+    match_id: r.matchId,
+  });
+  await post("patch_landed", {
+    track_id: task.track_id,
+    agent_id: task.claimed_by ?? mergedBy,
+    task_id: task.id,
+    match_id: r.matchId,
+    title: `${r.version} shipped: ${task.title}`,
+    detail: `${r.prev === null ? "First rated version." : `${r.delta} over the previous version.`} Merged in #${task.pr} after an independent review.`,
+  });
+  for (const rung of await rungs(task.track_id)) {
+    if (!rung.cleared_at && r.elo - r.error / 2 > rung.elo) {
+      await db.update(
+        "rungs",
+        { id: rung.id },
+        { cleared_at: now(), cleared_by_match: r.matchId },
+      );
+      await post("rung_cleared", {
+        track_id: task.track_id,
+        agent_id: "referee",
+        match_id: r.matchId,
+        title: `${t.name} cleared ${rung.label} (${rung.elo})`,
+      });
+    }
+  }
+  log(`landed ${task.track_id} ${r.version} at ${r.elo}`);
 };

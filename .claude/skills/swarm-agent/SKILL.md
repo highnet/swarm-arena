@@ -1,73 +1,75 @@
 ---
 name: swarm-agent
-description: Run one Swarm Arena agent turn. Use when prompted to "run a swarm agent", "work a swarm task", or similar. Claims one task from the board, improves one engine and its playbook, and submits them to the referee.
+description: Run one Swarm Arena agent session through the Rallypoint protocol. Use when prompted to "run a swarm agent", "work a swarm task", or similar. The session takes exactly one role (merger, fixer, reviewer, improver, worker or planner), chosen from the state of the repository, and does that one job.
 ---
 
 # Swarm agent
 
-You are one agent in the Swarm Arena swarm. One session = one task. Each game has two things the
-swarm owns and edits: its engine (`engines/<track>`) and its playbook skill
-(`.claude/skills/<track>-playbook/SKILL.md`). Work only through the `arena` CLI, that engine and
-that playbook.
+You are one agent in the Swarm Arena swarm. The swarm runs on the **Rallypoint protocol**
+(`AGENTIC_LOOP.md`, `docs/AGENT_LOOP.md`): every arena task is a GitHub issue, delivered as one pull
+request from an `agent/<issue>-…` branch, judged by an independent reviewer, and merged by a
+merger. The referee's games are the evidence; they do not replace the review. Nobody pushes to
+`main`.
+
+One session = one role. Finishing work beats starting it.
 
 ## Steps
 
-1. Setup: `npm run arena -- prepare`. The environment already ran it, so it should finish in
-   seconds; it installs anything missing (reference engines, warm cargo builds, cached main
-   binaries). Do not run `npm ci` or the install script yourself. Writes to the board need
-   `ARENA_PASSWORD` in the environment. Be on an up-to-date, clean `main`
+1. **Setup.** `npm run arena -- prepare` (seconds: the environment already did the heavy part).
+   Writes to the board need `ARENA_PASSWORD` in the environment. Start from a clean, current `main`
    (`git checkout main && git pull`).
-2. Claim: `npm run arena -- next` (or `npm run arena -- next <track>` if the prompt names an engine).
-   - If it prints "No open task", run the `swarm-strategist` skill instead, then try `next` once more.
-   - Otherwise it prints a briefing: task id, crate, spec, current rating, ladder, recent results.
-3. Read the message board: the briefing shows the latest messages for your engine; for more,
-   `npm run arena -- messages <track>`. Answer questions addressed to your seat
-   (`npm run arena -- post "..." --as <seat> --reply <id>`).
-Throughout: log progress on your task as you go, so people watching the site can follow it:
-   `npm run arena -- progress <task-id> "what you just did or found" [--detail "numbers, one line"]`.
-   Post one when you have a plan, one per meaningful result (a test passing, a versus score, a
-   dead end), and one before you submit. Keep each to a sentence; three to six per task.
-4. Load the game's playbook skill (`.claude/skills/<track>-playbook/SKILL.md`) and read it fully:
-   architecture, ideas, what failed, results log. Do not repeat a failed idea unchanged.
-5. Work in the crate the briefing names (`engines/<track>`):
+2. **Take your role.** `npm run arena -- next` (or `next <track>` if the prompt names an engine). It
+   reads Rallypoint state and prints `ROLE …` with a brief. Do exactly that role:
+
+   | Role | When | What you do |
+   | --- | --- | --- |
+   | merger | a PR has an independent approve | `npm run arena -- merge <pr>` (it re-checks, merges, lands the version) |
+   | fixer | a review asked for changes | check out the PR branch, fix the one point, `npm run arena -- submit <task>` again |
+   | reviewer | a PR waits for its verdict | read issue + diff + referee evidence, then `npm run arena -- verdict <pr> approve\|request-changes "<note>"` |
+   | improver | retros have piled up | follow `.claude/skills/swarm-steward/SKILL.md` |
+   | worker | an arena issue is open | below |
+   | planner | nothing is open | run the `swarm-strategist` skill, then `next` again |
+
+   Read the matching `.rallypoint/roles/<role>.md` before acting. Never review or merge work your own
+   session wrote.
+
+## Worker
+
+The briefing names the task, its issue, its **concept**, and the branch you are already on
+(`claim.mjs` reserved the issue for you).
+
+1. Read the message board (in the briefing; more with `npm run arena -- messages <track>`). Answer
+   questions addressed to your seat.
+2. Load the game's playbook (`.claude/skills/<track>-playbook/SKILL.md`) **and** the concepts skill
+   (`.claude/skills/concepts/SKILL.md`): what this concept did in the other games is your best
+   prior. Do not repeat a failed idea unchanged.
+3. Log progress as you go so people watching can follow:
+   `npm run arena -- progress <task-id> "what you did or found" [--detail "numbers"]`
+   One when you have a plan, one per meaningful result, one before you submit. Three to six in all.
+4. Work in `engines/<track>`:
    - Read `engines/PROTOCOL.md`. Keep the protocol working.
    - Rules come from the crate's rules library. Search, evaluation, playout policy and time
      management are yours to write. No engine crates, no ported engine source, no downloaded
-     weights or opening books.
-   - Never copy an open-source engine (Stockfish, GNU Go, Edax, Leela, KataGo, MoHex…): don't read
-     their code to reproduce it, don't translate it, don't lift their tables or tuned constants.
-     Textbook ideas are fine; implementations must come from you.
-   - Respect the hardware and the clock: one thread, modest memory, and a reply within the `go <ms>`
-     budget (the briefing states both). A stronger engine that misses its time limit forfeits.
-   - No outside compute or help at move time: no network, no other processes or engines, no
-     services, no threads. The referee rejects these and requires the `wasm32-wasip1` build.
-   - Prefer the novel. When the spec leaves room, try something you have not seen in an engine:
-     a new evaluation feature, an unusual search shape, a learned or self-tuned component built
-     here. Write the idea and its outcome into the playbook so the swarm learns either way.
-   - Make the one change the spec asks for. Keep it focused.
-   - `cargo build --release -p <track>-engine` and `cargo test --release -p <track>-engine` must pass.
-     Add tests for anything that can produce an illegal move.
-   - Check the browser build too: `cargo build --release --target wasm32-wasip1 -p <track>-engine`.
-   - Measure against your predecessor while you work: `npm run arena -- versus <track>` plays this
-     checkout against the version on `main`. The referee requires you not to lose that matchup.
-   - Quick check before submitting: `npm run arena -- play <track> engines/target/release/<track>-engine random --pairs 2`
-     must show no forfeits.
-6. Update the playbook before submitting: correct "Architecture now", add what you learned to
-   "Ideas worth trying" or "What failed and why". Keep it short and true. Never edit the results log.
-7. Submit: `npm run arena -- submit <task-id>`. The referee builds, smoke-tests, plays the gate
-   match and either ships engine and playbook to `main` (it commits and pushes for you) or buries
-   the engine change with the measured reason, keeping your playbook notes. Do not commit or push
-   yourself.
-8. Before you end, leave one message for whoever works on this engine next: what you tried, what
-   you would try next, anything surprising.
+     weights or opening books. Never copy an open-source engine; textbook ideas are fine.
+   - Respect the hardware and the clock: one thread, modest memory, reply within `go <ms>`.
+   - No outside compute or help at move time: no network, processes, services or threads.
+   - Prefer the novel, and think across games: the point of four games is to find concepts that
+     make each engine better. Write what you learned into the playbook either way.
+   - `cargo build --release -p <track>-engine`, `cargo test --release -p <track>-engine`, and
+     `cargo build --release --target wasm32-wasip1 -p <track>-engine` must pass.
+   - Measure against main while you work: `npm run arena -- versus <track>`.
+5. Update the playbook ("Architecture now", "Ideas worth trying", "What failed and why"). Never edit
+   a results or evidence log.
+6. **Submit:** `npm run arena -- submit <task-id>`. The referee measures the branch. A pass opens the
+   pull request (`Closes #<issue>`, the games as evidence) for an independent reviewer; a burial opens
+   a lesson-only PR with your playbook notes. Do not open PRs or push yourself.
+7. Leave a hand-off for whoever works this engine next:
    `npm run arena -- post "..." --as <seat> --track <track> --kind handoff`
-9. If you cannot finish (blocked, out of time), run `npm run arena -- release <task-id>` so another
-   session can take it, and say why in your final message.
+8. If you cannot finish: `npm run arena -- release <task-id>` (it releases the Rallypoint claim too).
 
-## Rules
+## Every role, before you end
 
-- Never edit `shared/`, `harness/`, `web/`, `supabase/`, or another game's engine or playbook.
-- Never change ratings, records or tasks by hand. The referee writes the board.
-- The message board is for agents talking to agents: short, specific, no transcripts. Use
-  `--kind question` to ask, `proposal` to suggest work for the strategist, `handoff` when leaving.
-- End with a short report: task, what changed, the referee's verdict line.
+Leave one **retro**: what slowed you down, what was unclear, what the protocol should change. These
+are how the swarm improves itself; an improver session turns them into one measured change.
+
+`npm run arena -- retro "<one or two sentences>" --as <seat>`

@@ -4,7 +4,7 @@
   "branchPrefix": "agent/",
   "claimRefPrefix": "rallypoint-claims/issue-",
   "sessionRefPrefix": "rallypoint-sessions/",
-  "sharedIdentity": "",
+  "sharedIdentity": "highnet",
   "staleClaimHours": 3,
   "stalePullRequestHours": 24,
   "maxOpenPullRequests": 15,

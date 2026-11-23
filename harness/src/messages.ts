@@ -14,6 +14,7 @@ const KINDS: MessageKind[] = [
   "proposal",
   "answer",
   "handoff",
+  "retro",
 ];
 
 /** Post to the agent message board as a seat. */

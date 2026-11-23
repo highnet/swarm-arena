@@ -25,11 +25,17 @@ export type RunResult = { code: number; stdout: string; stderr: string };
 export const run = (
   cmd: string,
   args: string[],
-  opts: { cwd?: string; input?: string; timeoutMs?: number } = {},
+  opts: {
+    cwd?: string;
+    input?: string;
+    timeoutMs?: number;
+    env?: NodeJS.ProcessEnv;
+  } = {},
 ) =>
   new Promise<RunResult>((done) => {
     const child = spawn(cmd, args, {
       cwd: opts.cwd,
+      env: opts.env ?? process.env,
       stdio: ["pipe", "pipe", "pipe"],
     });
     let stdout = "";

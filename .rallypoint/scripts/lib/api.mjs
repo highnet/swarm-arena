@@ -210,8 +210,10 @@ export const createTransport = ({ request, repository }) => {
 
   /** @param {string} assignee `@me`, which is the only form any caller uses. */
   const resolveAssignee = (assignee, /** @type {string[]} */ args) => {
-    if (assignee !== "@me") throw new UnsupportedCommand(args);
-    return authenticatedLogin();
+    if (assignee === "@me") return authenticatedLogin();
+    // An explicit login (the shared identity a release clears) is passed through as is.
+    if (/^[A-Za-z0-9-]+$/.test(assignee)) return assignee;
+    throw new UnsupportedCommand(args);
   };
 
   return (...args) => {
@@ -284,12 +286,19 @@ export const createTransport = ({ request, repository }) => {
 
       // Comments are a separate resource, so only fetch them when asked.
       if (requested.includes("comments")) {
-        available.comments = /** @type {unknown[]} */ (
+        available.comments = /** @type {Record<string, any>[]} */ (
           sendPaginated({
             method: "GET",
             path: `${base}/issues/${rest[0]}/comments?per_page=100`,
           }).flat()
-        );
+        ).map((c) => ({
+          // gh's shape, which the scripts read, alongside the REST fields.
+          ...c,
+          author: c.user ? { login: c.user.login } : null,
+          createdAt: c.created_at,
+          updatedAt: c.updated_at,
+          url: c.html_url,
+        }));
       }
 
       return JSON.stringify(pick(available, value(args, "--json"), args));
@@ -630,6 +639,9 @@ const issueFields = (issue) => ({
   labels: issue.labels,
   assignees: issue.assignees,
   state: String(issue.state ?? "").toUpperCase(),
+  createdAt: issue.created_at,
+  updatedAt: issue.updated_at,
+  url: issue.html_url,
 });
 
 export default createTransport;

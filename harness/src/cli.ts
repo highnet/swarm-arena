@@ -2,13 +2,27 @@
 import { existsSync, readFileSync } from "node:fs";
 import bcrypt from "bcryptjs";
 import { resolve } from "node:path";
-import { performanceElo, playMatch, GAMES, type GameId } from "@arena/shared";
-import { ensureRun, records, rungs, tasks, tracks } from "./board";
+import {
+  performanceElo,
+  playMatch,
+  GAMES,
+  type GameId,
+  type Task,
+} from "@arena/shared";
+import { ensureRun, setAgent, records, rungs, tasks, tracks } from "./board";
 import { ARENA_HOME, ENGINES_DIR, log, MOVE_MS, run, RUN_ID } from "./config";
 import { arenaEngine } from "./engine";
 import { reference } from "./references";
 import { formatMessages, postMessage, readMessages } from "./messages";
-import { claimNext, currentVersion, prepare, release, submit } from "./seat";
+import {
+  currentVersion,
+  land,
+  prepare,
+  progress,
+  release,
+  submit,
+} from "./seat";
+import { merge, metrics, next, retro, verdict } from "./orchestrator";
 import { buildWasm } from "./wasm";
 import { getStore } from "./store";
 import { applyPlan, brief } from "./strategist";
@@ -17,8 +31,15 @@ const USAGE = `arena <command>
 
 Agent sessions (run inside a Claude Code session on this repo):
   prepare                       reference engines, warm builds, cached main binaries (seconds when warm)
-  next [track]                  claim the next task and print its briefing
-  submit <task-id>              build, smoke test, gate match; ship to main or bury
+  next [track]                  take this session's Rallypoint role (merger, fixer, reviewer, improver,
+                                worker or planner) and print its brief; a worker claims an issue
+  verdict <pr> approve|request-changes "<note>"
+                                reviewer: record one verdict through review.mjs
+  merge <pr>                    merger: merge an approved PR and land its arena task
+  land <task-id>                apply a merged task's measured result (merge does this)
+  retro "<text>" --as <seat>    at the end of a session: what slowed you down, what should change
+  metrics                       the protocol's own numbers: ship rate, time to close, burial reasons
+  submit <task-id>              build, smoke test, gate match; open the PR, or bury with a lesson PR
   release <task-id>             put a claimed task back on the board
   progress <task-id> "<text>" [--detail "<more>"]
                                 log a step on your task; it shows live on the task's page
@@ -97,23 +118,74 @@ const main = async () => {
         log(`${r.kind.padEnd(14)} ${r.title}`);
       return;
     }
+    case "progress": {
+      const [taskId, text] = args;
+      if (!taskId || !text)
+        throw new Error(
+          'usage: progress <task-id> "<text>" [--detail "<more>"]',
+        );
+      const [task] = await getStore().select<Task>("tasks", {
+        id: taskId,
+        run_id: RUN_ID,
+      });
+      if (!task) throw new Error(`no task ${taskId}`);
+      const i = args.indexOf("--detail");
+      await progress(
+        task,
+        task.claimed_by ?? "referee",
+        text.slice(0, 200),
+        i > 0 ? (args[i + 1]?.slice(0, 600) ?? null) : null,
+      );
+      if (task.claimed_by)
+        await setAgent(task.claimed_by, { activity: text.slice(0, 120) });
+      log(`progress on ${taskId}: ${text}`);
+      return;
+    }
     case "prepare": {
       if (!(await prepare())) process.exitCode = 1;
       break;
     }
     case "next": {
-      const text = await claimNext(args[0]);
-      console.log(
-        text ??
-          "No open task. Ask the strategist for more work: npm run arena -- brief",
-      );
+      console.log(await next(args[0]));
+      return;
+    }
+    case "verdict": {
+      const [pr, decision, ...note] = args;
+      if (!pr || !decision || !note.length)
+        throw new Error('usage: verdict <pr> approve|request-changes "<note>"');
+      await verdict(Number(pr), decision, note.join(" "));
+      return;
+    }
+    case "merge": {
+      if (!args[0]) throw new Error("usage: merge <pr>");
+      await merge(Number(args[0]));
+      return;
+    }
+    case "land": {
+      if (!args[0]) throw new Error("usage: land <task-id>");
+      await land(args[0]);
+      return;
+    }
+    case "retro": {
+      const as = args.indexOf("--as");
+      const seat = as >= 0 ? args[as + 1] : undefined;
+      const body = args.filter((_, i) => i !== as && i !== as + 1).join(" ");
+      if (!seat || !body)
+        throw new Error(
+          'usage: retro "<what slowed you down or should change>" --as <seat>',
+        );
+      await retro(seat, body);
+      return;
+    }
+    case "metrics": {
+      console.log(await metrics());
       return;
     }
     case "submit": {
       const result = await submit(args[0]);
       console.log(
-        result.shipped
-          ? `Shipped ${result.version}, rated ${result.elo}.`
+        "review" in result
+          ? `Passed: ${result.version} rated ${result.elo}. Pull request #${result.review} waits for an independent reviewer.`
           : `Buried: ${result.why}`,
       );
       return;

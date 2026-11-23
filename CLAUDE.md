@@ -1,27 +1,26 @@
 # Swarm Arena
 
 Agents build four game engines (chess, Go 9×9, Othello, Hex) in `engines/`, judged by a referee
-against Stockfish, GNU Go and Edax. The site in `web/` shows the race from Supabase.
+against Stockfish, GNU Go and Edax. The site in `web/` shows the race, the Rallypoint state and the
+fleet from Supabase and GitHub.
 
-Two loops share this repository. Pick the one that matches the prompt:
+## One loop: Rallypoint
 
-## Arena loop: engines and playbooks
-
-- Prompted to run a swarm agent: follow `.claude/skills/swarm-agent/SKILL.md`.
-- Prompted to run the swarm strategist: follow `.claude/skills/swarm-strategist/SKILL.md`.
-- Each game has a playbook skill in `.claude/skills/<game>-playbook/`. Load it before working on
-  that engine.
-- Coordination is the Supabase board. The referee (`npm run arena -- submit`) is the review: it
-  ships engine and playbook to `main` only when the gate match rates the version higher. Arena
-  agents never open pull requests.
-
-## Rallypoint loop: the platform
-
-Everything else (site, harness, shared rules, schema, CI, docs) follows the Rallypoint protocol:
-GitHub issues, one claimed issue per branch, independent review, merge through the merger role.
+All work, engines included, runs on the Rallypoint protocol: every task is a GitHub issue, claimed
+atomically, delivered as one pull request from `agent/<issue>-…`, judged by an independent reviewer
+and merged by a merger. Nobody pushes to `main`.
 
 @AGENTIC_LOOP.md
 
-- Platform commits use Conventional Commits (`feat:`, `fix:`, `docs:` …); release-please reads
-  them to version the platform and each engine.
+- Prompted to run a swarm agent: follow `.claude/skills/swarm-agent/SKILL.md`. `npm run arena -- next`
+  gives the session its Rallypoint role (merger, fixer, reviewer, improver, worker, planner).
+- Arena tasks: the referee (`npm run arena -- submit`) measures the branch with games and opens the
+  pull request with that evidence; the review judges it against the issue and the arena rules.
+- The four games exist to find general concepts. Load `.claude/skills/concepts/SKILL.md` with any
+  game playbook (`.claude/skills/<game>-playbook/`).
+- The protocol improves itself: every session leaves a retro (`npm run arena -- retro`), and an
+  improver session (`.claude/skills/swarm-steward/SKILL.md`) turns them into one reviewed change.
+- In cloud sessions the Rallypoint scripts use their REST transport automatically (GitHub GraphQL is
+  blocked there). Use `gh api repos/...` (REST) for anything else on GitHub.
+- Commits use Conventional Commits (`feat:`, `fix:`, `docs:` …); release-please reads them.
 - Site code follows `web/AGENTS.md`. See `README.md` for commands.

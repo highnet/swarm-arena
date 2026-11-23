@@ -80,11 +80,116 @@ const useRest = () =>
 /** @type {((...args: string[]) => string) | null} */
 let restTransport = null;
 
+/**
+ * The session proxy refuses writes to GitHub's git-data API (`git/refs`, `git/commits`), but
+ * `git push` works. Every such write Rallypoint makes is emulated with plain git, keeping its
+ * semantics: creating a ref still fails when it already exists (`--force-with-lease=<ref>:`
+ * expects it absent), which is the atomicity a claim or a lease rests on.
+ *
+ * @param {string[]} args
+ * @returns {string | null} the gh-shaped output, or null when this is not such a write.
+ */
+const gitDataWrite = (args) => {
+  if (args[0] !== "api") return null;
+  const method = (args[args.indexOf("--method") + 1] ?? "GET").toUpperCase();
+  if (method === "GET" || !args.includes("--method")) return null;
+  const path = args.find((a, i) => i > 0 && /^\/?repos\//.test(a));
+  const m = path && /repos\/[^/]+\/[^/]+\/git\/(refs|commits)(?:\/(.+))?$/.exec(path);
+  if (!m) return null;
+  /** @type {Record<string, string[]>} */
+  const f = {};
+  args.forEach((a, i) => {
+    if ((a === "-f" || a === "-F") && args[i + 1]) {
+      const at = args[i + 1].indexOf("=");
+      const k = args[i + 1].slice(0, at).replace(/\[\]$/, "");
+      (f[k] ??= []).push(args[i + 1].slice(at + 1));
+    }
+  });
+  const run = (...g) => execFileSync("git", g, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  const have = (sha) => {
+    try {
+      run("cat-file", "-e", `${sha}^{commit}`);
+    } catch {
+      run("fetch", "--quiet", "origin", sha);
+    }
+  };
+  const [, kind, rest] = m;
+  if (kind === "commits" && method === "POST") {
+    for (const parent of f.parents ?? []) have(parent);
+    const parents = (f.parents ?? []).flatMap((p) => ["-p", p]);
+    const sha = run("commit-tree", f.tree[0], ...parents, "-m", f.message?.[0] ?? "");
+    return JSON.stringify({ sha });
+  }
+  const remoteSha = (ref) => run("ls-remote", "origin", ref).split(/\s+/)[0] || "";
+  const releasedMark = "rallypoint: released";
+  const isReleased = (sha) => {
+    have(sha);
+    return run("log", "-1", "--format=%s", sha).startsWith(releasedMark);
+  };
+  if (kind === "refs" && method === "POST") {
+    const ref = f.ref[0];
+    have(f.sha[0]);
+    // Atomic create, as compare-and-swap: the ref must be absent, or hold a released marker
+    // (sessions cannot delete refs). Each reservation is its own commit, so a second claimant's
+    // push is refused by the lease instead of passing as a no-op.
+    const current = remoteSha(ref);
+    if (current && !isReleased(current)) throw new Error(`HTTP 422: Reference already exists: ${ref}`);
+    const tree = run("rev-parse", `${f.sha[0]}^{tree}`);
+    const unique = run("commit-tree", tree, "-p", f.sha[0], "-m", `rallypoint: reserve ${ref} at ${new Date().toISOString()} ${process.pid}`);
+    run("push", "--quiet", `--force-with-lease=${ref}:${current}`, "origin", `${unique}:${ref}`);
+    return JSON.stringify({ ref, object: { sha: unique } });
+  }
+  if (kind === "refs" && method === "PATCH") {
+    const ref = `refs/${rest}`;
+    have(f.sha[0]);
+    run("push", "--quiet", "--force", "origin", `${f.sha[0]}:${ref}`);
+    return JSON.stringify({ ref, object: { sha: f.sha[0] } });
+  }
+  if (kind === "refs" && method === "DELETE") {
+    // Sessions may not delete branches. A coordination ref is released instead: it moves to a
+    // marker commit that every read treats as absent and the next claim may take over. The
+    // rallypoint-refs workflow deletes released refs and merged agent branches for good.
+    const ref = `refs/${rest}`;
+    const current = remoteSha(ref);
+    if (!current || isReleased(current)) throw new Error(`HTTP 422: Reference does not exist: ${ref}`);
+    if (!/^refs\/heads\/rallypoint-/.test(ref)) return ""; // agent branches: the workflow deletes them on merge
+    const tree = run("rev-parse", `${current}^{tree}`);
+    const mark = run("commit-tree", tree, "-p", current, "-m", `${releasedMark} ${ref} at ${new Date().toISOString()}`);
+    run("push", "--quiet", `--force-with-lease=${ref}:${current}`, "origin", `${mark}:${ref}`);
+    return "";
+  }
+  return null;
+};
+
+/** Released coordination refs read as absent, exactly as deleted ones would. */
+const releasedCache = new Map();
+const hideReleased = (args, out) => {
+  const path = args.find((a, i) => i > 0 && /^\/?repos\//.test(a)) ?? "";
+  const listing = /\/git\/matching-refs\/heads\/rallypoint-/.test(path);
+  const single = /\/git\/ref\/heads\/rallypoint-/.test(path);
+  if (!listing && !single) return out;
+  const released = (sha) => {
+    if (!releasedCache.has(sha)) {
+      const repo = /repos\/([^/]+\/[^/]+)\//.exec(path)?.[1];
+      const commit = JSON.parse(restTransport("api", `repos/${repo}/git/commits/${sha}`));
+      releasedCache.set(sha, String(commit.message ?? "").startsWith("rallypoint: released"));
+    }
+    return releasedCache.get(sha);
+  };
+  const parsed = JSON.parse(out || "null");
+  if (listing && Array.isArray(parsed)) return JSON.stringify(parsed.filter((r) => !released(r.object.sha)));
+  if (single && parsed?.object?.sha && released(parsed.object.sha)) throw new Error("HTTP 404: Not Found");
+  return out;
+};
+
 export const gh = (...args) => {
   if (useRest()) {
     if (args[0] === "--version") return "gh (rallypoint REST transport)";
+    const emulated = gitDataWrite(args);
+    if (emulated !== null) return emulated;
     restTransport ??= restOnly();
-    return restTransport(...args);
+    const out = restTransport(...args);
+    return args[0] === "api" ? hideReleased(args, out) : out;
   }
   ensureGh();
 
@@ -132,7 +237,7 @@ const hasGh = () => {
  * @returns {(...args: string[]) => string}
  */
 export const resolveTransport = ({ remote } = {}) => {
-  if (useRest()) return restOnly({ remote });
+  if (useRest()) return gh;
   if (hasGh()) return gh;
   return restOnly({ remote });
 };
