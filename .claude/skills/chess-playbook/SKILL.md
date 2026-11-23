@@ -41,8 +41,21 @@ Negamax alpha-beta with iterative deepening (`engines/chess/src/main.rs`):
 - `negamax`: mate scored `-(MATE - ply)` so shorter mates win; stalemate, fifty moves, dead
   material and any repetition (game history or search path) score as a draw with contempt 50
   against the root side (it plays weaker opponents, so draws are thrown-away points).
-- Ordering: the transposition-table move first (root: the previous iteration's best, or the
-  stored move from the previous `go`), then MVV-LVA captures, promotions, quiets. No killers yet.
+- Ordering (`order_key` + `Ordering`, task #87): the transposition-table move first (root: the
+  previous iteration's best, or the stored move from the previous `go`), then MVV-LVA captures,
+  promotions, then two killer slots per ply (quiet moves that caused a beta cut-off at that ply),
+  then the remaining quiets by a history score `history[side][from][to]`, which grows by
+  depth² on every quiet beta cut-off and is halved for all entries once one passes 300k (so it
+  never climbs into the killer keys 400k/399k). Killers and history are fresh at each `go`
+  (kept across that go's iterations). The root's own order is unchanged (TT/previous best,
+  then `order_key`); quiescence ordering is unchanged (MVV-LVA only).
+  Measured (`order_report`, fixed depth, TT on both sides, 8 TT FENs): same move and score 8/8
+  at d4, d5, d6; nodes −29% at d4, −33% at d5, −43% at d6 (2.62M → 1.50M). The saving grows
+  with depth, as killers and history need cut-offs to learn from. `go 200` (120/60 ms): start
+  depth 6 both ways, Italian depth 5 → 6, Kiwipete depth 5 both (−21% nodes to get there).
+  Node rate is unchanged within noise (cached-key sort, 32 KB history per `go`). A fixed-depth
+  (d5) 80-ply self-play game is move-for-move identical with ordering on and off, with 32% fewer
+  nodes: ordering changes cost, never the minimax result.
 - Transposition table (`Tt`, task #63): 2^20 × 16 B = 16 MB, one slot per index, full 64-bit
   Zobrist key stored to reject collisions. Entry: key, score, compact move (from/to/promotion,
   top bit set so 0 = none), depth, generation (6 bits) + bound (exact/lower/upper). A
@@ -94,7 +107,15 @@ Negamax alpha-beta with iterative deepening (`engines/chess/src/main.rs`):
   which is most of the remaining qnode waste; checks in the first quiescence ply.
 - The 30%/60% time split is conservative; with the TT, re-searches are cheaper and the soft limit
   could rise (each new depth costs ~2.5–3× the previous with the table, ~6–7× without).
-- Killer moves, history heuristic, null-move pruning (guard pawn-only endgames), late move reductions.
+- Null-move pruning (guard pawn-only endgames), late move reductions, PVS: killers + history
+  (#87) now put the likely cut move first, which is what LMR and PVS rely on to be safe.
+- Counter-move table (quiet reply to the opponent's last move) and history-gravity updates
+  (penalise quiets that were searched before the cut move) are the natural next ordering steps.
+- Opening variety for local testing: `arena versus` plays deterministic engines from the start
+  position, so 20 games are a few repeated lines. In #87, main vs main went +3 −3 =2 with Black
+  winning nearly every game, and the candidate (which reaches depth 6 at the start and opens
+  e2e4 where main opens d2d4 at depth 5) went +2 −16 =2 and +1 −16 =3 while playing identical
+  moves at fixed depth. A local verdict needs randomised opening plies before it means anything.
 - Evaluation: material, piece-square tables with a middlegame/endgame taper, mobility, passed pawns,
   king safety. Tune weights by playing, not by hand-waving.
 
