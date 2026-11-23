@@ -5,6 +5,7 @@
 use shakmaty::uci::UciMove;
 use shakmaty::zobrist::Zobrist64;
 use shakmaty::{Chess, Color, EnPassantMode, Move, Position, Role};
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::io::{self, BufRead, Write};
 use std::time::{Duration, Instant};
@@ -54,6 +55,128 @@ const DELTA_MARGIN: i32 = 200;
 const ENDGAME_PHASE: i32 = 6;
 /// Plies of quiescence beyond which a node is scored statically (guards check-evasion chains).
 const MAX_QPLY: i32 = 32;
+
+/// Transposition-table size: 2^20 entries of 16 bytes = 16 MB.
+const TT_BITS: u32 = 20;
+const EXACT: u8 = 0;
+const LOWER: u8 = 1;
+const UPPER: u8 = 2;
+
+/// One table slot (16 bytes). `meta` packs the generation (high 6 bits) and the bound (low 2).
+#[derive(Clone, Copy, Default)]
+struct Entry {
+    key: u64,
+    score: i32,
+    mv: u16,
+    depth: u8,
+    meta: u8,
+}
+
+impl Entry {
+    fn bound(&self) -> u8 {
+        self.meta & 3
+    }
+    fn generation(&self) -> u8 {
+        self.meta >> 2
+    }
+}
+
+/// Fixed-size, always-indexed table keyed by the full Zobrist key (the stored key rejects index
+/// collisions). It lives across `go` calls within a game: each search bumps the generation, a
+/// slot from an older generation is always replaced, and within a generation the deeper result
+/// stays.
+struct Tt {
+    entries: Vec<Entry>,
+    mask: usize,
+    generation: u8,
+    /// The side the engine searched for last; draw scores carry contempt against it, so a change of
+    /// side clears the table.
+    root_turn: Option<Color>,
+}
+
+impl Tt {
+    fn new(bits: u32) -> Tt {
+        Tt { entries: vec![Entry::default(); 1 << bits], mask: (1 << bits) - 1, generation: 0, root_turn: None }
+    }
+
+    fn clear(&mut self) {
+        self.entries.iter_mut().for_each(|e| *e = Entry::default());
+        self.generation = 0;
+        self.root_turn = None;
+    }
+
+    fn new_search(&mut self, turn: Color) {
+        if self.root_turn != Some(turn) {
+            self.clear();
+            self.root_turn = Some(turn);
+        }
+        self.generation = (self.generation + 1) & 63;
+    }
+
+    fn probe(&self, key: u64) -> Option<Entry> {
+        let e = self.entries[key as usize & self.mask];
+        // An empty slot has key 0; a real position hashing to exactly 0 is not worth a flag bit.
+        (e.key == key && key != 0).then_some(e)
+    }
+
+    fn store(&mut self, key: u64, depth: u32, ply: i32, score: i32, bound: u8, mv: Option<Move>) {
+        let slot = &mut self.entries[key as usize & self.mask];
+        if slot.generation() == self.generation && depth < slot.depth as u32 {
+            return;
+        }
+        *slot = Entry {
+            key,
+            score: to_tt(score, ply),
+            mv: mv.map_or(0, |m| encode(&m)),
+            depth: depth.min(255) as u8,
+            meta: (self.generation << 2) | bound,
+        };
+    }
+}
+
+thread_local! {
+    /// The game's table, kept between `go` calls and cleared by `game`.
+    static TT: RefCell<Tt> = RefCell::new(Tt::new(TT_BITS));
+}
+
+/// Mate scores are stored relative to the node (distance from it), not the root, so a mate found
+/// through a transposition at another ply still reports its true distance.
+fn to_tt(score: i32, ply: i32) -> i32 {
+    if score > MATE_BOUND {
+        score + ply
+    } else if score < -MATE_BOUND {
+        score - ply
+    } else {
+        score
+    }
+}
+
+fn from_tt(score: i32, ply: i32) -> i32 {
+    if score > MATE_BOUND {
+        score - ply
+    } else if score < -MATE_BOUND {
+        score + ply
+    } else {
+        score
+    }
+}
+
+/// Compact move: from (6 bits), to (6 bits), promotion role (3 bits), and a set top bit so a
+/// stored move is never 0.
+fn encode(m: &Move) -> u16 {
+    let from = m.from().map_or(0, |s| s as u16);
+    let to = m.to() as u16;
+    let promo = m.promotion().map_or(0, |r| r as u16);
+    0x8000 | from | (to << 6) | (promo << 12)
+}
+
+/// The legal move matching a stored code, if any: this both decodes and validates it.
+fn decode(code: u16, moves: &[Move]) -> Option<Move> {
+    if code == 0 {
+        return None;
+    }
+    moves.iter().find(|m| encode(m) == code).copied()
+}
 
 /// Game phase from the pieces on the board, 0 (pawn endgame) to 24 (all pieces).
 fn phase(pos: &Chess) -> i32 {
@@ -154,6 +277,11 @@ fn order_key(m: &Move, best: Option<Move>) -> i32 {
 
 struct Search<'a> {
     seen: &'a HashSet<u64>,
+    tt: &'a mut Tt,
+    use_tt: bool,
+    /// Probes that found this position's entry, and those that cut the node off.
+    tt_hits: u64,
+    tt_cuts: u64,
     path: Vec<u64>,
     root_turn: Color,
     deadline: Instant,
@@ -200,9 +328,32 @@ impl Search<'_> {
         if depth == 0 {
             return self.quiesce(pos, ply, 0, alpha, beta);
         }
-        moves.sort_unstable_by_key(|m| -order_key(m, None));
+        // The repetition, fifty-move and mate checks above run before the probe, so a stored
+        // score never hides a path-dependent draw at this node.
+        let mut tt_move = None;
+        if self.use_tt {
+            if let Some(e) = self.tt.probe(h) {
+                self.tt_hits += 1;
+                tt_move = decode(e.mv, &moves);
+                if e.depth as u32 >= depth {
+                    let s = from_tt(e.score, ply);
+                    let cut = match e.bound() {
+                        EXACT => true,
+                        LOWER => s >= beta,
+                        _ => s <= alpha,
+                    };
+                    if cut {
+                        self.tt_cuts += 1;
+                        return s;
+                    }
+                }
+            }
+        }
+        let alpha0 = alpha;
+        moves.sort_unstable_by_key(|m| -order_key(m, tt_move));
         self.path.push(h);
         let mut best = -INF;
+        let mut best_move = None;
         for m in &moves {
             let mut child = pos.clone();
             child.play_unchecked(*m);
@@ -212,6 +363,7 @@ impl Search<'_> {
             }
             if s > best {
                 best = s;
+                best_move = Some(*m);
                 if s > alpha {
                     alpha = s;
                     if alpha >= beta {
@@ -221,6 +373,16 @@ impl Search<'_> {
             }
         }
         self.path.pop();
+        if self.use_tt && !self.stopped {
+            let bound = if best <= alpha0 {
+                UPPER
+            } else if best >= beta {
+                LOWER
+            } else {
+                EXACT
+            };
+            self.tt.store(h, depth, ply, best, bound, best_move);
+        }
         best
     }
 
@@ -322,6 +484,8 @@ struct Outcome {
     depth: u32,
     nodes: u64,
     qnodes: u64,
+    tt_hits: u64,
+    tt_cuts: u64,
 }
 
 /// Iterative deepening: depth 1, 2, 3, ... until the clock says stop. Always returns the best move
@@ -330,28 +494,49 @@ struct Outcome {
 fn search(pos: &Chess, seen: &HashSet<u64>, budget_ms: u64) -> Option<Outcome> {
     let hard = Duration::from_millis(budget_ms * 6 / 10);
     let soft = Duration::from_millis(budget_ms * 3 / 10);
-    run(pos, seen, hard, soft, MAX_DEPTH)
+    TT.with(|tt| run(pos, seen, hard, soft, MAX_DEPTH, &mut tt.borrow_mut(), true))
 }
 
-/// Fixed-depth search with no clock: deterministic, for tests and measurement.
+/// Fixed-depth search with no clock and a fresh table: deterministic, for tests and measurement.
 #[cfg(test)]
 fn search_depth(pos: &Chess, seen: &HashSet<u64>, depth: u32) -> Option<Outcome> {
+    search_depth_with(pos, seen, depth, &mut Tt::new(16), true)
+}
+
+/// Fixed-depth search on a given table, with the table on or off.
+#[cfg(test)]
+fn search_depth_with(pos: &Chess, seen: &HashSet<u64>, depth: u32, tt: &mut Tt, use_tt: bool) -> Option<Outcome> {
     let day = Duration::from_secs(86_400);
-    run(pos, seen, day, day, depth)
+    run(pos, seen, day, day, depth, tt, use_tt)
 }
 
 /// Iterative deepening up to `max_depth`, stopping at `hard` and not starting a depth after `soft`.
-fn run(pos: &Chess, seen: &HashSet<u64>, hard: Duration, soft: Duration, max_depth: u32) -> Option<Outcome> {
+fn run(
+    pos: &Chess,
+    seen: &HashSet<u64>,
+    hard: Duration,
+    soft: Duration,
+    max_depth: u32,
+    tt: &mut Tt,
+    use_tt: bool,
+) -> Option<Outcome> {
     let start = Instant::now();
     let mut moves: Vec<Move> = pos.legal_moves().into_iter().collect();
-    moves.sort_by_key(|m| -order_key(m, None));
+    tt.new_search(pos.turn());
+    // The root is never cut off; its stored move (from the previous `go`) only orders.
+    let tt_move = if use_tt { tt.probe(hash(pos)).and_then(|e| decode(e.mv, &moves)) } else { None };
+    moves.sort_by_key(|m| -order_key(m, tt_move));
     let first = *moves.first()?;
-    let mut out = Outcome { best: first, score: 0, depth: 0, nodes: 0, qnodes: 0 };
+    let mut out = Outcome { best: first, score: 0, depth: 0, nodes: 0, qnodes: 0, tt_hits: 0, tt_cuts: 0 };
     if moves.len() == 1 {
         return Some(out);
     }
     let mut s = Search {
         seen,
+        tt,
+        use_tt,
+        tt_hits: 0,
+        tt_cuts: 0,
         path: Vec::with_capacity(MAX_DEPTH as usize + 1),
         root_turn: pos.turn(),
         deadline: start + hard,
@@ -361,7 +546,10 @@ fn run(pos: &Chess, seen: &HashSet<u64>, hard: Duration, soft: Duration, max_dep
     };
     for depth in 1..=max_depth {
         let Some((m, score)) = s.root(pos, &moves, depth) else { break };
-        out = Outcome { best: m, score, depth, nodes: s.nodes, qnodes: s.qnodes };
+        out = Outcome { best: m, score, depth, ..out };
+        if use_tt {
+            s.tt.store(hash(pos), depth, 0, score, EXACT, Some(m));
+        }
         // Best move first for the next iteration.
         if let Some(i) = moves.iter().position(|x| *x == m) {
             moves[..=i].rotate_right(1);
@@ -372,6 +560,8 @@ fn run(pos: &Chess, seen: &HashSet<u64>, hard: Duration, soft: Duration, max_dep
     }
     out.nodes = s.nodes;
     out.qnodes = s.qnodes;
+    out.tt_hits = s.tt_hits;
+    out.tt_cuts = s.tt_cuts;
     Some(out)
 }
 
@@ -387,7 +577,10 @@ fn choose(moves: &[String], budget_ms: u64) -> Option<String> {
 fn handle(line: &str, moves: &mut Vec<String>) -> (Option<String>, bool) {
     let mut parts = line.split_whitespace();
     match parts.next() {
-        Some("game") => (Some("ready".into()), false),
+        Some("game") => {
+            TT.with(|tt| tt.borrow_mut().clear());
+            (Some("ready".into()), false)
+        }
         Some("position") => {
             *moves = parts.map(String::from).collect();
             (None, false)
@@ -396,11 +589,13 @@ fn handle(line: &str, moves: &mut Vec<String>) -> (Option<String>, bool) {
             let budget = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1000);
             let reply = match replay(moves).and_then(|(pos, seen)| search(&pos, &seen, budget)) {
                 Some(o) => format!(
-                    "info depth {} score {} nodes {} qnodes {}\nbestmove {}",
+                    "info depth {} score {} nodes {} qnodes {} tthits {} ttcuts {}\nbestmove {}",
                     o.depth,
                     o.score,
                     o.nodes,
                     o.qnodes,
+                    o.tt_hits,
+                    o.tt_cuts,
                     UciMove::from_standard(o.best)
                 ),
                 None => "bestmove 0000".into(),
@@ -615,8 +810,13 @@ mod tests {
         assert_eq!(out.score, MATE - 1);
         // A quiet-looking leaf where the side to move is mated: qsearch in check finds no evasion.
         let mated = from_fen("7k/6Q1/6K1/8/8/8/8/8 b - - 0 1");
+        let mut tt = Tt::new(4);
         let mut s = Search {
             seen: &HashSet::new(),
+            tt: &mut tt,
+            use_tt: false,
+            tt_hits: 0,
+            tt_cuts: 0,
             path: Vec::new(),
             root_turn: Color::White,
             deadline: Instant::now() + Duration::from_secs(86_400),
@@ -634,6 +834,7 @@ mod tests {
         let reply = handle("go 100", &mut mv).0.unwrap();
         let info = reply.lines().next().unwrap();
         assert!(info.starts_with("info depth ") && info.contains(" qnodes "), "{info}");
+        assert!(info.contains(" tthits ") && info.contains(" ttcuts "), "{info}");
     }
 
     #[test]
@@ -650,4 +851,113 @@ mod tests {
             hist.push(m);
         }
     }
+
+    /// Positions for the TT-on/off comparison: opening, open and closed middlegames, a tactical
+    /// melee, endgames with pawns and a rook ending.
+    const TT_FENS: [&str; 8] = [
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQ1RK1 b kq - 5 4",
+        "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+        "r1bq1rk1/pp2bppp/2n1pn2/3p4/2PP4/2N1PN2/PP3PPP/R2QKB1R w KQ - 0 8",
+        "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
+        "8/8/4k3/3p4/3P4/4K3/8/8 w - - 0 1",
+        "6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1",
+        "2r3k1/pp3ppp/4p3/3pP3/3P4/P4N2/1P3PPP/2R3K1 w - - 0 1",
+    ];
+
+    #[test]
+    fn tt_keeps_move_and_score_with_fewer_nodes() {
+        // Same fixed depth, table off vs on: the move and score must match and the table must
+        // save nodes overall.
+        let (mut off_nodes, mut on_nodes, mut cuts) = (0u64, 0u64, 0u64);
+        for fen in TT_FENS {
+            let pos = from_fen(fen);
+            let off = search_depth_with(&pos, &HashSet::new(), 4, &mut Tt::new(4), false).unwrap();
+            let on = search_depth_with(&pos, &HashSet::new(), 4, &mut Tt::new(18), true).unwrap();
+            assert_eq!((off.best, off.score), (on.best, on.score), "{fen}");
+            assert!(on.nodes <= off.nodes, "{fen}: {} vs {}", on.nodes, off.nodes);
+            cuts += on.tt_cuts;
+            off_nodes += off.nodes;
+            on_nodes += on.nodes;
+        }
+        assert!(cuts > 0);
+        assert!(on_nodes * 10 < off_nodes * 7, "{on_nodes} vs {off_nodes}");
+    }
+
+    #[test]
+    fn mate_through_the_table_keeps_its_distance() {
+        // Mate scores are stored node-relative and read back root-relative.
+        let mut tt = Tt::new(8);
+        tt.new_search(Color::White);
+        tt.store(42, 3, 5, MATE - 7, EXACT, None); // mate 2 plies below a node at ply 5
+        assert_eq!(from_tt(tt.probe(42).unwrap().score, 1), MATE - 3);
+        tt.store(43, 3, 4, -(MATE - 6), EXACT, None);
+        assert_eq!(from_tt(tt.probe(43).unwrap().score, 2), -(MATE - 4));
+
+        // In a real search: this rook ladder is mate in three (MATE - 5). After white's first
+        // move and black's best defence, the table already holds the positions below as mates
+        // found from ply 2; a new search rooted there on the same table (same side to move, so
+        // the table is kept) must cut them off and still report mate in two (MATE - 3), exactly
+        // as a fresh table does.
+        let pos = from_fen("8/8/7k/8/8/8/1R6/R1K5 w - - 0 1");
+        let mut tt = Tt::new(16);
+        let out = search_depth_with(&pos, &HashSet::new(), 6, &mut tt, true).unwrap();
+        assert_eq!(out.score, MATE - 5);
+        let mut after = pos.clone();
+        after.play_unchecked(out.best);
+        let defence = search_depth(&after, &HashSet::new(), 5).unwrap();
+        assert_eq!(defence.score, -(MATE - 4));
+        after.play_unchecked(defence.best);
+        let reused = search_depth_with(&after, &HashSet::new(), 4, &mut tt, true).unwrap();
+        let fresh = search_depth(&after, &HashSet::new(), 4).unwrap();
+        assert!(reused.tt_cuts > 0);
+        assert_eq!(reused.score, MATE - 3);
+        assert_eq!(fresh.score, MATE - 3);
+    }
+
+    #[test]
+    fn stored_moves_are_checked_for_legality() {
+        // A code that matches no legal move decodes to nothing; a legal one round-trips,
+        // promotions and castling included.
+        let pos = from_fen("r3k2r/1P6/8/8/8/8/8/R3K2R w KQkq - 0 1");
+        let moves: Vec<Move> = pos.legal_moves().into_iter().collect();
+        for m in &moves {
+            assert_eq!(decode(encode(m), &moves), Some(*m));
+        }
+        assert_eq!(decode(0, &moves), None);
+        let other = from_fen("4k3/8/8/8/8/8/8/4K3 w - - 0 1");
+        let few: Vec<Move> = other.legal_moves().into_iter().collect();
+        let promo = moves.iter().find(|m| m.promotion().is_some()).unwrap();
+        assert_eq!(decode(encode(promo), &few), None);
+    }
+
+    #[test]
+    #[ignore = "measurement: cargo test --release -p chess-engine tt_report -- --ignored --nocapture"]
+    fn tt_report() {
+        for depth in [3u32, 4, 5] {
+            let (mut off_n, mut on_n, mut same) = (0u64, 0u64, 0);
+            for fen in TT_FENS {
+                let pos = from_fen(fen);
+                let off = search_depth_with(&pos, &HashSet::new(), depth, &mut Tt::new(4), false).unwrap();
+                let on = search_depth_with(&pos, &HashSet::new(), depth, &mut Tt::new(TT_BITS), true).unwrap();
+                if (off.best, off.score) == (on.best, on.score) {
+                    same += 1;
+                } else {
+                    println!("  d{depth} differs {fen}: off {:?} {} on {:?} {}", off.best, off.score, on.best, on.score);
+                }
+                off_n += off.nodes;
+                on_n += on.nodes;
+            }
+            println!("depth {depth}: nodes off {off_n} on {on_n} ({:+.1}%), same {same}/8", 100.0 * (on_n as f64 / off_n as f64 - 1.0));
+        }
+        for (name, fen) in [("start", TT_FENS[0]), ("middlegame", TT_FENS[2]), ("italian", TT_FENS[1])] {
+            let pos = from_fen(fen);
+            let hard = Duration::from_millis(120);
+            let soft = Duration::from_millis(60);
+            let off = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(4), false).unwrap();
+            let on = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true).unwrap();
+            println!("go 200 {name}: off depth {} nodes {} | on depth {} nodes {} hits {} cuts {}", off.depth, off.nodes, on.depth, on.nodes, on.tt_hits, on.tt_cuts);
+        }
+    }
+
 }

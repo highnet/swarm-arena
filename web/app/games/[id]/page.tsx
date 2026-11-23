@@ -2,116 +2,174 @@ import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, Swords } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Swords } from 'lucide-react';
+import type { GameId } from '@arena/shared';
+import { DetailShell, Facts } from '@/components/arena/Detail';
+import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { GameReplay } from '@/components/arena/GameReplay';
+import { EngineChip } from '@/components/arena/SidePanels';
 import { Panel } from '@/components/ui/Panel';
-import { Typography } from '@/components/ui/Typography';
 import { getGame, getSnapshot } from '@/lib/data';
-import { formatDay, formatTime } from '@/lib/format';
+import { formatDay, formatElo, formatTime } from '@/lib/format';
 import { moveNotation } from '@/lib/gameExport';
-import { SERIES } from '@/lib/tracks';
+import { gameHref, matchHref } from '@/lib/routes';
+import { SHORT_NAME } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
 
 type GamePageProps = {
   params: Promise<{ id: string }>;
 };
 
-export const generateMetadata = async ({ params }: GamePageProps): Promise<Metadata> => {
-  const { id } = await params;
-  return { title: `Game ${id}` };
+const TERMINATION: Record<string, string> = {
+  rules: 'by the rules',
+  adjudicated: 'adjudicated',
+  'illegal-move': 'forfeit: illegal move',
+  timeout: 'forfeit on time',
+  crash: 'forfeit: engine crashed',
 };
 
-const GameContent = async ({ params }: GamePageProps) => {
-  const { id } = await params;
-  const [s, game] = await Promise.all([getSnapshot(), getGame(decodeURIComponent(id))]);
-  if (!game) notFound();
-  const track = s.tracks.find((t) => t.id === game.track_id);
+const find = async ({ params }: GamePageProps) => {
+  const { id: raw } = await params;
+  const id = decodeURIComponent(raw);
+  const [s, game] = await Promise.all([getSnapshot(), getGame(id)]);
+  if (!game) return null;
   const match = s.matches.find((m) => m.id === game.match_id);
-  const engine = match?.engine_version ?? 'Engine';
+  return { s, game, match };
+};
+
+export const generateMetadata = async (props: GamePageProps): Promise<Metadata> => {
+  const found = await find(props);
+  if (!found) return { title: 'Game' };
+  const { game, match } = found;
+  return {
+    title: `${SHORT_NAME[game.track_id]} ${match?.engine_version ?? ''} vs ${match?.opponent ?? 'opponent'}`,
+    alternates: { canonical: gameHref(game.id) },
+  };
+};
+
+const GameContent = async (props: GamePageProps) => {
+  const found = await find(props);
+  if (!found) notFound();
+  const { s, game, match } = found;
+  const slots = Object.fromEntries(s.tracks.map((t) => [t.id, t.color_slot])) as Partial<
+    Record<GameId, number>
+  >;
+  const engine = match ? `${SHORT_NAME[game.track_id]} ${match.engine_version}` : 'Engine';
   const opponent = match?.opponent ?? 'Opponent';
   const [first, second] = game.engine_first ? [engine, opponent] : [opponent, engine];
-  const [firstColor, secondColor] =
-    game.track_id === 'chess' ? ['White', 'Black'] : ['Black', 'White'];
+  const firstLabel = game.track_id === 'chess' ? 'White' : 'Black';
+  const secondLabel = game.track_id === 'chess' ? 'Black' : 'White';
   const score = game.engine_first ? game.outcome : 1 - game.outcome;
   const result = score === 1 ? 'Won' : score === 0 ? 'Lost' : 'Draw';
-  const resultTag = game.outcome === 1 ? '1–0' : game.outcome === 0 ? '0–1' : '½–½';
-  const notation = moveNotation(game.track_id, game.moves);
+  const siblings = s.games
+    .filter((g) => g.match_id === game.match_id)
+    .sort((a, b) => a.finished_at.localeCompare(b.finished_at));
+  const at = siblings.findIndex((g) => g.id === game.id);
+  const prev = at > 0 ? siblings[at - 1] : null;
+  const next = at >= 0 && at < siblings.length - 1 ? siblings[at + 1] : null;
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-4 pb-16 pt-6 sm:px-6">
-      <Link
-        href={`/games?engine=${game.track_id}`}
-        className="inline-flex items-center gap-1 text-xs text-fg-3 hover:text-fg"
-      >
-        <ArrowLeft className="size-3" aria-hidden="true" />
-        Games
-      </Link>
-      <div className="mt-2 pb-5">
-        <div className="flex flex-wrap items-center gap-2 text-[13px] text-fg-2">
-          {track && <span className={cn('size-2 rounded-full', SERIES[track.color_slot].bg)} />}
-          {track?.name ?? game.track_id}
-          {match && (
-            <>
-              {' · '}
-              <Link href={`/matches/${match.id}`} className="hover:text-fg">
-                {match.purpose} match
-              </Link>
-            </>
+    <DetailShell
+      back={
+        match
+          ? { href: matchHref(match.id), label: 'The match' }
+          : { href: '/games', label: 'Games played' }
+      }
+      eyebrow={
+        <>
+          <EngineChip track={game.track_id} slots={slots} />
+          {match && <span>{match.purpose} match</span>}
+          {at >= 0 && (
+            <span>
+              game {at + 1} of {siblings.length}
+            </span>
           )}
-          {` · ${formatDay(game.finished_at)} ${formatTime(game.finished_at)} UTC`}
-        </div>
-        <Typography variant="pageTitle" className="mt-1">
-          {engine} vs {opponent}
-        </Typography>
-      </div>
+          <time dateTime={game.finished_at}>
+            {formatDay(game.finished_at)}, {formatTime(game.finished_at)} UTC
+          </time>
+        </>
+      }
+      title={`${engine} vs ${opponent}`}
+    >
+      <Facts
+        items={[
+          {
+            label: 'Result',
+            value: (
+              <span
+                className={cn(score === 1 && 'text-good-text', score === 0 && 'text-critical-text')}
+              >
+                {result}
+              </span>
+            ),
+            note: TERMINATION[game.termination] ?? game.termination,
+          },
+          { label: firstLabel, value: first, note: 'moved first' },
+          { label: secondLabel, value: second },
+          {
+            label: 'Length',
+            value: `${game.ply_count} plies`,
+            note: match ? `opponent rated ${formatElo(match.opponent_elo)}` : undefined,
+          },
+        ]}
+      />
 
-      <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-4">
-        {[
-          [firstColor, first, null],
-          [secondColor, second, null],
-          ['Result', `${result} · ${resultTag}`, score],
-          ['Length', `${game.ply_count} plies`, null],
-        ].map(([k, v, sc]) => (
-          <div key={String(k)} className="bg-panel px-4 py-3">
-            <dt className="text-xs text-fg-3">{k}</dt>
-            <dd
-              className={cn(
-                'mt-0.5 break-words font-mono text-base tabular text-fg sm:text-lg',
-                sc === 1 && 'text-good-text',
-                sc === 0 && 'text-critical-text',
-              )}
-            >
-              {v}
-            </dd>
-            {k === 'Result' && game.termination !== 'rules' && (
-              <dd className="text-xs text-fg-3">by {game.termination}</dd>
-            )}
-          </div>
-        ))}
-      </dl>
-
-      <Panel className="mt-6" icon={Swords} title="Game history">
+      <Panel icon={Swords} title="Replay">
         <div className="p-4">
-          <GameReplay
-            game={game.track_id}
-            moves={game.moves}
-            notation={notation}
-            sides={[`${firstColor} · ${first}`, `${secondColor} · ${second}`]}
-            label={`${track?.name ?? game.track_id} game`}
-          />
+          {game.moves.length ? (
+            <GameReplay
+              game={game.track_id}
+              moves={game.moves}
+              notation={moveNotation(game.track_id, game.moves)}
+              sides={[`${firstLabel} · ${first}`, `${secondLabel} · ${second}`]}
+              label={`${engine} vs ${opponent}`}
+            />
+          ) : (
+            <p className="text-[13px] text-fg-3">No moves stored for this game.</p>
+          )}
         </div>
       </Panel>
-    </main>
+
+      <nav
+        aria-label="Other games in this match"
+        className="grid gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-2"
+      >
+        {prev ? (
+          <Link
+            href={gameHref(prev.id)}
+            className="bg-panel px-4 py-3 text-xs text-fg-2 hover:bg-panel-raised"
+          >
+            <span className="inline-flex items-center gap-1">
+              <ArrowLeft className="size-3" aria-hidden="true" />
+              Game {at} in this match
+            </span>
+          </Link>
+        ) : (
+          <div className="bg-panel px-4 py-3 text-xs text-fg-3">First game of the match</div>
+        )}
+        {next ? (
+          <Link
+            href={gameHref(next.id)}
+            className="bg-panel px-4 py-3 text-xs text-fg-2 hover:bg-panel-raised sm:text-right"
+          >
+            <span className="inline-flex items-center gap-1">
+              Game {at + 2} in this match
+              <ArrowRight className="size-3" aria-hidden="true" />
+            </span>
+          </Link>
+        ) : (
+          <div className="bg-panel px-4 py-3 text-xs text-fg-3 sm:text-right">
+            Last game of the match
+          </div>
+        )}
+      </nav>
+    </DetailShell>
   );
 };
 
-const GamePage = ({ params }: GamePageProps) => (
-  <Suspense
-    fallback={
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 pt-6 sm:px-6" aria-busy="true" />
-    }
-  >
-    <GameContent params={params} />
+const GamePage = (props: GamePageProps) => (
+  <Suspense fallback={<PageSkeleton className="max-w-5xl px-4 pt-6 sm:px-6" />}>
+    <GameContent {...props} />
   </Suspense>
 );
 

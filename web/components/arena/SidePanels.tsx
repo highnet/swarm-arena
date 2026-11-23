@@ -12,6 +12,7 @@ import type { Agent, BoardRecord, GameId, Task } from '@arena/shared';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
 import { formatDay, formatTime } from '@/lib/format';
+import { ideaHref, recordHref, taskHref } from '@/lib/routes';
 import { SERIES, SHORT_NAME } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
 import { AgentTag } from './AgentAvatar';
@@ -49,7 +50,7 @@ const MoreLink = ({ href, children }: MoreLinkProps) => (
 
 type StrategyCallProps = {
   call: BoardRecord | null;
-  mentioned: { track: GameId; seat: string; title: string }[];
+  mentioned: { track: GameId; seat: string; title: string; taskId: string | null }[];
   slots: Slots;
 };
 
@@ -66,14 +67,17 @@ const StrategyCall = ({ call, mentioned, slots }: StrategyCallProps) => (
         <Typography variant="meta">
           {formatDay(call.at)}, {formatTime(call.at)} UTC
         </Typography>
-        <Typography
-          variant="body"
-          color="primary"
-          weight="medium"
-          className="mt-1 text-[15px] text-pretty"
-        >
-          {call.title}
-        </Typography>
+        <Link href={recordHref(call)} className="mt-1 block hover:underline">
+          <Typography
+            variant="body"
+            color="primary"
+            weight="medium"
+            as="span"
+            className="text-[15px] text-pretty"
+          >
+            {call.title}
+          </Typography>
+        </Link>
         {call.detail && (
           <Typography variant="small" className="mt-1.5 text-pretty">
             {call.detail}
@@ -89,7 +93,13 @@ const StrategyCall = ({ call, mentioned, slots }: StrategyCallProps) => (
                 <li key={`${m.track}-${m.title}`} className="flex items-start gap-2">
                   <EngineChip track={m.track} slots={slots} />
                   <span className="min-w-0 text-[13px] text-fg-2">
-                    {m.title}
+                    {m.taskId ? (
+                      <Link href={taskHref(m.taskId)} className="hover:text-fg hover:underline">
+                        {m.title}
+                      </Link>
+                    ) : (
+                      m.title
+                    )}
                     {m.seat && (
                       <AgentTag
                         id={m.seat}
@@ -150,7 +160,7 @@ const Frontier = ({ tasks, seats, slots }: FrontierProps) => (
                 aria-label={t.status === 'claimed' ? 'Agent at work' : 'Queued'}
               />
               <div className="min-w-0 flex-1">
-                <Link href={`/tasks/${t.id}`} className="hover:underline">
+                <Link href={taskHref(t.id)} className="hover:underline">
                   <Typography variant="small" color="primary" as="span" className="text-pretty">
                     {t.title}
                   </Typography>
@@ -208,9 +218,11 @@ const Graveyard = ({ dead, slots, limit = 5 }: GraveyardProps) => (
               {d.track_id && <EngineChip track={d.track_id} slots={slots} />}
               <time dateTime={d.at}>{formatDay(d.at)}</time>
             </div>
-            <Typography variant="small" className="mt-1 line-through decoration-fg-3/60">
-              {d.title}
-            </Typography>
+            <Link href={ideaHref(d.id)} className="mt-1 block hover:underline">
+              <Typography variant="small" as="span" className="line-through decoration-fg-3/60">
+                {d.title}
+              </Typography>
+            </Link>
             {d.detail && (
               <Typography variant="meta" as="p" className="mt-0.5 text-pretty">
                 {d.detail}

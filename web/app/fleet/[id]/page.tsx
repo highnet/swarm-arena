@@ -13,8 +13,10 @@ import { agentHref, isLive, isStale, roleLabel } from '@/components/arena/seats'
 import { Badge } from '@/components/ui/Badge';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
+import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { getSnapshot } from '@/lib/data';
 import { formatDay, formatTime } from '@/lib/format';
+import { recordHref } from '@/lib/routes';
 import { REPO_URL } from '@/lib/github';
 import { pageMeta } from '@/lib/site';
 import { cn } from '@/lib/utils';
@@ -164,9 +166,11 @@ const AgentContent = async ({ params }: AgentPageProps) => {
                         {formatDay(r.at)} {formatTime(r.at)}
                       </time>
                     </div>
-                    <Typography variant="small" color="primary" className="mt-0.5 text-pretty">
-                      {r.title}
-                    </Typography>
+                    <Link href={recordHref(r)} className="mt-0.5 block hover:underline">
+                      <Typography variant="small" color="primary" as="span" className="text-pretty">
+                        {r.title}
+                      </Typography>
+                    </Link>
                     {r.detail && (
                       <Typography variant="meta" as="p" className="mt-0.5 max-w-prose text-pretty">
                         {r.detail}
@@ -202,11 +206,7 @@ const AgentContent = async ({ params }: AgentPageProps) => {
 };
 
 const AgentPage = (props: AgentPageProps) => (
-  <Suspense
-    fallback={
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 pt-6 sm:px-6" aria-busy="true" />
-    }
-  >
+  <Suspense fallback={<PageSkeleton className="max-w-5xl px-4 pt-6 sm:px-6" />}>
     <AgentContent {...props} />
   </Suspense>
 );

@@ -27,6 +27,7 @@ import { LadderLegend, TrackLadder } from '@/components/arena/TrackLadder';
 import { buttonVariants } from '@/components/ui/Button';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
+import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { getSnapshot } from '@/lib/data';
 import {
   counters,
@@ -38,6 +39,7 @@ import {
   trackSummaries,
 } from '@/lib/derive';
 import { formatInt } from '@/lib/format';
+import { gameHref, matchHref } from '@/lib/routes';
 import { SERIES, SHORT_NAME } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
 
@@ -225,13 +227,24 @@ const HomeContent = async () => {
           title="Latest game"
           actions={
             gameMatch && (
-              <Link
-                href={`/matches/${gameMatch.id}`}
-                className="inline-flex items-center gap-0.5 text-xs text-fg-2 hover:text-fg"
-              >
-                Match
-                <ArrowUpRight className="size-3" aria-hidden="true" />
-              </Link>
+              <>
+                {game && (
+                  <Link
+                    href={gameHref(game.id)}
+                    className="inline-flex items-center gap-0.5 text-xs text-fg-2 hover:text-fg"
+                  >
+                    Game
+                    <ArrowUpRight className="size-3" aria-hidden="true" />
+                  </Link>
+                )}
+                <Link
+                  href={matchHref(gameMatch.id)}
+                  className="inline-flex items-center gap-0.5 text-xs text-fg-2 hover:text-fg"
+                >
+                  Match
+                  <ArrowUpRight className="size-3" aria-hidden="true" />
+                </Link>
+              </>
             )
           }
         >
@@ -289,7 +302,7 @@ const HomeContent = async () => {
         <div className="flex flex-col gap-4">
           <Panel
             icon={MessagesSquare}
-            title="Message board"
+            title="Discussion board"
             actions={<MoreLink href="/messages">All threads</MoreLink>}
           >
             <MessageBoard messages={s.messages ?? []} seats={seats} slots={slots} limit={4} />
@@ -302,11 +315,7 @@ const HomeContent = async () => {
 };
 
 const Home = () => (
-  <Suspense
-    fallback={
-      <main className="mx-auto w-full max-w-[90rem] flex-1 px-4 pt-8 sm:px-6" aria-busy="true" />
-    }
-  >
+  <Suspense fallback={<PageSkeleton />}>
     <HomeContent />
   </Suspense>
 );

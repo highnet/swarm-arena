@@ -1,0 +1,1 @@
+- 2026-11-23 · **playout policy** · Hex 11×11 · buried: Rated 2607 ± 108, not above 2607. · Edge-template pairing in the fill-in: a second-row stone's two edge cells go one to each colour

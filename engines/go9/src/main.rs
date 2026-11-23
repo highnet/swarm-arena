@@ -3,15 +3,21 @@
 //! Protocol and library policy: ../PROTOCOL.md.
 
 use goban::pieces::goban::Goban;
-use goban::pieces::stones::{Color, Stone};
+use goban::pieces::stones::Color;
 use goban::pieces::util::coord::Coord;
 use goban::rules::game::Game;
 use goban::rules::{GobanSizes, IllegalRules, Move, CHINESE};
 use std::collections::HashSet;
 use std::io::{self, BufRead, Write};
+use std::time::{Duration, Instant};
+
+mod board;
+mod search;
+
+use board::{Board, Rng};
+use search::KOMI;
 
 const N: usize = 9;
-const KOMI: f32 = 7.5;
 /// GTP columns: a–j without i.
 const COLS: &[u8; 9] = b"abcdefghj";
 
@@ -135,26 +141,6 @@ fn neighbours(i: usize) -> impl Iterator<Item = usize> {
     .flatten()
 }
 
-/// Liberties of the group containing stone `i`.
-fn group_liberties(cells: &[Option<Color>], i: usize) -> usize {
-    let colour = cells[i];
-    let mut stack = vec![i];
-    let mut seen = [false; N * N];
-    let mut libs = [false; N * N];
-    seen[i] = true;
-    while let Some(s) = stack.pop() {
-        for n in neighbours(s) {
-            if cells[n].is_none() {
-                libs[n] = true;
-            } else if cells[n] == colour && !seen[n] {
-                seen[n] = true;
-                stack.push(n);
-            }
-        }
-    }
-    libs.iter().filter(|&&l| l).count()
-}
-
 /// Tromp-Taylor area score, positive favours black (komi included).
 fn area_score(cells: &[Option<Color>]) -> f32 {
     let mut score = -KOMI;
@@ -193,67 +179,56 @@ fn area_score(cells: &[Option<Color>]) -> f32 {
     score
 }
 
-/// Single-point eye of `colour`: every orthogonal neighbour is that colour.
-fn is_own_eye(cells: &[Option<Color>], i: usize, colour: Color) -> bool {
-    cells[i].is_none() && neighbours(i).all(|n| cells[n] == Some(colour))
+/// RNG seeded from the game record and the wall clock.
+fn seeded_rng(moves: &[String]) -> Rng {
+    let mut s: u64 = 0x9E37_79B9_7F4A_7C15;
+    for m in moves {
+        for b in m.bytes() {
+            s = (s ^ b as u64).wrapping_mul(0x100_0000_01B3);
+        }
+    }
+    if let Ok(d) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+        s ^= d.as_nanos() as u64;
+    }
+    Rng(s | 1)
 }
 
-/// Small xorshift RNG; the seed mixes the game record with the wall clock.
-struct Rng(u64);
-
-impl Rng {
-    fn seeded(moves: &[String]) -> Self {
-        let mut s: u64 = 0x9E37_79B9_7F4A_7C15;
-        for m in moves {
-            for b in m.bytes() {
-                s = (s ^ b as u64).wrapping_mul(0x100_0000_01B3);
-            }
-        }
-        if let Ok(d) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-            s ^= d.as_nanos() as u64;
-        }
-        Rng(s | 1)
-    }
-
-    fn next(&mut self) -> u64 {
-        self.0 ^= self.0 << 13;
-        self.0 ^= self.0 >> 7;
-        self.0 ^= self.0 << 17;
-        self.0
+fn colour_code(c: Color) -> u8 {
+    if c == Color::Black {
+        board::BLACK
+    } else {
+        board::WHITE
     }
 }
 
-/// Legal moves that do not fill the mover's own eye, with a playing weight:
-/// captures are favoured, self-atari nearly ruled out.
-fn candidates(pos: &Position) -> Vec<(Coord, u64)> {
-    let me = pos.turn();
-    let now = cells(pos.game.goban());
-    let mut out = Vec::new();
-    for c in pos.legal_moves() {
-        let i = c.0 as usize * N + c.1 as usize;
-        if is_own_eye(&now, i, me) || pos.game.check_eye(Stone { coord: c, color: me }) {
-            continue;
+/// The flat playout board for `pos`, same stones and side to move.
+fn flat_board(pos: &Position) -> Board {
+    let mut cellv = [board::EMPTY; board::NN];
+    for (i, c) in cells(pos.game.goban()).into_iter().enumerate() {
+        if let Some(c) = c {
+            cellv[i] = colour_code(c);
         }
-        let after = cells(&pos.after(c).expect("legal"));
-        let captured = now.iter().zip(&after).filter(|(a, b)| a.is_some() && b.is_none()).count();
-        let libs = group_liberties(&after, i);
-        let weight = if captured > 0 {
-            10 + 40 * captured as u64
-        } else if libs == 1 {
-            1
-        } else {
-            10
-        };
-        out.push((c, weight));
     }
-    out
+    let mut b = Board::from_cells(&cellv, colour_code(pos.turn()));
+    b.passes = pos.passes.min(1) as u8;
+    b
+}
+
+/// Root moves: legal under goban and positional superko, and not the mover's own eye.
+fn root_moves(pos: &Position, flat: &Board) -> Vec<u8> {
+    pos.legal_moves()
+        .into_iter()
+        .map(|c| c.0 * N as u8 + c.1)
+        .filter(|&p| !flat.is_eye(p, flat.to_move))
+        .collect()
 }
 
 /// Pick a move for the side to move, given the moves so far.
-/// Plays a weighted-random legal move that never fills its own single-point eye: captures are
-/// preferred, self-atari avoided. Passes when no such move remains, or when the opponent just
-/// passed and the board already wins on area.
-fn choose(moves: &[String], _budget_ms: u64) -> Option<String> {
+/// Passes when the opponent just passed and the board already wins on area, or when no
+/// non-eye legal move remains. Otherwise runs UCT until ~70% of the budget and plays the
+/// most-visited root move.
+fn choose(moves: &[String], budget_ms: u64) -> Option<String> {
+    let start = Instant::now();
     let pos = Position::from_moves(moves);
     let me = pos.turn();
     let now = cells(pos.game.goban());
@@ -266,16 +241,23 @@ fn choose(moves: &[String], _budget_ms: u64) -> Option<String> {
         }
     }
 
-    let mut rng = Rng::seeded(moves);
-    let mut best: Option<(u64, Coord)> = None;
-    for (c, weight) in candidates(&pos) {
-        // Random key scaled by weight: the highest key wins.
-        let key = (rng.next() % 1_000_000) * weight;
-        if best.map_or(true, |(k, _)| key > k) {
-            best = Some((key, c));
-        }
+    let flat = flat_board(&pos);
+    let legal = root_moves(&pos, &flat);
+    if legal.is_empty() {
+        return Some("pass".into());
     }
-    Some(best.map_or_else(|| "pass".into(), |(_, c)| format_move(c)))
+    if legal.len() == 1 {
+        return Some(format_move(to_coord(legal[0])));
+    }
+    let mut rng = seeded_rng(moves);
+    let deadline = start + Duration::from_millis(budget_ms * 7 / 10);
+    let out = search::search(&flat, &legal, deadline, &mut rng);
+    eprintln!("info playouts {} winrate {:.3}", out.playouts, out.winrate);
+    Some(format_move(to_coord(out.best)))
+}
+
+fn to_coord(p: u8) -> Coord {
+    (p / N as u8, p % N as u8)
 }
 
 /// Handles one protocol line, returning the reply to print (if any) and whether to quit.
@@ -419,7 +401,7 @@ mod tests {
         let p = Position::from_moves(&seq);
         assert_eq!(p.turn(), Color::Black);
         assert_eq!(p.legal_moves().len(), 9, "filling an eye is legal, just bad");
-        assert!(candidates(&p).is_empty(), "must not fill own eyes");
+        assert!(root_moves(&p, &flat_board(&p)).is_empty(), "must not fill own eyes");
         assert_eq!(choose(&seq, 100).unwrap(), "pass");
         // White may play into black's eyes? Each is suicide for white.
         let mut w = seq.clone();
@@ -436,13 +418,16 @@ mod tests {
         assert_eq!(area_score(&one), 81.0 - KOMI);
     }
 
+    /// Self-play at the gate's 200 ms: every chosen move must be legal under goban and the
+    /// seen-board set, and every reply must come in time.
     #[test]
-    fn random_games_stay_legal() {
-        // Self-play many short games; every chosen move must be legal in our own model.
+    fn self_play_at_200ms_stays_legal() {
         for game in 0..20 {
             let mut moves: Vec<String> = Vec::new();
-            for _ in 0..120 {
-                let m = choose(&moves, 10).unwrap();
+            for _ in 0..200 {
+                let t = Instant::now();
+                let m = choose(&moves, 200).unwrap();
+                assert!(t.elapsed() < Duration::from_millis(200), "game {game}: slow reply");
                 let p = Position::from_moves(&moves);
                 if m != "pass" {
                     assert!(legal(&p, &m), "game {game}: illegal {m} after {moves:?}");
@@ -454,5 +439,98 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Random games (eye-filling allowed, so groups die and kos appear) played on goban and the
+    /// flat board side by side: the stones agree after every move, and the flat board's
+    /// legality differs from goban's only where positional superko forbids a move.
+    #[test]
+    fn flat_board_agrees_with_goban() {
+        let mut rng = Rng(0x1234_5678_9abc_def1);
+        let (mut kos, mut captures) = (0, 0);
+        for game in 0..40 {
+            let mut pos = Position::new();
+            let mut flat = Board::empty(board::BLACK);
+            for ply in 0..300 {
+                // Legality agrees.
+                let mut legal = Vec::new();
+                for p in 0..board::NN as u8 {
+                    let c = to_coord(p);
+                    let oracle = pos.after(c).is_some();
+                    let fast = flat.is_legal(p);
+                    if oracle {
+                        assert!(fast, "game {game} ply {ply}: flat rejects legal {}", format_move(c));
+                        legal.push(p);
+                    } else if fast {
+                        // Only superko may forbid what the flat board allows.
+                        assert!(
+                            pos.game.check_point_by(c, IllegalRules::SUICIDE).is_none(),
+                            "game {game} ply {ply}: flat allows {}",
+                            format_move(c)
+                        );
+                    }
+                }
+                if flat.ko != board::PASS {
+                    kos += 1;
+                }
+                if legal.is_empty() || rng.below(40) == 0 {
+                    pos.pass();
+                    flat.play(board::PASS);
+                    if pos.passes >= 2 {
+                        break;
+                    }
+                    continue;
+                }
+                let p = legal[rng.below(legal.len())];
+                let before = flat.cell.iter().filter(|&&c| c != board::EMPTY).count();
+                pos.play(to_coord(p));
+                flat.play(p);
+                flat.check_invariants();
+                let after = flat.cell.iter().filter(|&&c| c != board::EMPTY).count();
+                if after <= before {
+                    captures += 1;
+                }
+                let g: Vec<u8> = cells(pos.game.goban()).into_iter().map(|c| c.map_or(board::EMPTY, colour_code)).collect();
+                assert_eq!(&g[..], &flat.cell[..], "game {game} ply {ply}: boards differ");
+                assert_eq!(flat.to_move, colour_code(pos.turn()));
+            }
+        }
+        assert!(kos > 10 && captures > 100, "too few kos ({kos}) or captures ({captures}) tested");
+    }
+
+    #[test]
+    fn flat_board_rules() {
+        // Suicide: white b9 a8 around a9.
+        let f = flat_board(&Position::from_moves(&mv("e5 b9 e4 a8")));
+        assert!(!f.is_legal(0));
+        // Capture into no liberties is legal: black b9, white a9, black a8 captures.
+        let mut f = flat_board(&Position::from_moves(&mv("b9 a9")));
+        assert!(f.is_legal(9));
+        f.play(9);
+        assert_eq!(f.cell[0], board::EMPTY);
+        // Simple ko: black e5 captures d5; white may not retake at once.
+        let mut f = flat_board(&Position::from_moves(&mv("c5 e6 d6 e4 d4 f5 pass d5")));
+        let (d5, e5) = (4 * 9 + 3, 4 * 9 + 4);
+        f.play(e5);
+        assert_eq!(f.cell[d5 as usize], board::EMPTY);
+        assert_eq!(f.ko, d5);
+        assert!(!f.is_legal(d5));
+        f.play(0);
+        f.play(80);
+        assert!(f.is_legal(d5));
+    }
+
+    /// Prints playouts per second on the empty board (cargo test --release -- --nocapture).
+    #[test]
+    fn playout_speed() {
+        let pos = Position::new();
+        let flat = flat_board(&pos);
+        let legal = root_moves(&pos, &flat);
+        let mut rng = Rng(7);
+        let t = Instant::now();
+        let out = search::search(&flat, &legal, t + Duration::from_millis(140), &mut rng);
+        let secs = t.elapsed().as_secs_f64();
+        println!("{} playouts in {:.0} ms: {:.0}/s", out.playouts, secs * 1e3, out.playouts as f64 / secs);
+        assert!(out.playouts > 100);
     }
 }

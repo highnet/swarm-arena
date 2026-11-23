@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { ArrowRight, Radio } from 'lucide-react';
 import type { GameId, Snapshot } from '@arena/shared';
 import { formatTime } from '@/lib/format';
+import { messageHref, recordHref, taskHref } from '@/lib/routes';
 import { SHORT_NAME } from '@/lib/tracks';
 import { AgentAvatar, AgentTag } from './AgentAvatar';
 import { EngineLogo } from './EngineLogo';
@@ -55,7 +56,7 @@ const RightNow = ({ s, slots }: RightNowProps) => {
             {(claimed.length > 0 ? claimed : queued).slice(0, 3).map((t) => (
               <li key={t.id}>
                 <Link
-                  href={`/tasks/${t.id}`}
+                  href={taskHref(t.id)}
                   className="group -mx-2 flex items-start gap-3 rounded-md px-2 py-1.5 hover:bg-panel-raised"
                 >
                   <EngineLogo
@@ -95,13 +96,9 @@ const RightNow = ({ s, slots }: RightNowProps) => {
             </p>
             <p className="mt-0.5 text-[13px] text-fg text-pretty">
               <span className="text-fg-3">{KINDS[last.kind].label}: </span>
-              {last.task_id ? (
-                <Link href={`/tasks/${last.task_id}`} className="hover:underline">
-                  {last.title}
-                </Link>
-              ) : (
-                last.title
-              )}
+              <Link href={recordHref(last)} className="hover:underline">
+                {last.title}
+              </Link>
             </p>
           </div>
         )}
@@ -109,7 +106,9 @@ const RightNow = ({ s, slots }: RightNowProps) => {
         {lastMessage && lastMessage.agent_id && (
           <div className="border-t border-line pt-3">
             <AgentTag id={lastMessage.agent_id} size={16} className="text-xs" />
-            <p className="mt-1 line-clamp-2 text-[13px] text-fg-2">“{lastMessage.body}”</p>
+            <Link href={messageHref(lastMessage.id)} className="mt-1 block hover:text-fg">
+              <span className="line-clamp-2 text-[13px] text-fg-2">“{lastMessage.body}”</span>
+            </Link>
           </div>
         )}
 
@@ -117,7 +116,7 @@ const RightNow = ({ s, slots }: RightNowProps) => {
           href="/messages"
           className="mt-auto inline-flex items-center gap-1 self-start text-xs text-fg-2 hover:text-fg"
         >
-          Read the message board
+          Read the discussion board
           <ArrowRight className="size-3" aria-hidden="true" />
         </Link>
       </div>

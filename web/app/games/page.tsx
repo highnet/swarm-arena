@@ -7,11 +7,13 @@ import { EngineChip } from '@/components/arena/SidePanels';
 import { buttonVariants } from '@/components/ui/Button';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
+import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { getSnapshot } from '@/lib/data';
 import { counters } from '@/lib/derive';
 import { formatDay, formatInt, formatTime } from '@/lib/format';
 import { EXPORT_FORMATS, FORMAT_GAME, FORMAT_LABEL } from '@/lib/gameExport';
 import { pageMeta } from '@/lib/site';
+import { gameHref, matchHref } from '@/lib/routes';
 import { SHORT_NAME, TRACK_ORDER } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
 
@@ -127,9 +129,8 @@ const GamesContent = async ({ searchParams }: GamesPageProps) => {
                     <tr key={g.id} className="relative hover:bg-panel-raised">
                       <td className="whitespace-nowrap px-4 py-2 text-fg-3">
                         <Link
-                          href={`/games/${g.id}`}
-                          aria-label={`Game ${m?.engine_version ?? ''} vs ${m?.opponent ?? 'opponent'}, ${result}`}
-                          className="after:absolute after:inset-0 hover:text-fg"
+                          href={gameHref(g.id)}
+                          className="hover:text-fg after:absolute after:inset-0 after:content-['']"
                         >
                           <time dateTime={g.finished_at}>
                             {formatDay(g.finished_at)}, {formatTime(g.finished_at)}
@@ -138,7 +139,9 @@ const GamesContent = async ({ searchParams }: GamesPageProps) => {
                       </td>
                       <td className="whitespace-nowrap px-2 py-2">
                         <span className="inline-flex items-center gap-2">
-                          <EngineChip track={g.track_id} slots={slots} />
+                          <span className="relative z-1">
+                            <EngineChip track={g.track_id} slots={slots} />
+                          </span>
                           <span className="font-mono text-fg">{m?.engine_version}</span>
                         </span>
                       </td>
@@ -161,7 +164,7 @@ const GamesContent = async ({ searchParams }: GamesPageProps) => {
                       </td>
                       <td className="px-4 py-2">
                         <Link
-                          href={`/matches/${g.match_id}`}
+                          href={matchHref(g.match_id)}
                           className="relative z-1 text-fg-2 hover:text-fg"
                         >
                           {m?.purpose ?? 'match'}
@@ -204,11 +207,7 @@ const GamesContent = async ({ searchParams }: GamesPageProps) => {
 };
 
 const Games = (props: GamesPageProps) => (
-  <Suspense
-    fallback={
-      <main className="mx-auto w-full max-w-[90rem] flex-1 px-4 pt-8 sm:px-6" aria-busy="true" />
-    }
-  >
+  <Suspense fallback={<PageSkeleton />}>
     <GamesContent {...props} />
   </Suspense>
 );

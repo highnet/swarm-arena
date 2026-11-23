@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { outsideHelp } from "./rules";
 import { buildWasm, wasmPaths } from "./wasm";
-import { formatMessages, readMessages } from "./messages";
+import { boardDigest } from "./messages";
 import { relative, resolve } from "node:path";
 import { agentName, GAMES, randomPlayer, type Task } from "@arena/shared";
 import {
@@ -35,6 +35,7 @@ import {
   RUN_ID,
 } from "./config";
 import { arenaEngine } from "./engine";
+import { gateShortfall, needsRungBaseline, type Rating } from "./gate";
 import { gateRung, runMatch } from "./match";
 import { reference } from "./references";
 import { getStore } from "./store";
@@ -108,8 +109,8 @@ Ladder: ${ladder.map((r) => `${r.label} (${r.elo})${r.cleared_at ? " cleared" : 
 Recent results:
 ${recent || "- none yet"}
 
-Message board (latest for this engine and engine-wide):
-${formatMessages(await readMessages(task.track_id, 12)) || "- quiet"}
+Discussion board (this engine and engine-wide). Comment on threads that concern your task, and open\none (with --title and --tags) for a question or hand-off; cite issues and PRs as #12 or pr#12:
+${(await boardDigest(task.track_id, 8)) || "- quiet"}
 
 Log progress as you go: npm run arena -- progress ${task.id} "..."
 When cargo build --release and cargo test pass in the crate, run:
@@ -606,8 +607,9 @@ export const submit = async (taskId: string) => {
     ).length;
     const version = `v0.${shipped + 1}`;
     // Past the top of the ladder there is no finish line: play the current version instead.
+    const seed = Date.now() % 1e9;
     const opponent = rung
-      ? await reference(rung.opponent, task.track_id, MOVE_MS, Date.now() % 1e9)
+      ? await reference(rung.opponent, task.track_id, MOVE_MS, seed)
       : await currentVersion(task.track_id, t.current_version ?? "current");
     const gate = await runMatch({
       track: task.track_id,
@@ -630,12 +632,51 @@ export const submit = async (taskId: string) => {
         gate.matchId,
       );
     }
-    if (prev !== null && gate.est.elo <= prev) {
-      await candidate.close?.();
-      return await bury(
-        `Rated ${Math.round(gate.est.elo)} ± ${Math.round(gate.est.error)}, not above ${Math.round(prev)}.`,
-        gate.matchId,
+    // The stored rating may come from an easier rung than the candidate just played. Ratings
+    // against different opponents are not comparable, so rate main (built from main, as the
+    // head-to-head does) on the same rung with the same pairs, and hold the candidate to that.
+    let sameRung: Rating | null = null;
+    if (rung && t.current_version && needsRungBaseline(rung.elo, prev)) {
+      const label = `${t.name} ${t.current_version}`;
+      const main = await currentVersion(task.track_id, label);
+      const yardstick = await reference(
+        rung.opponent,
+        task.track_id,
+        MOVE_MS,
+        seed,
       );
+      const baseline = await runMatch({
+        track: task.track_id,
+        candidate: main,
+        candidateVersion: t.current_version,
+        opponent: yardstick,
+        opponentLabel: rung.label,
+        opponentElo: rung.elo,
+        pairs: GATE_PAIRS,
+        purpose: "gate",
+        taskId: task.id,
+      });
+      await yardstick.close?.();
+      await main.close?.();
+      sameRung = { elo: baseline.est.elo, error: baseline.est.error };
+      await progress(
+        task,
+        "referee",
+        `${t.current_version} re-rated on ${rung.label}: ${Math.round(sameRung.elo)} ± ${Math.round(sameRung.error)} (its stored ${Math.round(prev ?? 0)} came from another rung).`,
+        undefined,
+        baseline.matchId,
+      );
+    }
+    const shortfall = gateShortfall({
+      candidate: gate.est,
+      currentElo: prev,
+      sameRung,
+      rungLabel: rung?.label ?? null,
+      currentVersion: t.current_version,
+    });
+    if (shortfall) {
+      await candidate.close?.();
+      return await bury(shortfall, gate.matchId);
     }
 
     // Head to head with the version it would replace (built from main). A new version must not
@@ -673,10 +714,11 @@ export const submit = async (taskId: string) => {
     }
 
     // Deliver: the crate, its playbook and the browser build go to review as one pull request.
+    const yard = sameRung ? sameRung.elo : prev;
     const delta =
-      prev === null
+      yard === null
         ? "first rated version"
-        : `${gate.est.elo - prev >= 0 ? "+" : ""}${Math.round(gate.est.elo - prev)}`;
+        : `${gate.est.elo - yard >= 0 ? "+" : ""}${Math.round(gate.est.elo - yard)}${sameRung ? ` vs ${t.current_version} on the same rung` : ""}`;
     logVerdict(
       task.track_id,
       `${version} passed the referee · ${task.title} · rated ${Math.round(gate.est.elo)} (${delta})`,
@@ -718,7 +760,7 @@ export const submit = async (taskId: string) => {
         body: `${closes}
 
 ## Referee
-- Gate: ${version} vs ${result.opponent}: ${gate.result.wins}–${gate.result.losses}–${gate.result.draws}, rated **${result.elo} ± ${result.error}** (${delta}).
+- Gate: ${version} vs ${result.opponent}: ${gate.result.wins}–${gate.result.losses}–${gate.result.draws}, rated **${result.elo} ± ${result.error}** (${delta}).${sameRung ? `\n- Yardstick: ${t.current_version}'s stored ${Math.round(prev ?? 0)} came from another rung, so main was re-rated vs ${result.opponent}: **${Math.round(sameRung.elo)} ± ${Math.round(sameRung.error)}**.` : ""}
 - Checks passed: no outside help, build and tests, browser build (wasm32-wasip1), smoke test, head-to-head with the version on main.
 - Games: https://swarm-arena-race.vercel.app/matches/${gate.matchId}
 

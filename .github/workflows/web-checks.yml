@@ -1,8 +1,9 @@
-# Lint and typecheck for the site and the shared types (the harness is typechecked too).
+# Lint, typecheck and production build for the site and the shared types (the harness is
+# typechecked too). The build catches what Vercel would reject (e.g. prerender errors) before merge.
 #
 # Actions minutes are capped (see maintenance.yml), so this runs only on pull requests that touch
-# web/, shared/ or the package files, as one job with the npm cache. Other pull requests skip it;
-# their checks (tests, the referee's games, preflight, review) run in the Claude cloud sessions.
+# web/, shared/, swarm-graph/ or the package files, as one job with the npm cache. Other pull
+# requests skip it; their checks (tests, the referee's games, preflight, review) run in the Claude cloud sessions.
 name: web-checks
 
 on:
@@ -10,6 +11,7 @@ on:
     paths:
       - "web/**"
       - "shared/**"
+      - "swarm-graph/**"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/web-checks.yml"
@@ -36,3 +38,5 @@ jobs:
         run: npm run typecheck
       - name: Lint
         run: npm run lint
+      - name: Build
+        run: npm run build

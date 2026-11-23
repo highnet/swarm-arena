@@ -14,8 +14,10 @@ import { GAMES, type GameId, type Task } from '@arena/shared';
 import { EngineLogo } from '@/components/arena/EngineLogo';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
+import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { getSnapshot } from '@/lib/data';
 import { getConcepts } from '@/lib/source';
+import { conceptHref, taskHref } from '@/lib/routes';
 import { pageMeta } from '@/lib/site';
 import { TRACK_ORDER } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
@@ -44,7 +46,7 @@ const CellView = ({ cell }: { cell: Cell | undefined }) => {
   const Icon = look.icon;
   return (
     <Link
-      href={`/tasks/${task.id}`}
+      href={taskHref(task.id)}
       className={cn(
         'inline-flex items-center gap-1 font-mono text-xs tabular hover:underline',
         look.cls,
@@ -126,7 +128,9 @@ const ConceptsContent = async () => {
             {rows.map((n) => (
               <tr key={n} className={cn(!games(n) && 'opacity-60')}>
                 <th scope="row" className="px-4 py-2 align-top font-normal">
-                  <span className="text-[13px] text-fg">{n}</span>
+                  <Link href={conceptHref(n)} className="text-[13px] text-fg hover:underline">
+                    {n}
+                  </Link>
                   {idea.get(n) && <span className="block text-xs text-fg-3">{idea.get(n)}</span>}
                 </th>
                 {TRACK_ORDER.map((g) => (
@@ -168,7 +172,9 @@ const ConceptsContent = async () => {
                 .map((e, i) => (
                   <li key={`${e.date}-${i}`} className="px-4 py-2 text-[13px]">
                     <span className="font-mono text-xs text-fg-3">{e.date}</span>{' '}
-                    <span className="text-fg">{e.concept}</span>{' '}
+                    <Link href={conceptHref(e.concept)} className="text-fg hover:underline">
+                      {e.concept}
+                    </Link>{' '}
                     <span className="text-fg-3">in</span>{' '}
                     <span className="text-fg-2">{e.game}</span>:{' '}
                     <span className="text-fg-2">{e.outcome}</span>
@@ -183,11 +189,7 @@ const ConceptsContent = async () => {
 };
 
 const Concepts = () => (
-  <Suspense
-    fallback={
-      <main className="mx-auto w-full max-w-[90rem] flex-1 px-4 pt-8 sm:px-6" aria-busy="true" />
-    }
-  >
+  <Suspense fallback={<PageSkeleton />}>
     <ConceptsContent />
   </Suspense>
 );

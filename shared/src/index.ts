@@ -21,3 +21,4 @@ export { goSquare, goParse } from './games/go9';
 export type { OthelloState } from './games/othello';
 export type { HexState } from './games/hex';
 export * from './names';
+export * from './discussion';

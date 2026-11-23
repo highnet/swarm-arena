@@ -1,17 +1,18 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import Link from 'next/link';
+import { ArrowUpRight, Link2, MessageCircle, MessagesSquare } from 'lucide-react';
 import {
-  CircleHelp,
-  Handshake,
-  Lightbulb,
-  MessagesSquare,
-  RefreshCcw,
-  Reply,
-  StickyNote,
-  type LucideIcon,
-} from 'lucide-react';
-import type { GameId, Message, MessageKind } from '@arena/shared';
+  buildThreads,
+  formatRef,
+  rootOf,
+  type GameId,
+  type Message,
+  type MessageStatus,
+  type Thread,
+} from '@arena/shared';
+import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Typography } from '@/components/ui/Typography';
 import { formatDay, formatTime } from '@/lib/format';
@@ -19,35 +20,38 @@ import { SHORT_NAME, TRACK_ORDER } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
 import { AgentTag } from './AgentAvatar';
 import { EngineLogo } from './EngineLogo';
+import { MESSAGE_KIND, MESSAGE_STATUS } from './messageKinds';
+import { RichText } from './RichText';
 
-const KIND: Record<MessageKind, { label: string; icon: LucideIcon; tone: string }> = {
-  note: { label: 'Note', icon: StickyNote, tone: 'text-fg-3' },
-  question: { label: 'Question', icon: CircleHelp, tone: 'text-warning' },
-  proposal: { label: 'Proposal', icon: Lightbulb, tone: 'text-fg-2' },
-  answer: { label: 'Answer', icon: Reply, tone: 'text-good-text' },
-  handoff: { label: 'Hand-off', icon: Handshake, tone: 'text-fg-2' },
-  retro: { label: 'Retro', icon: RefreshCcw, tone: 'text-fg-2' },
-};
+const STATUS_FILTERS: { id: MessageStatus | 'all'; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'open', label: 'Open' },
+  { id: 'resolved', label: 'Resolved' },
+];
 
-type MessageItemProps = {
-  m: Message;
+type ThreadItemProps = {
+  t: Thread;
   seats: Record<string, string>;
   slots: Partial<Record<GameId, number>>;
-  replies: Message[];
+  threadOf: (id: number) => number | undefined;
+  onTag: (tag: string) => void;
+  activeTag: string | null;
+  compact: boolean;
 };
 
-const MessageItem = ({ m, seats, slots, replies }: MessageItemProps) => {
-  const kind = KIND[m.kind] ?? KIND.note;
+const ThreadItem = ({ t, seats, slots, threadOf, onTag, activeTag, compact }: ThreadItemProps) => {
+  const m = t.root;
+  const kind = MESSAGE_KIND[m.kind] ?? MESSAGE_KIND.note;
   const Icon = kind.icon;
+  const status = MESSAGE_STATUS[m.status ?? 'open'];
+  const latest = t.comments.at(-1);
   return (
     <li className="px-4 py-3">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
         <Icon className={cn('size-3.5 shrink-0', kind.tone)} aria-hidden="true" />
         <span className={cn('font-medium', kind.tone)}>{kind.label}</span>
-        {m.agent_id ? (
-          <AgentTag id={m.agent_id} seat={seats[m.agent_id]} size={18} />
-        ) : (
-          <span className="text-fg-3">unknown</span>
+        {((m.status ?? 'open') !== 'open' || m.kind === 'question' || m.kind === 'proposal') && (
+          <Badge tone={status.tone}>{status.label}</Badge>
         )}
         {m.track_id && (
           <span className="inline-flex items-center gap-1 text-fg-2">
@@ -60,38 +64,93 @@ const MessageItem = ({ m, seats, slots, replies }: MessageItemProps) => {
             {SHORT_NAME[m.track_id]}
           </span>
         )}
-        <time dateTime={m.at} className="ml-auto font-mono tabular text-fg-3">
-          {formatDay(m.at)} {formatTime(m.at)}
+        <time dateTime={t.lastAt} className="ml-auto font-mono tabular text-fg-3">
+          {formatDay(t.lastAt)} {formatTime(t.lastAt)}
         </time>
       </div>
-      <p className="mt-1.5 max-w-prose whitespace-pre-wrap text-[14px] leading-6 text-fg-2 text-pretty">
-        {m.body}
-      </p>
-      {replies.length > 0 && (
-        <ol className="mt-3 space-y-3 border-l border-line-strong pl-4">
-          {replies.map((r) => {
-            const rk = KIND[r.kind] ?? KIND.answer;
-            const RIcon = rk.icon;
-            return (
-              <li key={r.id}>
-                <div className="flex flex-wrap items-center gap-x-2 text-xs">
-                  <RIcon className={cn('size-3.5', rk.tone)} aria-hidden="true" />
-                  {r.agent_id ? (
-                    <AgentTag id={r.agent_id} seat={seats[r.agent_id]} size={16} />
-                  ) : (
-                    <span className="text-fg-3">unknown</span>
-                  )}
-                  <time dateTime={r.at} className="font-mono tabular text-fg-3">
-                    {formatTime(r.at)}
-                  </time>
-                </div>
-                <p className="mt-1 max-w-prose whitespace-pre-wrap text-[13px] leading-6 text-fg-2">
-                  {r.body}
-                </p>
-              </li>
-            );
-          })}
-        </ol>
+      {m.title && (
+        <Link
+          href={`/messages/${m.id}`}
+          className="mt-1.5 block text-[15px] font-medium leading-6 text-fg text-pretty hover:underline"
+        >
+          {m.title}
+        </Link>
+      )}
+      <RichText
+        text={m.body}
+        threadOf={threadOf}
+        variant="small"
+        className={cn(
+          'max-w-prose',
+          m.title ? 'mt-1' : 'mt-1.5 text-fg',
+          compact ? 'line-clamp-2' : 'line-clamp-4',
+        )}
+      />
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-fg-3">
+        {m.agent_id ? (
+          <AgentTag id={m.agent_id} seat={seats[m.agent_id]} size={16} />
+        ) : (
+          <span>unknown</span>
+        )}
+        <Link href={`/messages/${m.id}`} className="inline-flex items-center gap-1 hover:text-fg">
+          <MessageCircle className="size-3" aria-hidden="true" />
+          {t.comments.length} comment{t.comments.length === 1 ? '' : 's'}
+          <span className="font-mono">· msg#{m.id}</span>
+        </Link>
+        {t.refs.length > 0 && (
+          <span className="inline-flex items-center gap-1" title="References">
+            <Link2 className="size-3" aria-hidden="true" />
+            {t.refs.slice(0, 4).map(formatRef).join(' ')}
+            {t.refs.length > 4 && ` +${t.refs.length - 4}`}
+          </span>
+        )}
+        {t.backlinks.length > 0 && (
+          <span title="Threads that reference this one">
+            ← {t.backlinks.length} backlink{t.backlinks.length === 1 ? '' : 's'}
+          </span>
+        )}
+        {(m.tags ?? []).map((tag) => (
+          <Button
+            key={tag}
+            variant="segment"
+            size="xs"
+            className="h-5 px-1.5 font-mono text-[11px]"
+            aria-pressed={activeTag === tag}
+            onClick={() => onTag(tag)}
+          >
+            #{tag}
+          </Button>
+        ))}
+      </div>
+      {!compact && latest && (
+        <div className="mt-2 border-l border-line-strong pl-3">
+          <div className="flex flex-wrap items-center gap-x-2 text-xs">
+            {latest.agent_id && (
+              <AgentTag id={latest.agent_id} seat={seats[latest.agent_id]} size={14} />
+            )}
+            <span className="text-fg-3">
+              {(MESSAGE_KIND[latest.kind] ?? MESSAGE_KIND.comment).label.toLowerCase()}
+            </span>
+            <time dateTime={latest.at} className="font-mono tabular text-fg-3">
+              {formatTime(latest.at)}
+            </time>
+          </div>
+          <RichText
+            text={latest.body}
+            threadOf={threadOf}
+            variant="small"
+            className="mt-0.5 line-clamp-2 max-w-prose"
+          />
+          {t.comments.length > 1 && (
+            <Link
+              href={`/messages/${m.id}`}
+              className="mt-1 inline-flex items-center gap-0.5 text-xs text-fg-2 hover:text-fg"
+            >
+              All {t.comments.length} comments
+              <ArrowUpRight className="size-3" aria-hidden="true" />
+            </Link>
+          )}
+        </div>
       )}
     </li>
   );
@@ -101,25 +160,45 @@ type MessageBoardProps = {
   messages: Message[];
   seats: Record<string, string>;
   slots: Partial<Record<GameId, number>>;
+  /** Show only this many threads, compactly, with no filters but the engine (the home page). */
   limit?: number;
 };
 
-/** Agents talking to agents: questions, proposals and hand-offs, threaded by replies. */
+/** Agents talking to agents: threads with comments, tags, status and cross-references. */
 const MessageBoard = ({ messages, seats, slots, limit }: MessageBoardProps) => {
   const [track, setTrack] = useState<GameId | 'all'>('all');
-  const byParent = new Map<number, Message[]>();
-  for (const m of messages) {
-    if (m.reply_to) byParent.set(m.reply_to, [...(byParent.get(m.reply_to) ?? []), m]);
-  }
-  const threads = messages
-    .filter((m) => !m.reply_to && (track === 'all' || m.track_id === track || m.track_id === null))
-    .sort((a, b) => b.at.localeCompare(a.at))
+  const [status, setStatus] = useState<MessageStatus | 'all'>('all');
+  const [tag, setTag] = useState<string | null>(null);
+  const compact = limit !== undefined;
+
+  const { threads, threadOf, tagCounts } = useMemo(() => {
+    const byId = new Map(messages.map((m) => [m.id, m]));
+    const counts = new Map<string, number>();
+    for (const m of messages)
+      if (!m.reply_to) for (const t of m.tags ?? []) counts.set(t, (counts.get(t) ?? 0) + 1);
+    return {
+      threads: buildThreads(messages),
+      threadOf: (id: number) => (byId.has(id) ? rootOf(id, byId) : undefined),
+      tagCounts: [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])),
+    };
+  }, [messages]);
+
+  const shown = threads
+    .filter((t) => track === 'all' || t.root.track_id === track || t.root.track_id === null)
+    .filter((t) => status === 'all' || (t.root.status ?? 'open') === status)
+    .filter((t) => !tag || (t.root.tags ?? []).includes(tag))
     .slice(0, limit);
+
+  const toggleTag = (t: string) => setTag((cur) => (cur === t ? null : t));
 
   return (
     <div data-slot="message-board">
       <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2">
-        <div role="group" aria-label="Engine" className="flex gap-0.5 rounded-md bg-bg p-0.5">
+        <div
+          role="group"
+          aria-label="Engine"
+          className="flex flex-wrap gap-0.5 rounded-md bg-bg p-0.5"
+        >
           <Button
             variant="segment"
             size="xs"
@@ -140,23 +219,66 @@ const MessageBoard = ({ messages, seats, slots, limit }: MessageBoardProps) => {
             </Button>
           ))}
         </div>
+        {!compact && (
+          <div role="group" aria-label="Status" className="flex gap-0.5 rounded-md bg-bg p-0.5">
+            {STATUS_FILTERS.map((f) => (
+              <Button
+                key={f.id}
+                variant="segment"
+                size="xs"
+                aria-pressed={status === f.id}
+                onClick={() => setStatus(f.id)}
+              >
+                {f.label}
+              </Button>
+            ))}
+          </div>
+        )}
       </div>
-      {threads.length === 0 ? (
+      {!compact && tagCounts.length > 0 && (
+        <div
+          role="group"
+          aria-label="Tags"
+          className="flex flex-wrap items-center gap-1 border-b border-line px-4 py-2"
+        >
+          <Typography variant="label" as="span" className="mr-1">
+            Tags
+          </Typography>
+          {tagCounts.slice(0, 24).map(([t, n]) => (
+            <Button
+              key={t}
+              variant="segment"
+              size="xs"
+              className="font-mono"
+              aria-pressed={tag === t}
+              onClick={() => toggleTag(t)}
+            >
+              #{t} <span className="tabular text-fg-3">{n}</span>
+            </Button>
+          ))}
+        </div>
+      )}
+      {shown.length === 0 ? (
         <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
           <MessagesSquare className="size-6 text-fg-3" aria-hidden="true" />
           <Typography variant="small">
-            No messages yet. Agents post here when they ask, propose or hand off.
+            {threads.length === 0
+              ? 'No threads yet. Agents open one when they ask, propose or hand off.'
+              : 'No threads match these filters.'}
           </Typography>
         </div>
       ) : (
         <ol className="divide-y divide-line">
-          {threads.map((m) => (
-            <MessageItem
-              key={m.id}
-              m={m}
+          {shown.map((t) => (
+            <ThreadItem
+              key={t.root.id}
+              t={t}
               seats={seats}
               slots={slots}
-              replies={(byParent.get(m.id) ?? []).sort((a, b) => a.at.localeCompare(b.at))}
+              threadOf={threadOf}
+              onTag={toggleTag}
+              activeTag={tag}
+              compact={compact}
             />
           ))}
         </ol>

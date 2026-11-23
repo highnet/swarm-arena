@@ -14,7 +14,7 @@ import {
   MessagesSquare,
   Swords,
 } from 'lucide-react';
-import type { Task } from '@arena/shared';
+import { refsOf, rootOf, type Task } from '@arena/shared';
 import { AgentTag } from '@/components/arena/AgentAvatar';
 import { EngineLogo } from '@/components/arena/EngineLogo';
 import { KINDS, TONE_CLASS } from '@/components/arena/recordKinds';
@@ -22,9 +22,11 @@ import { TaskTypeChip, VersionChip } from '@/components/arena/TaskChips';
 import { Badge } from '@/components/ui/Badge';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
+import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { getSnapshot } from '@/lib/data';
 import { REPO_URL } from '@/lib/github';
 import { formatDay, formatElo, formatTime } from '@/lib/format';
+import { recordHref } from '@/lib/routes';
 import { pageMeta } from '@/lib/site';
 import { cn } from '@/lib/utils';
 
@@ -71,15 +73,20 @@ const TaskContent = async ({ params }: TaskPageProps) => {
   const point = version
     ? s.elo.find((e) => e.track_id === task.track_id && e.engine_version === version)
     : undefined;
+  const numbers = [task.issue, task.pr].filter((x): x is number => Boolean(x));
   const talk = (s.messages ?? [])
     .filter(
       (m) =>
-        m.track_id === task.track_id &&
-        m.agent_id === task.claimed_by &&
-        m.at >= task.created_at &&
-        (!task.closed_at || m.at <= new Date(Date.parse(task.closed_at) + 3_600_000).toISOString()),
+        refsOf(m).some((r) => r.kind !== 'message' && numbers.includes(r.n)) ||
+        (m.track_id === task.track_id &&
+          m.agent_id === task.claimed_by &&
+          m.at >= task.created_at &&
+          (!task.closed_at ||
+            m.at <= new Date(Date.parse(task.closed_at) + 3_600_000).toISOString())),
     )
     .sort((a, b) => a.at.localeCompare(b.at));
+  const byId = new Map((s.messages ?? []).map((m) => [m.id, m]));
+  const threadOf = (id: number) => rootOf(id, byId);
   const status = STATUS[task.status];
   const StatusIcon = status.icon;
 
@@ -222,9 +229,16 @@ const TaskContent = async ({ params }: TaskPageProps) => {
                           {formatTime(r.at)}
                         </time>
                       </div>
-                      <Typography variant="small" color="primary" className="mt-0.5 text-pretty">
-                        {r.title}
-                      </Typography>
+                      <Link href={recordHref(r)} className="mt-0.5 block hover:underline">
+                        <Typography
+                          variant="small"
+                          color="primary"
+                          as="span"
+                          className="text-pretty"
+                        >
+                          {r.title}
+                        </Typography>
+                      </Link>
                       {r.detail && (
                         <Typography
                           variant="meta"
@@ -284,16 +298,27 @@ const TaskContent = async ({ params }: TaskPageProps) => {
             )}
           </Panel>
           {talk.length > 0 && (
-            <Panel icon={MessagesSquare} title="From the agent">
+            <Panel icon={MessagesSquare} title="On the discussion board">
               <ul className="divide-y divide-line">
                 {talk.map((m) => (
-                  <li key={m.id} className="px-4 py-2.5">
-                    <div className="text-xs text-fg-3">
-                      {m.kind} · {formatTime(m.at)}
-                    </div>
-                    <p className="mt-0.5 whitespace-pre-wrap text-[13px] leading-6 text-fg-2">
-                      {m.body}
-                    </p>
+                  <li key={m.id}>
+                    <Link
+                      href={`/messages/${threadOf(m.id)}${threadOf(m.id) === m.id ? '' : `#msg-${m.id}`}`}
+                      className="block px-4 py-2.5 hover:bg-panel-raised"
+                    >
+                      <div className="flex flex-wrap items-center gap-x-2 text-xs text-fg-3">
+                        {m.agent_id && <AgentTag id={m.agent_id} size={14} />}
+                        <span>
+                          {m.kind} · {formatTime(m.at)}
+                        </span>
+                      </div>
+                      <Typography
+                        variant="small"
+                        className="mt-0.5 line-clamp-3 whitespace-pre-wrap"
+                      >
+                        {m.title ? `${m.title}: ${m.body}` : m.body}
+                      </Typography>
+                    </Link>
                   </li>
                 ))}
               </ul>
@@ -306,11 +331,7 @@ const TaskContent = async ({ params }: TaskPageProps) => {
 };
 
 const TaskPage = ({ params }: TaskPageProps) => (
-  <Suspense
-    fallback={
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 pt-6 sm:px-6" aria-busy="true" />
-    }
-  >
+  <Suspense fallback={<PageSkeleton className="max-w-5xl px-4 pt-6 sm:px-6" />}>
     <TaskContent params={params} />
   </Suspense>
 );
