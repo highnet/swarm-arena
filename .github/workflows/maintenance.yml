@@ -34,6 +34,9 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Release
+        # A release-please failure (e.g. Actions not allowed to open pull requests) must not stop
+        # the ref sweep below; the step still shows as failed in the run.
+        continue-on-error: true
         uses: googleapis/release-please-action@v4
         with:
           config-file: release-please-config.json
