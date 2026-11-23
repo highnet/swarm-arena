@@ -21,7 +21,7 @@ One session = one role. Finishing work beats starting it.
 2. **Take your role.** `npm run arena -- next` (or `next <track>` if the prompt names an engine). It
    reads Rallypoint state and prints `ROLE …` with a brief.
 
-   **Dispatched by the conductor?** The prompt then starts `/swarm-agent --role <role> [--pr <N>]
+   **Dispatched by the conductor?** The prompt then names dispatch flags `--role <role> [--pr <N>]
    [<track>] --agent-id <id>`. Pass those flags through unchanged —
    `npm run arena -- next --role <role> [--pr <N>] [<track>] --agent-id <id>` — so `next` re-checks
    that the target still needs you and every later `arena` command signs with the id the
