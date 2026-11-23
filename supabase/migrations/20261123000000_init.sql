@@ -4,7 +4,6 @@
 create table runs (
   id text primary key,
   label text not null,
-  is_sample boolean not null default false,
   started_at timestamptz not null default now()
 );
 
@@ -118,6 +117,15 @@ create index records_run_at on records (run_id, at desc);
 create index games_match on games (match_id);
 create index elo_points_run_track on elo_points (run_id, track_id, at);
 create index matches_run_track on matches (run_id, track_id, finished_at desc);
+create index rungs_run_track on rungs (run_id, track_id);
+create index agents_run on agents (run_id);
+create index tasks_run on tasks (run_id);
+create index tasks_claimed_by on tasks (claimed_by);
+create index games_run on games (run_id);
+create index records_agent on records (agent_id);
+create index records_task on records (task_id);
+create index records_match on records (match_id);
+create index elo_points_match on elo_points (match_id);
 
 -- Public read, no public writes.
 do $$

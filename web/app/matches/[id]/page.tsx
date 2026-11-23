@@ -6,7 +6,7 @@ import { ArrowLeft } from 'lucide-react';
 import { GameReplay } from '@/components/arena/GameReplay';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
-import { getMatchGames, getSnapshot, sampleMatchIds } from '@/lib/data';
+import { getMatchGames, getSnapshot } from '@/lib/data';
 import { formatDay, formatElo, formatTime } from '@/lib/format';
 import { SERIES } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
@@ -14,8 +14,6 @@ import { cn } from '@/lib/utils';
 type MatchPageProps = {
   params: Promise<{ id: string }>;
 };
-
-export const generateStaticParams = async () => sampleMatchIds().map((id) => ({ id }));
 
 export const generateMetadata = async ({ params }: MatchPageProps): Promise<Metadata> => {
   const { id } = await params;

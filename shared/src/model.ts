@@ -8,8 +8,6 @@ import type { GameId } from './games/types';
 export type Run = {
   id: string;
   label: string;
-  /** Synthetic data. The site labels every view of a sample run as SAMPLE. */
-  is_sample: boolean;
   started_at: string;
 };
 

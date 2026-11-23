@@ -24,7 +24,7 @@ ideas ruled dead).
 - The r/artificial swarm post (message board as coordination medium). I couldn't open it from here.
 
 ## Must NOT be
-- Fake or inflated results. Every Elo number links to real match logs; sample data is labeled.
+- Fake or inflated results. Every Elo number links to real match logs; no synthetic data.
 - A generic AI-dashboard look (no purple gradients/glass/slop). Designed with Impeccable.
 - A chat-transcript dump. The board shows structured records, not agent chatter.
 
@@ -50,7 +50,7 @@ ideas ruled dead).
    Edax levels (Othello), and a baseline MCTS ladder for Hex, plus random/greedy baselines in
    every game.
 4. Engines written in Rust (fast and self-contained); one crate per game, no borrowed engine code.
-5. Until the first real run, the site ships with seed data that is clearly marked **SAMPLE**.
+5. ~~Sample data until the first run~~: dropped. The site shows only real runs.
 6. Deploy to Vercel; one Supabase project.
 
 ## Suggested first step

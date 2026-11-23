@@ -23,7 +23,7 @@ export const post = (kind: RecordKind, fields: Partial<BoardRecord> & { title: s
 export const ensureRun = async (label: string) => {
   const db = getStore();
   if ((await db.select('runs', { id: RUN_ID })).length) return false;
-  await db.insert('runs', { id: RUN_ID, label, is_sample: false, started_at: now() });
+  await db.insert('runs', { id: RUN_ID, label, started_at: now() });
   for (const t of TRACKS) {
     const finish = t.rungs.find((r) => r.label === t.finishLabel)!;
     await db.insert('tracks', {

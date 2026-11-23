@@ -35,7 +35,9 @@ const valueAt = (points: RacePoint[], t: number) => {
   return v;
 };
 
-const RaceChart = ({ series, start, end, height: fullHeight = 320 }: RaceChartProps) => {
+const RaceChart = ({ series, start, end: rawEnd, height: fullHeight = 320 }: RaceChartProps) => {
+  // A fresh run still needs a time axis: show at least six hours.
+  const end = Math.max(rawEnd, start + 6 * 3600_000);
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(720);
   const [hoverT, setHoverT] = useState<number | null>(null);

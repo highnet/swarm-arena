@@ -7,21 +7,20 @@ import { cn } from '@/lib/utils';
 
 type LiveIndicatorProps = {
   runId: string;
-  isSample: boolean;
 };
 
 /**
  * Subscribes to new board records when Supabase is configured and refreshes the server
  * snapshot as they arrive. Without credentials, the page is an honest static snapshot.
  */
-const LiveIndicator = ({ runId, isSample }: LiveIndicatorProps) => {
+const LiveIndicator = ({ runId }: LiveIndicatorProps) => {
   const router = useRouter();
   const [state, setState] = useState<'snapshot' | 'connecting' | 'live'>('snapshot');
 
   useEffect(() => {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!url || !key || isSample) return;
+    if (!url || !key || runId === 'not-started') return;
     const db = createClient(url, key, { auth: { persistSession: false } });
     let timer: ReturnType<typeof setTimeout> | undefined;
     const refresh = () => {
@@ -45,7 +44,7 @@ const LiveIndicator = ({ runId, isSample }: LiveIndicatorProps) => {
       clearTimeout(timer);
       db.removeChannel(channel);
     };
-  }, [runId, isSample, router]);
+  }, [runId, router]);
 
   return (
     <span

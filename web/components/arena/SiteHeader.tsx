@@ -1,10 +1,8 @@
 import Link from 'next/link';
-import { Badge } from '@/components/ui/Badge';
 import { LiveIndicator } from './LiveIndicator';
 
 type SiteHeaderProps = {
   runId: string;
-  isSample: boolean;
 };
 
 const NAV = [
@@ -27,7 +25,7 @@ const Mark = () => (
   </svg>
 );
 
-const SiteHeader = ({ runId, isSample }: SiteHeaderProps) => (
+const SiteHeader = ({ runId }: SiteHeaderProps) => (
   <header className="sticky top-0 z-20 border-b border-line bg-bg/90 backdrop-blur-md">
     <div className="mx-auto flex h-12 max-w-[90rem] items-center gap-4 px-4 sm:px-6">
       <Link
@@ -37,11 +35,6 @@ const SiteHeader = ({ runId, isSample }: SiteHeaderProps) => (
         <Mark />
         Swarm Arena
       </Link>
-      {isSample && (
-        <Badge tone="sample" title="Synthetic data showing the format. A real run replaces it.">
-          Sample data
-        </Badge>
-      )}
       <nav aria-label="Main" className="ml-auto flex items-center gap-1">
         {NAV.map((n) => (
           <Link
@@ -53,7 +46,7 @@ const SiteHeader = ({ runId, isSample }: SiteHeaderProps) => (
           </Link>
         ))}
         <span className="mx-2 hidden h-4 w-px bg-line sm:block" />
-        <LiveIndicator runId={runId} isSample={isSample} />
+        <LiveIndicator runId={runId} />
       </nav>
     </div>
   </header>

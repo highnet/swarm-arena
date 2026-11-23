@@ -26,7 +26,7 @@ Operator:
   play <track> <a> <b> [--pairs N]
                                 play references (e.g. stockfish-3, mcts-2000) or engine binaries
 
-Store: Supabase when SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set, else ${ARENA_HOME}/store.json.`;
+Store: Supabase when SUPABASE_URL is set (secret key via SUPABASE_SECRET_KEY or the network proxy), else ${ARENA_HOME}/store.json.`;
 
 const flag = (name: string, fallback: number) => {
   const i = process.argv.indexOf(`--${name}`);

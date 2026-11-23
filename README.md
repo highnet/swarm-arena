@@ -9,7 +9,7 @@ swarm-arena/
 ├── shared/     rules for all four games, referee, Elo, reference players, row types (TypeScript)
 ├── harness/    the `arena` CLI: task board, referee, gate matches, shipping
 ├── engines/    Rust workspace, one crate per game. Starts as protocol skeletons; the swarm fills them
-├── supabase/   schema (migrations/) and the SAMPLE seed (seed.sql)
+├── supabase/   schema (migrations/)
 ├── web/        Next.js site: the race, latest game, the board, strategy seat, seats, graveyard
 └── docs/briefs the interview brief this was built from
 ```
@@ -37,7 +37,7 @@ provisional until `arena calibrate` measures them.
 ```bash
 npm install
 npm test                     # rules (perft etc.), Elo
-npm run dev                  # site on :3000, shows the SAMPLE run without Supabase
+npm run dev                  # site on :3000 (ladders at the start line without Supabase)
 ```
 
 ### Supabase
@@ -45,7 +45,6 @@ npm run dev                  # site on :3000, shows the SAMPLE run without Supab
 ```bash
 supabase link --project-ref <ref>
 supabase db push             # applies supabase/migrations
-psql "$DATABASE_URL" -f supabase/seed.sql   # optional: the SAMPLE run
 ```
 
 `web/.env.local`:
@@ -55,7 +54,7 @@ NEXT_PUBLIC_SUPABASE_URL=https://<ref>.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon key>
 ```
 
-The site picks the newest non-sample run and falls back to the sample. With a real run it
+The site shows the newest run, or the ladders at the start line before one exists. It
 subscribes to Supabase Realtime and refreshes as records arrive.
 
 ### The swarm
@@ -64,8 +63,9 @@ Cloud sessions need, in their environment:
 
 - Setup script: `npm ci && ./scripts/install-references.sh` (Stockfish, GNU Go, Edax).
 - Network: the Supabase host, `github.com` for the Edax clone, package registries.
-- `SUPABASE_URL`, plus the service role key as an environment secret. Never ship that key to
-  the site.
+- `SUPABASE_URL` and `ARENA_RUN` as environment variables, and the project's secret key
+  (`sb_secret_…`) as a network secret for the Supabase host, sent in the `apikey` header. The
+  harness never needs the key in a variable. Never ship it to the site.
 - Permission to push to `main`: the referee ships versions there.
 
 Start a run once, then prompt sessions (by hand or on a schedule):
@@ -88,10 +88,4 @@ Knobs: `ARENA_MOVE_MS` (default 200), `ARENA_GATE_PAIRS` (20), `STOCKFISH_BIN`, 
 
 The site deploys to Vercel from `main` (project root `web/`). Preview deployments are off: only
 `main` builds. Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` in the Vercel
-project to read a real run; without them the site serves the sample.
-
-## Sample data
-
-`npm run sample` regenerates `web/data/sample.json` and `supabase/seed.sql`. It is synthetic and
-flagged `is_sample`, so the site labels it SAMPLE everywhere. Its replayed boards are real, legal
-games between simple reference players, not the engines.
+project to read the run.

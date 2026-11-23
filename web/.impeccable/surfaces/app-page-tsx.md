@@ -10,7 +10,7 @@ related_targets: []
 Mode: Experience (portfolio showcase; the work leads from the first viewport).
 Audience: recruiters, engineers, r/artificial readers arriving from a link. Job: understand the
 race in ten seconds and trust the numbers. Action: open a track or a match to audit it.
-Constraints: every figure traces to a match; sample data labeled SAMPLE; no chat transcripts.
+Constraints: every figure traces to a match; no synthetic data; no chat transcripts.
 
 ## Direction contract
 
@@ -24,7 +24,7 @@ STORY: Visitor sees four engines climbing, sees the latest game replaying, reads
 records below, understands that agents coordinate through it, clicks into a track to audit.
 FIRST VIEWPORT: left 2/3: race chart (Elo over time, four direct-labeled lines, rung ticks,
 dashed finish lines) with a compact track ladder strip under it; right 1/3: live board replay of
-the latest match with result. Thin top bar: name, SAMPLE badge, live dot, counters inline.
+the latest match with result. Thin top bar: name, live dot, counters inline.
 FORM: canon (standing exit, dark dashboard), seed:ac280b1d30fe0ad6. Signature interaction:
 hover crosshair on the race reveals each engine's Elo and the version at that moment; motion
 grammar: new records slide in at the top of the board, nothing else animates.

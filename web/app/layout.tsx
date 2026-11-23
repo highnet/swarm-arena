@@ -23,7 +23,7 @@ const RootLayout = async ({ children }: RootLayoutProps) => {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full`}>
       <body className="flex min-h-full flex-col">
-        <SiteHeader runId={snapshot.run.id} isSample={snapshot.run.is_sample} />
+        <SiteHeader runId={snapshot.run.id} />
         {children}
         <footer className="mt-auto border-t border-line">
           <div className="mx-auto flex max-w-[90rem] flex-wrap items-center justify-between gap-3 px-4 py-5 text-xs text-fg-3 sm:px-6">

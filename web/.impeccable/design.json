@@ -246,7 +246,7 @@
       },
       "warning": {
         "role": "status",
-        "displayName": "Sample Amber",
+        "displayName": "Amber",
         "canonical": "oklch(0.811 0.164 78.5)",
         "tonalRamp": [
           "oklch(0.15 0.025 78.5)",
@@ -491,10 +491,10 @@
     {
       "name": "Badges",
       "kind": "chip",
-      "refersTo": "badge-sample",
-      "description": "Neutral, SAMPLE (warning), good and critical tones; status tones always carry an icon and a word.",
-      "html": "<span class=\"ds-badge ds-badge-sample\">Sample data</span> <span class=\"ds-badge ds-badge-good\"><svg width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z\"/><line x1=\"4\" x2=\"4\" y1=\"22\" y2=\"15\"/></svg>Finished</span> <span class=\"ds-badge ds-badge-critical\">Ruled dead</span> <span class=\"ds-badge\">claimed</span>",
-      "css": ".ds-badge { font-family: var(--font-sans, Geist, ui-sans-serif, system-ui, sans-serif); display:inline-flex; align-items:center; gap:4px; padding:0 6px; font-size:11px; font-weight:500; line-height:20px; border-radius:5px; border:1px solid var(--line, oklch(0.265 0.007 265)); background:var(--panel-raised, oklch(0.215 0.007 265)); color:var(--fg-2, oklch(0.79 0.008 265)); white-space:nowrap; } .ds-badge-sample { border-color:color-mix(in oklab, var(--warning, #fab219) 40%, transparent); background:color-mix(in oklab, var(--warning, #fab219) 10%, transparent); color:var(--warning, #fab219); } .ds-badge-good { border-color:color-mix(in oklab, var(--good, #0ca30c) 40%, transparent); background:color-mix(in oklab, var(--good, #0ca30c) 10%, transparent); color:var(--good-text, #3fbf3f); } .ds-badge-critical { border-color:color-mix(in oklab, var(--critical, #d03b3b) 40%, transparent); background:color-mix(in oklab, var(--critical, #d03b3b) 10%, transparent); color:var(--critical-text, #ef6a6a); }"
+      "refersTo": "badge-good",
+      "description": "Neutral, good and critical tones; status tones always carry an icon and a word.",
+      "html": "<span class=\"ds-badge ds-badge-good\"><svg width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z\"/><line x1=\"4\" x2=\"4\" y1=\"22\" y2=\"15\"/></svg>Finished</span> <span class=\"ds-badge ds-badge-critical\">Ruled dead</span> <span class=\"ds-badge\">claimed</span>",
+      "css": ".ds-badge { font-family: var(--font-sans, Geist, ui-sans-serif, system-ui, sans-serif); display:inline-flex; align-items:center; gap:4px; padding:0 6px; font-size:11px; font-weight:500; line-height:20px; border-radius:5px; border:1px solid var(--line, oklch(0.265 0.007 265)); background:var(--panel-raised, oklch(0.215 0.007 265)); color:var(--fg-2, oklch(0.79 0.008 265)); white-space:nowrap; } .ds-badge-good { border-color:color-mix(in oklab, var(--good, #0ca30c) 40%, transparent); background:color-mix(in oklab, var(--good, #0ca30c) 10%, transparent); color:var(--good-text, #3fbf3f); } .ds-badge-critical { border-color:color-mix(in oklab, var(--critical, #d03b3b) 40%, transparent); background:color-mix(in oklab, var(--critical, #d03b3b) 10%, transparent); color:var(--critical-text, #ef6a6a); }"
     },
     {
       "name": "Panel",
@@ -508,7 +508,7 @@
       "name": "Top Bar",
       "kind": "nav",
       "refersTo": "site-header",
-      "description": "48px sticky bar: mark, name, SAMPLE badge, nav links, hairline divider, live indicator.",
+      "description": "48px sticky bar: mark, name, nav links, hairline divider, live indicator.",
       "html": "<header class=\"ds-nav\"><a class=\"ds-brand\" href=\"#\"><svg viewBox=\"0 0 20 20\" width=\"20\" height=\"20\"><path d=\"M3 16 7 10l3 3 3-6 4 9\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"17\" cy=\"16\" r=\"1.75\" fill=\"currentColor\"/></svg>Swarm Arena</a><nav><a href=\"#\">Race</a><a href=\"#\">Board</a><a href=\"#\">How it works</a><span class=\"ds-sep\"></span><span class=\"ds-live\"><span class=\"ds-live-dot\"></span>Live</span></nav></header>",
       "css": ".ds-nav { font-family: var(--font-sans, Geist, ui-sans-serif, system-ui, sans-serif); display:flex; align-items:center; gap:16px; height:48px; padding:0 16px; background:color-mix(in oklab, var(--bg, oklch(0.155 0.006 265)) 90%, transparent); backdrop-filter:blur(12px); border-bottom:1px solid var(--line, oklch(0.265 0.007 265)); } .ds-brand { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:600; letter-spacing:-0.025em; color:var(--fg, oklch(0.965 0.003 265)); text-decoration:none; } .ds-nav nav { margin-left:auto; display:flex; align-items:center; gap:4px; } .ds-nav nav a { padding:6px 10px; border-radius:6px; font-size:13px; color:var(--fg-2, oklch(0.79 0.008 265)); text-decoration:none; transition:background-color .15s, color .15s; } .ds-nav nav a:hover { background:var(--panel-raised, oklch(0.215 0.007 265)); color:var(--fg, oklch(0.965 0.003 265)); } .ds-nav nav a:focus-visible { outline:2px solid var(--fg, oklch(0.965 0.003 265)); outline-offset:2px; } .ds-sep { width:1px; height:16px; margin:0 8px; background:var(--line, oklch(0.265 0.007 265)); } .ds-live { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--fg-2, oklch(0.79 0.008 265)); } .ds-live-dot { width:6px; height:6px; border-radius:9999px; background:var(--good, #0ca30c); animation:ds-pulse 2s ease-in-out infinite; } @keyframes ds-pulse { 50% { opacity:.35; } }"
     },
@@ -529,8 +529,7 @@
       "Colourless chrome: the primary action colour is the foreground white.",
       "Four categorical track hues, used only as data identity.",
       "Status hues reserved for verdicts and always paired with an icon and a label.",
-      "Geist for UI, Geist Mono only for measured data.",
-      "SAMPLE data is always flagged with the warning-tone badge."
+      "Geist for UI, Geist Mono only for measured data."
     ],
     "rules": [
       {
@@ -546,11 +545,6 @@
       {
         "name": "The One White Rule",
         "body": "The only action colour is the foreground white. Chrome stays greyscale so the data is the only saturated thing on screen.",
-        "section": "colors"
-      },
-      {
-        "name": "The SAMPLE Rule",
-        "body": "Synthetic data is labelled with the warning-tone badge wherever it appears, with a one-line explanation on hover or inline.",
         "section": "colors"
       },
       {
@@ -574,7 +568,6 @@
       "Do give each track one series slot and use it for every mark about that track: line, dot, rung, filter, tooltip row.",
       "Do pair every green or red with a lucide icon and a word, as the ladder's Flag + \"Finished\" and the feed's verdict rows do.",
       "Do set every measured number in Geist Mono with tabular figures, and its label in sans `fg-3`.",
-      "Do label synthetic data with the warning-tone SAMPLE badge and say what it is.",
       "Do direct-label chart series at the line end and keep an accessible table behind the chart.",
       "Do keep transitions to 150ms colour changes and respect reduced motion."
     ],
@@ -582,7 +575,6 @@
       "Don't add a light theme or theme toggle; the system is dark only.",
       "Don't use a track hue for chrome, buttons, emphasis or decoration, or reassign hues by rank or leader.",
       "Don't add a fifth categorical hue without re-running the CVD validator against `panel`.",
-      "Don't use green, red or amber for anything but verdicts, failures and SAMPLE/connecting, and never as colour alone.",
       "Don't introduce a brand accent; the primary is white.",
       "Don't put shadows on panels or rows; depth is tonal.",
       "Don't set prose, headings or labels in mono, or numbers in sans.",

@@ -1,28 +1,52 @@
 import { cacheLife } from 'next/cache';
-import type { GameId, GameRow, Snapshot } from '@arena/shared';
-import sample from '@/data/sample.json';
+import { TRACKS, type GameRow, type Snapshot } from '@arena/shared';
 import { getSupabase, supabaseConfigured } from './supabase';
 
-const SAMPLE = sample as unknown as Snapshot;
-
-/** Games keep their moves only for the newest game of each track; the rest load per match. */
-const trimGames = (games: GameRow[]): GameRow[] => {
-  const newest = new Map<GameId, string>();
-  for (const g of [...games].sort((a, b) => b.finished_at.localeCompare(a.finished_at))) {
-    if (!newest.has(g.track_id)) newest.set(g.track_id, g.id);
-  }
-  const keep = new Set(newest.values());
-  return games.map((g) => (keep.has(g.id) ? g : { ...g, moves: [] }));
+/** Before the first run: the four ladders at the start line, nothing played. */
+const notStarted = (): Snapshot => {
+  const run = { id: 'not-started', label: 'Not started', started_at: new Date().toISOString() };
+  return {
+    run,
+    tracks: TRACKS.map((t) => ({
+      id: t.id,
+      run_id: run.id,
+      name: t.name,
+      color_slot: t.colorSlot,
+      finish_label: t.finishLabel,
+      finish_elo: t.rungs.find((r) => r.label === t.finishLabel)!.elo,
+      current_elo: null,
+      current_version: null,
+    })),
+    rungs: TRACKS.flatMap((t) =>
+      t.rungs.map((r, position) => ({
+        id: `${t.id}-${position}`,
+        run_id: run.id,
+        track_id: t.id,
+        position,
+        label: r.label,
+        opponent: r.opponent,
+        elo: r.elo,
+        cleared_at: null,
+        cleared_by_match: null,
+      })),
+    ),
+    agents: [],
+    tasks: [],
+    records: [],
+    matches: [],
+    games: [],
+    elo: [],
+  };
 };
 
 const fromSupabase = async (): Promise<Snapshot | null> => {
   const db = getSupabase();
-  const { data: runs } = await db
+  const { data: runs, error } = await db
     .from('runs')
     .select('*')
-    .order('is_sample', { ascending: true })
     .order('started_at', { ascending: false })
     .limit(1);
+  if (error) throw new Error(`runs: ${error.message}`);
   const run = runs?.[0];
   if (!run) return null;
   const byRun = <T>(table: string, columns = '*') =>
@@ -81,21 +105,19 @@ export const getSnapshot = async (): Promise<Snapshot> => {
   'use cache';
   cacheLife({ stale: 30, revalidate: 30, expire: 3600 });
   if (supabaseConfigured()) {
-    const live = await fromSupabase().catch(() => null);
+    const live = await fromSupabase().catch((e) => {
+      console.error('supabase snapshot failed', e);
+      return null;
+    });
     if (live) return live;
   }
-  return { ...SAMPLE, games: trimGames(SAMPLE.games) };
+  return notStarted();
 };
 
 export const getMatchGames = async (matchId: string): Promise<GameRow[]> => {
   'use cache';
   cacheLife({ stale: 60, revalidate: 300, expire: 86400 });
-  if (supabaseConfigured()) {
-    const { data } = await getSupabase().from('games').select('*').eq('match_id', matchId);
-    if (data?.length) return data as GameRow[];
-  }
-  return SAMPLE.games.filter((g) => g.match_id === matchId);
+  if (!supabaseConfigured()) return [];
+  const { data } = await getSupabase().from('games').select('*').eq('match_id', matchId);
+  return (data ?? []) as GameRow[];
 };
-
-/** Sample ids, for prerendering detail pages. */
-export const sampleMatchIds = () => SAMPLE.matches.map((m) => m.id);

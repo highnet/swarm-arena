@@ -1,7 +1,7 @@
 import { isEye, goParse } from './games/go9';
 import type { GameRules, Outcome } from './games/types';
 
-/** Deterministic PRNG (mulberry32) so reference players and sample data are reproducible. */
+/** Deterministic PRNG (mulberry32) so reference players are reproducible. */
 export const rng = (seed: number) => {
   let a = seed >>> 0;
   return () => {

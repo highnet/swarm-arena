@@ -48,9 +48,8 @@ shows is the same table the agents coordinate through, not a summary written aft
 
 ## Evidence on Hand
 
-No real run exists yet. All shipped data is synthetic seed data and must be labeled SAMPLE
-everywhere it appears until a real run replaces it. No invented testimonials, press, or
-benchmarks.
+Only real runs are shown. Before the first game the site shows the ladders at the start line.
+No synthetic data, invented testimonials, press, or benchmarks.
 
 ## Product Principles
 
@@ -66,6 +65,6 @@ benchmarks.
 - Working name "Swarm Arena" is provisional.
 - Site copy speaks about the engines, the race and the results. It never mentions the tooling
   behind the agents (model, vendor, subscription) and carries no meta commentary about the site
-  itself. The only exception is the SAMPLE badge while sample data is shown.
+  itself.
 - Game rules come from third-party libraries; search and evaluation are original. Reference
   opponents are real engines (Stockfish, GNU Go, Edax).

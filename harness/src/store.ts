@@ -18,9 +18,19 @@ export type Store = {
   claim: (table: string, filter: Filter, patch: Row) => Promise<number>;
 };
 
+const secretKey = () => process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'sb_secret_injected_by_proxy';
+
 const supabaseStore = (): Store => {
-  const db: SupabaseClient = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
+  // The secret key travels only in the apikey header. In cloud sessions the network proxy
+  // injects the real key there, so SUPABASE_SECRET_KEY can be any placeholder.
+  const apiKeyOnly: typeof fetch = (input, init) => {
+    const headers = new Headers(init?.headers);
+    headers.delete('Authorization');
+    return fetch(input, { ...init, headers });
+  };
+  const db: SupabaseClient = createClient(process.env.SUPABASE_URL!, secretKey(), {
     auth: { persistSession: false },
+    global: { fetch: apiKeyOnly },
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const apply = (q: any, f: Filter): any => Object.entries(f).reduce((acc, [k, v]) => acc.eq(k, v), q);
@@ -83,7 +93,7 @@ let store: Store | undefined;
 
 export const getStore = (): Store => {
   if (store) return store;
-  if (process.env.ARENA_STORE !== 'file' && process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  if (process.env.ARENA_STORE !== 'file' && process.env.SUPABASE_URL) {
     store = supabaseStore();
   } else {
     store = fileStore(resolve(process.env.ARENA_HOME ?? '.arena', 'store.json'));

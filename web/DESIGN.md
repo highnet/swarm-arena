@@ -135,12 +135,6 @@ components:
     rounded: "{rounded.chip}"
     height: "20px"
     padding: "0 6px"
-  badge-sample:
-    backgroundColor: "color-mix(in oklab, #fab219 10%, transparent)"
-    textColor: "{colors.warning}"
-    rounded: "{rounded.chip}"
-    height: "20px"
-    padding: "0 6px"
   badge-good:
     backgroundColor: "color-mix(in oklab, #0ca30c 10%, transparent)"
     textColor: "{colors.good-text}"
@@ -184,7 +178,6 @@ Motion is nearly absent. The one ambient animation is the pulsing live dot; ever
 - Four categorical track hues, used only as data identity.
 - Status hues reserved for verdicts and always paired with an icon and a label.
 - Geist for UI, Geist Mono only for measured data.
-- SAMPLE data is always flagged with the warning-tone badge.
 
 ## Colors
 
@@ -209,7 +202,7 @@ A colourless greyscale world on a cool near-black ground, with saturation spent 
 ### Status (reserved)
 - **Verdict Green** (`good`) with **Verdict Green Text** (`good-text`): landed patches, cleared rungs, finished tracks, working agents. The darker value fills dots and tints badges; the lighter value is the readable text tone.
 - **Refuted Red** (`critical`) with **Refuted Red Text** (`critical-text`): rejected patches and ideas ruled dead.
-- **Sample Amber** (`warning`): synthetic data (the SAMPLE badge and sample-run notice) and the realtime "connecting" dot.
+- **Amber** (`warning`): the realtime "connecting" dot.
 
 ### Game boards
 - **Light Square** (`square-light`) and **Dark Square** (`square-dark`): board cells and the Go/Hex board ground, kept inside the greyscale family.
@@ -222,8 +215,6 @@ A colourless greyscale world on a cool near-black ground, with saturation spent 
 **The Reserved Status Rule.** Green and red mean verified and refuted, nothing else. They always ship with an icon and a label (Flag + "Finished", GitMerge + "Landed", CircleSlash + "Ruled dead"); colour alone never carries a status.
 
 **The One White Rule.** The only action colour is the foreground white. Chrome stays greyscale so the data is the only saturated thing on screen.
-
-**The SAMPLE Rule.** Synthetic data is labelled with the warning-tone badge wherever it appears, with a one-line explanation on hover or inline.
 
 ## Typography
 
@@ -283,7 +274,7 @@ Quiet and compact; most controls are ghost or segment, colour changes on hover o
 
 ### Chips (Badges)
 - **Style:** 20px high, 6px horizontal padding, 5px radius, 1px border, 11px medium text, optional 12px leading icon.
-- **Tones:** neutral (`panel-raised`, `line` border, `fg-2`); outline (transparent, `line`, `fg-3`); sample, good and critical each use their status colour at 40% for the border, 10% for the fill and the readable text tone for the label.
+- **Tones:** neutral (`panel-raised`, `line` border, `fg-2`); outline (transparent, `line`, `fg-3`); good and critical each use their status colour at 40% for the border, 10% for the fill and the readable text tone for the label.
 
 ### Cards / Containers (Panel)
 - **Corner Style:** 8px, or flush edge to edge on mobile.
@@ -292,7 +283,7 @@ Quiet and compact; most controls are ghost or segment, colour changes on hover o
 - **Internal Padding:** set by the body: 16px for prose blocks, 16px x 10px for list rows, flush for charts and lists.
 
 ### Navigation
-The 48px sticky top bar on `bg` at 90% with backdrop blur and a hairline bottom. Left: a 20px line-mark plus "Swarm Arena" (14px, 600) and the SAMPLE badge when the run is synthetic. Right: 13px `fg-2` links with 6px radius that fill `panel-raised` on hover (hidden below `sm`), a 16px hairline divider, then the live indicator (a 6px dot: pulsing `good` when live, `warning` while connecting, `fg-3` for a static snapshot, always with its word).
+The 48px sticky top bar on `bg` at 90% with backdrop blur and a hairline bottom. Left: a 20px line-mark plus "Swarm Arena" (14px, 600). Right: 13px `fg-2` links with 6px radius that fill `panel-raised` on hover (hidden below `sm`), a 16px hairline divider, then the live indicator (a 6px dot: pulsing `good` when live, `warning` while connecting, `fg-3` for a static snapshot, always with its word).
 
 ### Race Chart (signature)
 Elo over time, one 2px line per track in its series hue, direct-labelled at the right edge (dot + name + mono Elo) instead of relying on a legend. Finish lines are dashed in the track hue (70% opacity, 35% once finished); gridlines are `line` with mono `fg-3` tick labels. Hovering shows a crosshair with points ringed in `panel` and the Float tooltip listing each engine's version and Elo. An `sr-only` table carries the same data.
@@ -313,7 +304,6 @@ Inline SVG boards for chess, Go 9x9, Othello and Hex, drawn only from the board 
 - **Do** give each track one series slot and use it for every mark about that track: line, dot, rung, filter, tooltip row.
 - **Do** pair every green or red with a lucide icon and a word, as the ladder's Flag + "Finished" and the feed's verdict rows do.
 - **Do** set every measured number in Geist Mono with tabular figures, and its label in sans `fg-3`.
-- **Do** label synthetic data with the warning-tone SAMPLE badge and say what it is.
 - **Do** direct-label chart series at the line end and keep an accessible table behind the chart.
 - **Do** keep transitions to 150ms colour changes and respect reduced motion.
 
@@ -321,7 +311,7 @@ Inline SVG boards for chess, Go 9x9, Othello and Hex, drawn only from the board 
 - **Don't** add a light theme or theme toggle; the system is dark only.
 - **Don't** use a track hue for chrome, buttons, emphasis or decoration, or reassign hues by rank or leader.
 - **Don't** add a fifth categorical hue without re-running the CVD validator against `panel`.
-- **Don't** use green, red or amber for anything but verdicts, failures and SAMPLE/connecting, and never as colour alone.
+- **Don't** use green, red or amber for anything but verdicts, failures and connecting, and never as colour alone.
 - **Don't** introduce a brand accent; the primary is white.
 - **Don't** put shadows on panels or rows; depth is tonal.
 - **Don't** set prose, headings or labels in mono, or numbers in sans.
