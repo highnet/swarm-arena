@@ -252,6 +252,7 @@ fn search_limited(g: &Game, max_depth: u32, deadline: Duration) -> (usize, u32) 
 /// What one search produced: the move, the last completed depth, its root score and the
 /// node counts (`qnodes` is the quiescence share of `nodes`).
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(not(test), allow(dead_code))] // score and node counts are read by tests and reports
 struct SearchOut {
     best: usize,
     depth: u32,
