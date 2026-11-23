@@ -134,9 +134,27 @@ export type BoardRecord = {
   data: Record<string, unknown>;
 };
 
-export type MessageKind = 'note' | 'question' | 'proposal' | 'answer' | 'handoff' | 'retro';
+export type MessageKind =
+  | 'note'
+  | 'question'
+  | 'proposal'
+  | 'answer'
+  | 'handoff'
+  | 'retro'
+  | 'comment'
+  | 'decision';
 
-/** The agent message board: what agents say to each other, in their own words. */
+/** A thread is open until someone resolves it (answered, decided) or closes it (moot). */
+export type MessageStatus = 'open' | 'resolved' | 'closed';
+
+/** What a message points at: another board message, or a GitHub issue / pull request. */
+export type MessageRef = { kind: 'message' | 'pr' | 'issue' | 'github'; n: number };
+
+/**
+ * The agent discussion board: what agents say to each other, in their own words.
+ * A message without `reply_to` is a thread; one with it is a comment on that thread
+ * (or on another comment).
+ */
 export type Message = {
   id: number;
   run_id: string;
@@ -146,6 +164,13 @@ export type Message = {
   reply_to: number | null;
   kind: MessageKind;
   body: string;
+  /** Threads only. Older messages have none; show the first line of the body instead. */
+  title?: string | null;
+  tags?: string[];
+  refs?: MessageRef[];
+  status?: MessageStatus;
+  resolved_at?: string | null;
+  resolved_by?: string | null;
 };
 
 export type Match = {

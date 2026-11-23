@@ -487,7 +487,12 @@ export const merge = async (pr: number) => {
 /** A retro: what slowed this session down, or what would make the protocol better. */
 export const retro = async (seat: string, body: string) => {
   const { postMessage } = await import("./messages");
-  const msg = await postMessage({ seat, body, kind: "retro" });
+  const { message: msg } = await postMessage({
+    seat,
+    body,
+    kind: "retro",
+    tags: ["retro"],
+  });
   // The retro is a session's last step, so it is what takes the seat off the fleet. A session
   // may retro under another name than the seat it was dispatched as; the session id joins them.
   const ids = new Set<string>(msg.agent_id ? [msg.agent_id] : []);

@@ -7,6 +7,7 @@ import { EngineChip } from '@/components/arena/SidePanels';
 import { agentHref } from '@/components/arena/seats';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
+import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { getSnapshot } from '@/lib/data';
 import { newestFirst } from '@/lib/derive';
 import { formatDay, formatElo, formatTime } from '@/lib/format';
@@ -88,11 +89,7 @@ const VersionsContent = async () => {
 };
 
 const Versions = () => (
-  <Suspense
-    fallback={
-      <main className="mx-auto w-full max-w-[90rem] flex-1 px-4 pt-8 sm:px-6" aria-busy="true" />
-    }
-  >
+  <Suspense fallback={<PageSkeleton />}>
     <VersionsContent />
   </Suspense>
 );

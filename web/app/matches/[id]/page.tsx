@@ -6,6 +6,7 @@ import { ArrowLeft, Swords } from 'lucide-react';
 import { GameReplay } from '@/components/arena/GameReplay';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
+import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { getMatchGames, getSnapshot } from '@/lib/data';
 import { formatDay, formatElo, formatTime } from '@/lib/format';
 import { SERIES } from '@/lib/tracks';
@@ -110,11 +111,7 @@ const MatchContent = async ({ params }: MatchPageProps) => {
 };
 
 const MatchPage = ({ params }: MatchPageProps) => (
-  <Suspense
-    fallback={
-      <main className="mx-auto w-full max-w-[90rem] flex-1 px-4 pt-6 sm:px-6" aria-busy="true" />
-    }
-  >
+  <Suspense fallback={<PageSkeleton className="max-w-[90rem] px-4 pt-6 sm:px-6" />}>
     <MatchContent params={params} />
   </Suspense>
 );

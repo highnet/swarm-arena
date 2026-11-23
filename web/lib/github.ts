@@ -2,8 +2,9 @@ import { cacheLife, cacheTag } from 'next/cache';
 
 /** Rallypoint state, read from GitHub: the issues and pull requests the swarm coordinates through. */
 
-export const REPO = 'highnet/swarm-arena';
-export const REPO_URL = `https://github.com/${REPO}`;
+import { REPO } from './repo';
+
+export { REPO, REPO_URL } from './repo';
 
 export type RpLabel = string;
 

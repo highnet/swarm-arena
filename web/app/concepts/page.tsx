@@ -14,6 +14,7 @@ import { GAMES, type GameId, type Task } from '@arena/shared';
 import { EngineLogo } from '@/components/arena/EngineLogo';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
+import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { getSnapshot } from '@/lib/data';
 import { getConcepts } from '@/lib/source';
 import { pageMeta } from '@/lib/site';
@@ -183,11 +184,7 @@ const ConceptsContent = async () => {
 };
 
 const Concepts = () => (
-  <Suspense
-    fallback={
-      <main className="mx-auto w-full max-w-[90rem] flex-1 px-4 pt-8 sm:px-6" aria-busy="true" />
-    }
-  >
+  <Suspense fallback={<PageSkeleton />}>
     <ConceptsContent />
   </Suspense>
 );

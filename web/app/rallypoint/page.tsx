@@ -18,6 +18,7 @@ import { EngineLogo } from '@/components/arena/EngineLogo';
 import { TaskTypeChip } from '@/components/arena/TaskChips';
 import { Badge } from '@/components/ui/Badge';
 import { Typography } from '@/components/ui/Typography';
+import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { getSnapshot } from '@/lib/data';
 import { formatDay, formatTime } from '@/lib/format';
 import { getRallypoint, REPO_URL, STAGES, stageOf, type RpItem, type RpStage } from '@/lib/github';
@@ -218,11 +219,7 @@ const RallypointContent = async () => {
 };
 
 const Rallypoint = () => (
-  <Suspense
-    fallback={
-      <main className="mx-auto w-full max-w-[90rem] flex-1 px-4 pt-8 sm:px-6" aria-busy="true" />
-    }
-  >
+  <Suspense fallback={<PageSkeleton />}>
     <RallypointContent />
   </Suspense>
 );

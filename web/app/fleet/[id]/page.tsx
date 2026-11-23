@@ -13,6 +13,7 @@ import { agentHref, isLive, isStale, roleLabel } from '@/components/arena/seats'
 import { Badge } from '@/components/ui/Badge';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
+import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { getSnapshot } from '@/lib/data';
 import { formatDay, formatTime } from '@/lib/format';
 import { REPO_URL } from '@/lib/github';
@@ -202,11 +203,7 @@ const AgentContent = async ({ params }: AgentPageProps) => {
 };
 
 const AgentPage = (props: AgentPageProps) => (
-  <Suspense
-    fallback={
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 pt-6 sm:px-6" aria-busy="true" />
-    }
-  >
+  <Suspense fallback={<PageSkeleton className="max-w-5xl px-4 pt-6 sm:px-6" />}>
     <AgentContent {...props} />
   </Suspense>
 );

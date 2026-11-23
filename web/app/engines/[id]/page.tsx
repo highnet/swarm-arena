@@ -31,6 +31,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Panel } from '@/components/ui/Panel';
 import { buttonVariants } from '@/components/ui/Button';
 import { Typography } from '@/components/ui/Typography';
+import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { getSnapshot } from '@/lib/data';
 import { lineage, newestFirst, snapshotNow, trackSummaries } from '@/lib/derive';
 import { formatDay, formatElo, formatTime } from '@/lib/format';
@@ -326,11 +327,7 @@ const EngineContent = async ({ params }: EnginePageProps) => {
 };
 
 const EnginePage = ({ params }: EnginePageProps) => (
-  <Suspense
-    fallback={
-      <main className="mx-auto w-full max-w-[90rem] flex-1 px-4 pt-6 sm:px-6" aria-busy="true" />
-    }
-  >
+  <Suspense fallback={<PageSkeleton className="max-w-[90rem] px-4 pt-6 sm:px-6" />}>
     <EngineContent params={params} />
   </Suspense>
 );
