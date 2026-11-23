@@ -8,6 +8,7 @@ import { AgentAvatar } from '@/components/arena/AgentAvatar';
 import { Elapsed } from '@/components/arena/Elapsed';
 import { EngineLogo } from '@/components/arena/EngineLogo';
 import { KINDS, TONE_CLASS } from '@/components/arena/recordKinds';
+import { SwarmGraph } from '@/components/arena/SwarmGraph';
 import { agentHref, isLive, isStale, roleLabel } from '@/components/arena/seats';
 import { Badge } from '@/components/ui/Badge';
 import { Typography } from '@/components/ui/Typography';
@@ -15,6 +16,7 @@ import { getSnapshot } from '@/lib/data';
 import { formatDay, formatTime } from '@/lib/format';
 import { REPO_URL } from '@/lib/github';
 import { pageMeta } from '@/lib/site';
+import { toSwarmInput } from '@/lib/swarmGraph';
 import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = pageMeta(
@@ -182,7 +184,8 @@ const FleetContent = async () => {
         <div>
           <Typography variant="pageTitle">Fleet</Typography>
           <Typography variant="lede" className="mt-2 max-w-3xl">
-            The agents working right now, and what each one is doing.
+            The agents working right now, where in the codebase their effort is going, and what each
+            one is doing.
           </Typography>
         </div>
         <div className="flex items-center gap-2 rounded-md border border-line bg-panel px-3 py-2 text-[13px]">
@@ -191,6 +194,13 @@ const FleetContent = async () => {
           <span className="text-fg-2">working now</span>
         </div>
       </div>
+
+      <SwarmGraph
+        className="mt-6"
+        input={toSwarmInput(s)}
+        seatIds={s.agents.map((a) => a.id)}
+        engineIds={s.tracks.map((t) => t.id)}
+      />
 
       {working.length === 0 ? (
         <div className="mt-6 flex flex-col items-center gap-3 rounded-lg border border-line bg-panel px-6 py-14 text-center">

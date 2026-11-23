@@ -303,3 +303,14 @@ a {
 .bg-panel {
   background-color: oklch(0.185 0.006 265 / 0.9);
 }
+
+/* Swarm graph: a faint dot field under the force layout, brighter at the centre. */
+.swarm-graph-ground {
+  background-image:
+    radial-gradient(circle at 50% 55%, oklch(0.55 0.05 265 / 0.1), transparent 60%),
+    radial-gradient(var(--line) 1px, transparent 1px);
+  background-size:
+    100% 100%,
+    22px 22px;
+  mask-image: radial-gradient(ellipse at center, black 40%, transparent 85%);
+}
