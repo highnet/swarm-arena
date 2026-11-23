@@ -16,7 +16,7 @@ type RightNowProps = {
 
 /** The hero's live half: who is working on what this minute, or what happens next. */
 const RightNow = ({ s, slots }: RightNowProps) => {
-  const working = liveAgents(s.agents, s.asOf ?? new Date().toISOString());
+  const working = liveAgents(s.agents, s.asOf ?? s.run.started_at);
   const claimed = s.tasks.filter((t) => t.status === 'claimed');
   const queued = s.tasks.filter((t) => t.status === 'open');
   const last = [...s.records]

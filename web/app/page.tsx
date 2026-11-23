@@ -267,7 +267,7 @@ const HomeContent = async () => {
           >
             <MessageBoard messages={s.messages ?? []} seats={seats} slots={slots} limit={4} />
           </Panel>
-          <Fleet agents={s.agents} asOf={s.asOf ?? new Date().toISOString()} slots={slots} />
+          <Fleet agents={s.agents} asOf={s.asOf ?? s.run.started_at} slots={slots} />
         </div>
       </div>
     </main>

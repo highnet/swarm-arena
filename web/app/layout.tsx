@@ -63,7 +63,7 @@ const RootLayout = async ({ children }: RootLayoutProps) => {
         <SceneBackground />
         <SiteHeader
           runId={snapshot.run.id}
-          working={liveAgents(snapshot.agents, snapshot.asOf ?? new Date().toISOString()).length}
+          working={liveAgents(snapshot.agents, snapshot.asOf ?? snapshot.run.started_at).length}
           slots={Object.fromEntries(snapshot.tracks.map((t) => [t.id, t.color_slot]))}
         />
         <div id="content" className="relative z-10 flex flex-1 flex-col">
