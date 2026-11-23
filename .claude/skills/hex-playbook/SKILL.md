@@ -64,6 +64,23 @@ MCTS (UCT) since #42, with RAVE since #50. Three files in `engines/hex/src`:
   expansion), expand a leaf on its 2nd visit, tree capped at 2M nodes (48 MB), clock checked
   every 64 playouts. `Limit::Playouts(n)` makes it deterministic for tests; `Limit::Time` is
   for `go`.
+  **Inferior-move pruning (#95, `PRUNE_EXPANSION = true`):** `candidates` gives a node children
+  only on empty cells that are neither dead nor captured by the opponent of its mover (falls back
+  to every empty cell if that leaves none; the immediate win/block checks in `choose` run first).
+  The detector is `board::inferior`, all bitboard ANDs on the u128 boards: each cell's six
+  neighbours in cyclic order (slots up, up-right, right, down, down-left, left: offsets −11,
+  −10, +1, +11, +10, −1), an off-board slot counting as a stone of that edge's owner (k1's
+  up-right and a11's down-left corner slots count as Black). **Dead** = four consecutive slots of
+  one colour. **Captured pair** (a, b) for X = adjacent empties where a has a four-run of X
+  slots once b counts as X and vice versa (e.g. f5 g5 f7 g7 around f6–g6, or a lone
+  second-row stone and its two edge cells). Patterns use stones only, so they hold whatever the
+  other empties become. Tests prove both over >5000 random completions each (flip a dead cell:
+  same winner; capturer owning both = owning either one), check every slot and edge against
+  `hexgame`, and hand-build edge and corner cases.
+  **Inferior fill-in (`board::FILL_INFERIOR = false`, measured worse):** `fill_inferior` gives
+  each captured pair to its capturer (counted as one move each, as in play: intrusion and
+  reply), splits dead cells evenly, then runs the bridge pairing on the rest. Kept for the
+  switch; see the measurements below.
   **RAVE:** each node has `amaf` (visits low 32 bits, wins high 32). After a playout, every
   child of every path node whose cell its mover owns on the final board gets one AMAF visit
   (and a win if that mover won); tree moves are on the final board too, so no move lists.
@@ -72,6 +89,14 @@ MCTS (UCT) since #42, with RAVE since #50. Three files in `engines/hex/src`:
   `(1 − β)·Q + β·Q_amaf`, **β = sqrt(K / (3n + K)), K = 1000, no UCB term (C = 0)**; a child
   with no real visits uses Q_amaf, one with neither uses FPU = 1.1. Test
   `amaf_counts_on_a_hand_built_path` checks the counts on a hand-built tree.
+
+Inferior cells (#95) at f6 e7 g5, 3 runs each (native, shared machine): `go 200` off
+(v0.4) 52–55k, prune 45–59k, fill 53–55k, both 41–63k playouts; `go 1000` off 309–319k, prune
+308–345k, fill 341–354k, both 393–419k. No cost: the detector is a few dozen u128 operations,
+and the fill-in has fewer cells to shuffle and nodes fewer children. Strength at 200 ms, 40 games
+each vs both switches off (= v0.4): **prune only 30–10**, both 25–15, fill only **14–26**.
+Shipped prune only: `arena versus hex` (prune vs main v0.4) **30–10** over 40 games, and prune
+vs both 20–20 head to head.
 
 Bridge pairing (#60) at f6 e7 g5, 3 runs each on the shared machine: `go 200` main 43–53k,
 pairing 41–49k playouts; `go 1000` main 265–296k, pairing 247–304k. The bridge scan costs a few
@@ -117,7 +142,12 @@ order-dependent, so expect a smaller gain there; start its sweep at C = 0 too.
   not (#73, under 'What failed'). Next: K = 300–500 (only 1000 vs 3000 was tried with pairing); a template stone on row 3 (IIIa,
   needs a 4-cell carrier: pair it as "respond inside the carrier" rather than a fixed split);
   two-distance or resistance evaluation as priors.
-- Dead-cell and captured-cell pruning; parallel root search within the time budget.
+- Inferior cells (#95) are in at expansion. Next: more dead/captured patterns (the textbook
+  lists dead cells with three of one colour plus two of the other, and "vulnerable" cells,
+  which dominate rather than kill); dominated cells (a cell whose every use is covered by
+  another); capture-dominated cells for the mover itself. Each needs the same random-completion
+  proof test. Also why the fill-in lost (below) - try pairs-only without the dead split.
+- Parallel root search within the time budget.
 
 ## Novel experiments
 
@@ -174,6 +204,24 @@ Never re-propose an idea from this list unchanged.
   side as dead) rather than inside the playouts. Do not trust local 20-game `versus` gains of
   14–6 or less: twice now they did not survive the referee.
 
+- Inferior fill-in (#95, local only: switch kept off, never sent to the referee). Captured
+  pairs to the capturer, dead cells split evenly, before the bridge pairing: **14–26** vs v0.4
+  over 40 games at 200 ms, and both switches together (25–15) did worse than pruning alone
+  (30–10). The winner of each playout is provably the same as with a one-each split of every
+  captured pair, so the fill's change to the playouts is that it forces an exchange in each
+  pair (and an even split of the dead cells) instead of letting the random split decide. Likely
+  why it hurts: uniform play rarely "spends" a move there, so the forced exchange shifts one move
+  per pair away from the contested cells, and the capturer's AMAF credit for both cells
+  inflates moves into its own pairs at nodes above where the pattern formed. Try instead (if at
+  all): pairs only (no dead split), or cells to the capturer without charging the opponent a
+  move.
+
+## Concepts
+
+| Concept | Here | Verdict |
+| --- | --- | --- |
+| inferior-move pruning | dead cells and opponent-captured pairs left out of each node's children (#95) | pruning 30–10 vs v0.4 locally; the same cells in the fill-in lost 14–26 |
+
 ## Results log
 
 <!-- The referee appends one line per verdict. Do not edit by hand. -->
@@ -184,3 +232,4 @@ Never re-propose an idea from this list unchanged.
 - 2026-11-23 16:48 UTC · v0.4 passed the referee · Bridge-preserving fill-in playouts: give each bridge's two carrier cells one to each colour · rated 2607 (+636)
 - 2026-11-23 17:44 UTC · buried · Edge-template pairing in the fill-in: a second-row stone's two edge cells go one to each colour · Rated 2607 ± 108, not above 2607.
 - 2026-11-23 18:54 UTC · buried · Experiment: ownership-guided fill-in, where the root's own playout ownership map biases the split of contested cells · Rated 2572 ± 108, not above 2607.
+- 2026-11-23 19:40 UTC · v0.5 passed the referee · Inferior-cell pruning: drop dead cells from the tree and settle captured cells in the fill-in · rated 2734 (+127)
