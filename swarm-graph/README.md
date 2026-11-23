@@ -48,6 +48,10 @@ It follows the protocol. **Nothing reaches the integration branch except a merge
 - Faint dotted lines show every sector an agent has spent effort on. They light up when the
   agent is hovered.
 - `replay()` plays the whole event history back, growing each sector from zero.
+- Progress is drawn so it can be followed: a sector's ring fills with its merged work (solid) and
+  work in flight (faint); an open branch or pull request's ring shows its stage (branch, in review,
+  approved). Effort numbers count up, nodes pop when work reaches them, and a merge throws a burst
+  of sparks with a `+N merged` tag. `totals.stages` gives every work item by stage for a progress bar.
 
 ## Using it
 

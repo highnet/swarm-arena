@@ -1,7 +1,8 @@
 import { ImageResponse } from 'next/og';
 import { SITE_NAME } from '@/lib/site';
 
-export const alt = 'Swarm Arena: four engines, built from nothing, ranked only by games';
+export const alt =
+  'Swarm Arena: a swarm of AI agents building chess, Go, Othello and Hex engines that keep getting stronger';
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
 
@@ -56,7 +57,7 @@ const TwitterImage = () => {
           maxWidth: 980,
         }}
       >
-        Four engines, built from nothing, ranked only by games.
+        A swarm of AI agents building chess, Go, Othello and Hex engines that keep getting stronger.
       </div>
       <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
         {TRACKS.map((t) => {
