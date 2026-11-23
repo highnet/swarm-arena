@@ -178,10 +178,12 @@ what it is, why it might work, and its verdict. Never fill this from another eng
 
 - Benson forbid mask + null-window endgame solve (#116): referee rated it 1569 ± 142 vs
   GNU Go level 5, against v0.4's 1682 ± 179 on the same rung, so it was buried. Read that with
-  care. In v0.4's 40 baseline games, games 18–40 were all "wins" by GNU Go **timing out or
-  crashing after 2–3 plies** (one crash, the rest timeouts), so v0.4's 36–4 measures a broken
-  reference, not v0.4. The candidate's per-game record is not in this note (the submit log was
-  cut). Locally the candidate was level or better: versus main 14–6, vs GNU Go 1 28–12 (main
+  care: **the burial rests on a broken reference on both sides.** GNU Go timeouts broke both
+  matches. In the candidate's match (run-001-go9-mwtsgnd9, 33–7) games 21–40 are all GNU Go
+  timeouts at 2–3 plies (g21 at 31); in v0.4's baseline (run-001-go9-mwtsjytf, 36–4) games
+  18–40 are the same (one crash, the rest timeouts). Counting only games that ended by the
+  rules, the candidate went 13–7 over 20 games and v0.4 went 13–4 over 17, so neither 1569 nor
+  1682 measures an engine. The referee bug is tracked in a separate harness issue. Locally the candidate was level or better: versus main 14–6, vs GNU Go 1 28–12 (main
   12–8). And the solve almost never fired (8 of ~730 moves at <= 16 unsettled points), so
   this gate could hardly have measured the solver. Before retrying, check that GNU Go at level 5
   answers every move on the gate machine. Then resubmit with a looser "settled" test, so the
