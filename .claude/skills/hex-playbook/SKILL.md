@@ -38,7 +38,7 @@ One thread, modest memory, and every reply within the `go <ms>` budget (200 ms i
 
 ## Architecture now
 
-MCTS (UCT) since #42. Three files in `engines/hex/src`:
+MCTS (UCT) since #42, with RAVE since #50. Three files in `engines/hex/src`:
 
 - `main.rs`: protocol, coordinates, `hexgame` replay (the authority for legality), and `choose`:
   1. plays a cell that wins at once (checked with `hexgame`), else
@@ -52,17 +52,34 @@ MCTS (UCT) since #42. Three files in `engines/hex/src`:
   start edge with `grow`, then test the far edge. Playout: list the empty cells, partial
   Fisher–Yates picks ⌈k/2⌉ of them for the side to move, the rest go to the other side, one
   connection check for Black (a full board has exactly one winner). No per-move win checks.
-- `search.rs`: node arena (`Vec<Node>`, 16 bytes a node, children contiguous and shuffled at
-  expansion), UCB1 on win rates with **C = 0.3**, unvisited children first, expand a leaf on its
-  2nd visit, tree capped at 2M nodes (32 MB), clock checked every 64 playouts.
-  `Limit::Playouts(n)` makes it deterministic for tests; `Limit::Time` is for `go`.
+  `fill` returns Black's final board (White owns the rest); `playout` = `fill` + the check.
+- `search.rs`: node arena (`Vec<Node>`, 24 bytes a node, children contiguous and shuffled at
+  expansion), expand a leaf on its 2nd visit, tree capped at 2M nodes (48 MB), clock checked
+  every 64 playouts. `Limit::Playouts(n)` makes it deterministic for tests; `Limit::Time` is
+  for `go`.
+  **RAVE:** each node has `amaf` (visits low 32 bits, wins high 32). After a playout, every
+  child of every path node whose cell its mover owns on the final board gets one AMAF visit
+  (and a win if that mover won); tree moves are on the final board too, so no move lists.
+  The update builds two 128-entry per-cell increment tables (one per colour) once per playout,
+  so each child costs one table load and one add. Selection is greedy on
+  `(1 − β)·Q + β·Q_amaf`, **β = sqrt(K / (3n + K)), K = 1000, no UCB term (C = 0)**; a child
+  with no real visits uses Q_amaf, one with neither uses FPU = 1.1. Test
+  `amaf_counts_on_a_hand_built_path` checks the counts on a hand-built tree.
 
-Speed (native release, this machine): **~840k playouts/s**, about 135k playouts per `go 200`
-move (160 ms of search), ~680k per `go 1000`. Tests: flat-board winner vs `hexgame` along 300
+Speed (native release, shared 4-core machine, position f6 e7 g5): plain UCT (v0.2) ~100k
+playouts per `go 200` and ~460k per `go 1000`; with RAVE ~41k and ~320k. At C = 0.3 the naive AMAF
+loop (shift the u128 per child) gave ~204k per `go 1000` and the lookup tables ~245k (+20%). The
+gap is larger at 200 ms because C = 0 grows deep, narrow paths early (more AMAF work per
+playout). Strength more than pays for it (below). Tests: flat-board winner vs `hexgame` along 300
 random games to a full board, `grow` vs the neighbour offsets on every cell, one-winner property,
 and the legal-moves self-play now uses a fixed playout budget (no wall clock in tests).
 
-Measured at 200 ms: vs main (v0.1 heuristic) 10–0; C = 0.5 build vs `mcts-2000` 10–0; C = 0.3 vs
+RAVE sweep (#50), each vs v0.2 at 200 ms, 8 games: C = 0.3/K = 1000 1–7, C = 0.1 with K =
+300/1000/3000 4–4, 3–5, 4–4, C = 0 with K = 300 and 1000 both 8–0. Then at C = 0, vs K = 1000
+(10 games): K = 300 3–7, K = 3000 5–5, C = 0.05 5–5. `arena versus hex` (RAVE vs v0.2): 10–0.
+Black (first mover, no swap) wins most self-play games between near-equal versions.
+
+v0.2 measured at 200 ms: vs main (v0.1 heuristic) 10–0; C = 0.5 build vs `mcts-2000` 10–0; C = 0.3 vs
 `mcts-20000` 8–0. C sweep (self-play, 12 games each, seeded so pairs repeat): 0.3 beat 0.5
 10–2, 0.2 12–0, 0.12 12–0.
 
@@ -70,10 +87,17 @@ Go 9×9 MCTS (#29, not merged when this was written) uses the same shape (arena,
 on 2nd visit, 2M-node cap) but gets ~25k playouts/s: its playouts need legality and eye checks
 per move. Hex's fill-in playout is ~30× faster, so Hex can afford far more playouts per move.
 
+RAVE as a baseline for Go (#50): in Hex a fill-in playout gives every empty cell to one colour and
+never captures, so AMAF is exact and free ("played by X" = "owned by X at the end"); it won 10–0
+over plain UCT at 200 ms only with C = 0 (C = 0.3 lost 1–7), at K = 1000, despite ~40–70% of the
+playouts. Go needs first-play-wins, must skip recaptured points and passes, and its moves are more
+order-dependent, so expect a smaller gain there; start its sweep at C = 0 too.
+
 ## Ideas worth trying
 
-- RAVE/AMAF: a fill-in playout assigns every empty cell to a colour, so all-moves-as-first
-  statistics come for free from the final bitboards; probably the next big gain.
+- Win back RAVE's playout rate: structure-of-arrays AMAF counters (vectorisable update), or
+  skip the AMAF update below a depth; then re-check K (K = 3000 tied K = 1000).
+- Silver's minimum-MSE β schedule instead of sqrt(K / (3n + K)) (not tried).
 - Heuristic prior (the old one-ply score: centre distance, neighbours, bridges) as virtual
   wins on new nodes; the issue left it optional and it was not measured.
 - Tree reuse between moves (the next position's subtree is already searched).
@@ -89,11 +113,16 @@ what it is, why it might work, and its verdict. Never fill this from another eng
 
 ## What failed and why
 
-Nothing yet. When an idea is buried, write what it was, the measured result and what to try
-differently. Never re-propose an idea from this list unchanged.
+When an idea is buried, write what it was, the measured result and what to try differently.
+Never re-propose an idea from this list unchanged.
+
+- RAVE with a UCB term (#50): C = 0.3 lost 1–7 to plain UCT, C = 0.1 3–5. AMAF already spreads
+  statistics over all children; the exploration bonus just diverts real visits. Use C = 0.
 
 ## Results log
 
 <!-- The referee appends one line per verdict. Do not edit by hand. -->
 - 2026-11-23 12:45 UTC · v0.1 passed the referee · Wire hexgame to the protocol and play legal moves · rated 759 (first rated version)
 - 2026-11-23 14:33 UTC · v0.2 passed the referee · MCTS (UCT) with random fill-in playouts on a flat 121-cell board · rated 1459 (+700)
+- 2026-11-23 15:42 UTC · v0.3 passed the referee · RAVE (AMAF) blended into UCT, read from the final fill-in bitboards · rated 2218 (+759)
+- 2026-11-23 15:59 UTC · v0.3 passed the referee · RAVE (AMAF) blended into UCT, read from the final fill-in bitboards · rated 1971 (+512)
