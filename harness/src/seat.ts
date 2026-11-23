@@ -14,7 +14,6 @@ import {
   agentName,
   GAMES,
   newOpeningSeed,
-  OPENING_PLIES,
   randomPlayer,
   type Task,
 } from "@arena/shared";
@@ -45,6 +44,7 @@ import { withVerdict } from "./verdict";
 import { gateShortfall, needsRungBaseline, type Rating } from "./gate";
 import { gateRung, runMatch } from "./match";
 import { reference } from "./references";
+import { openingsNote } from "./openings";
 import { getStore } from "./store";
 import {
   claimIssue,
@@ -757,8 +757,9 @@ export const submit = async (taskId: string) => {
     const version = `v0.${shipped + 1}`;
     // Past the top of the ladder there is no finish line: play the current version instead.
     const seed = Date.now() % 1e9;
-    // Every gate match of this submit starts its pairs from the same seeded random openings, so
-    // deterministic engines meet a different position each pair and the run can be replayed.
+    // Every gate match of this submit starts its pairs from the same seeded openings (balanced
+    // suite entries, or random lines without a suite), so deterministic engines meet a different
+    // position each pair and the run can be replayed.
     const openingSeed = newOpeningSeed();
     const opponent = rung
       ? await reference(rung.opponent, task.track_id, MOVE_MS, seed)
@@ -938,7 +939,7 @@ export const submit = async (taskId: string) => {
 - Head-to-head: ${headToHead}
 - Checks passed: no outside help, build and tests, browser build (wasm32-wasip1), smoke test, head-to-head with the version on main.
 - Games: https://swarm-arena-race.vercel.app/matches/${gate.matchId}
-- Openings: each pair started from its own random ${OPENING_PLIES[task.track_id]}-ply opening, seed \`${openingSeed}\` (gate and head-to-head alike; same seed, same openings).
+- Openings: ${openingsNote(task.track_id, gate.result, openingSeed)}
 
 ## For the reviewer
 Judge the change against the issue and the arena rules: original search and evaluation (nothing ported from open-source engines), one thread, no network or processes, tests for anything that could make an illegal move, playbook updated truthfully.
