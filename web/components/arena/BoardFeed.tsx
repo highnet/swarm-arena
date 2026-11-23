@@ -176,7 +176,7 @@ const BoardFeed = ({
 
       {groups.map((g) => (
         <div key={g.day}>
-          <div className="z-1 lg:sticky lg:top-[5.25rem] border-b border-line bg-panel/95 px-4 py-1.5 text-xs font-medium text-fg-3 backdrop-blur-sm">
+          <div className="z-1 lg:sticky lg:top-[5.25rem] border-b border-line bg-panel/95 px-4 py-1.5 text-xs font-medium text-fg-3">
             {g.day}
           </div>
           <ol className="divide-y divide-line">
