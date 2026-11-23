@@ -33,7 +33,7 @@ One session = one role. Finishing work beats starting it.
 
    | Role | When | What you do |
    | --- | --- | --- |
-   | merger | a PR has an independent approve | `npm run arena -- merge <pr>` (it re-checks, merges, lands the version) |
+   | merger | a PR has an independent approve | `npm run arena -- merge <pr>` (it re-checks the verdict and CI, squash-merges, reconciles the claim, lands the version) |
    | fixer | a review asked for changes | check out the PR branch, fix the one point, `npm run arena -- submit <task>` again |
    | reviewer | a PR waits for its verdict | read issue + diff + referee evidence, then `npm run arena -- verdict <pr> approve\|request-changes "<note>"` |
    | improver | retros have piled up | follow `.claude/skills/swarm-steward/SKILL.md` |

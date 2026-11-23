@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import {
@@ -154,7 +155,7 @@ const metrics = (tasks: Task[], claimedAt: Map<string | null, string>) => {
   };
 };
 
-const Protocol = async () => {
+const ProtocolData = async () => {
   const [s, rp] = await Promise.all([getSnapshot(), getRallypoint()]);
   const seats = Object.fromEntries(s.agents.map((a) => [a.id, a.seat]));
   const versions = s.records
@@ -183,51 +184,7 @@ const Protocol = async () => {
   };
 
   return (
-    <main className="mx-auto w-full max-w-[90rem] px-4 pb-16 pt-8 sm:px-6">
-      <Typography variant="pageTitle">Protocol</Typography>
-      <Typography variant="lede" className="mt-2 max-w-3xl">
-        The rules the swarm works by, and how it changes them. Each session does one job, another
-        agent checks every change, and each session leaves feedback for the next improvement.
-      </Typography>
-
-      <section aria-labelledby="prompts" className="mt-8">
-        <Typography variant="sectionTitle" id="prompts">
-          Move it forward
-        </Typography>
-        <Typography variant="small" className="mt-1 max-w-3xl">
-          Paste one into a new Claude Code session on the repository. Each is self-contained.
-        </Typography>
-        <div className="mt-4 grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
-          {PROMPTS.map(({ icon: Icon, ...p }) => (
-            <CopyPrompt key={p.title} {...p} icon={<Icon aria-hidden="true" />} />
-          ))}
-        </div>
-      </section>
-
-      <section aria-labelledby="loops" className="mt-10">
-        <Typography variant="sectionTitle" id="loops">
-          Leave it running
-        </Typography>
-        <Typography variant="small" className="mt-1 max-w-3xl">
-          A <code className="font-mono">/loop</code> keeps a session working on its own. Stop the
-          loop to stop the swarm; anything already dispatched finishes its one job.
-        </Typography>
-        <ol className="mt-4 flex flex-col gap-px overflow-hidden rounded-lg border border-line bg-line sm:flex-row">
-          {LAYERS.map((l, i) => (
-            <li key={l.name} className="flex-1 bg-panel px-4 py-3">
-              <p className="text-[13px] text-fg">
-                <span className="mr-2 font-mono text-xs tabular text-fg-3">{i + 1}</span>
-                <span className="font-medium">{l.name}</span>
-              </p>
-              <p className="mt-0.5 text-xs text-fg-2 text-pretty">{l.does}</p>
-            </li>
-          ))}
-        </ol>
-        <div className="mt-4">
-          <LoopBuilder repo={`github.com/${REPO}`} />
-        </div>
-      </section>
-
+    <>
       <div className="mt-10 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <Panel icon={ListOrdered} title="Roles, in the order a session takes them">
           <ol className="divide-y divide-line">
@@ -344,8 +301,60 @@ const Protocol = async () => {
           )}
         </Panel>
       </div>
-    </main>
+    </>
   );
 };
+
+const Protocol = () => (
+  <main className="mx-auto w-full max-w-[90rem] px-4 pb-16 pt-8 sm:px-6">
+    <Typography variant="pageTitle">Protocol</Typography>
+    <Typography variant="lede" className="mt-2 max-w-3xl">
+      The rules the swarm works by, and how it changes them. Each session does one job, another
+      agent checks every change, and each session leaves feedback for the next improvement.
+    </Typography>
+
+    <section aria-labelledby="prompts" className="mt-8">
+      <Typography variant="sectionTitle" id="prompts">
+        Move it forward
+      </Typography>
+      <Typography variant="small" className="mt-1 max-w-3xl">
+        Paste one into a new Claude Code session on the repository. Each is self-contained.
+      </Typography>
+      <div className="mt-4 grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
+        {PROMPTS.map(({ icon: Icon, ...p }) => (
+          <CopyPrompt key={p.title} {...p} icon={<Icon aria-hidden="true" />} />
+        ))}
+      </div>
+    </section>
+
+    <section aria-labelledby="loops" className="mt-10">
+      <Typography variant="sectionTitle" id="loops">
+        Leave it running
+      </Typography>
+      <Typography variant="small" className="mt-1 max-w-3xl">
+        A <code className="font-mono">/loop</code> keeps a session working on its own. Stop the loop
+        to stop the swarm; anything already dispatched finishes its one job.
+      </Typography>
+      <ol className="mt-4 flex flex-col gap-px overflow-hidden rounded-lg border border-line bg-line sm:flex-row">
+        {LAYERS.map((l, i) => (
+          <li key={l.name} className="flex-1 bg-panel px-4 py-3">
+            <p className="text-[13px] text-fg">
+              <span className="mr-2 font-mono text-xs tabular text-fg-3">{i + 1}</span>
+              <span className="font-medium">{l.name}</span>
+            </p>
+            <p className="mt-0.5 text-xs text-fg-2 text-pretty">{l.does}</p>
+          </li>
+        ))}
+      </ol>
+      <div className="mt-4">
+        <LoopBuilder repo={`github.com/${REPO}`} />
+      </div>
+    </section>
+
+    <Suspense fallback={<div className="mt-10 h-96" aria-busy="true" />}>
+      <ProtocolData />
+    </Suspense>
+  </main>
+);
 
 export default Protocol;

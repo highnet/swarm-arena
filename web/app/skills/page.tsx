@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
@@ -14,7 +15,7 @@ export const metadata: Metadata = pageMeta(
   '/skills',
 );
 
-const Skills = async () => {
+const SkillsContent = async () => {
   const [skills, s] = await Promise.all([getSkills(), getSnapshot()]);
   const slots = Object.fromEntries(s.tracks.map((t) => [t.id, t.color_slot])) as Partial<
     Record<GameId, number>
@@ -67,5 +68,15 @@ const Skills = async () => {
     </main>
   );
 };
+
+const Skills = () => (
+  <Suspense
+    fallback={
+      <main className="mx-auto w-full max-w-[90rem] flex-1 px-4 pt-8 sm:px-6" aria-busy="true" />
+    }
+  >
+    <SkillsContent />
+  </Suspense>
+);
 
 export default Skills;

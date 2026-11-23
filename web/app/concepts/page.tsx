@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import {
@@ -56,7 +57,7 @@ const CellView = ({ cell }: { cell: Cell | undefined }) => {
   );
 };
 
-const Concepts = async () => {
+const ConceptsContent = async () => {
   const [s, c] = await Promise.all([getSnapshot(), getConcepts()]);
   const slots = Object.fromEntries(s.tracks.map((t) => [t.id, t.color_slot])) as Partial<
     Record<GameId, number>
@@ -180,5 +181,15 @@ const Concepts = async () => {
     </main>
   );
 };
+
+const Concepts = () => (
+  <Suspense
+    fallback={
+      <main className="mx-auto w-full max-w-[90rem] flex-1 px-4 pt-8 sm:px-6" aria-busy="true" />
+    }
+  >
+    <ConceptsContent />
+  </Suspense>
+);
 
 export default Concepts;

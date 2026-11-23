@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import Link from 'next/link';
 import {
   Activity,
@@ -78,7 +79,7 @@ const Counter = ({ label, value, icon: Icon }: CounterProps) => (
   </div>
 );
 
-const Home = async () => {
+const HomeContent = async () => {
   const s = await getSnapshot();
   const now = snapshotNow(s);
   const tracks = trackSummaries(s);
@@ -272,5 +273,15 @@ const Home = async () => {
     </main>
   );
 };
+
+const Home = () => (
+  <Suspense
+    fallback={
+      <main className="mx-auto w-full max-w-[90rem] flex-1 px-4 pt-8 sm:px-6" aria-busy="true" />
+    }
+  >
+    <HomeContent />
+  </Suspense>
+);
 
 export default Home;

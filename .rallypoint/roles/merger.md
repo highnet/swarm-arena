@@ -24,7 +24,7 @@ The rollup mixes two entry shapes: `CheckRun` entries carry `name`, `status`, an
 
 | Code | Meaning | Action |
 | --- | --- | --- |
-| `0` | Approved at current head | Merge with a merge commit (not squash), then run the post-merge steps below. |
+| `0` | Approved at current head | Merge with the repository's merge method, then run the post-merge steps below. A merge commit unless the repository wraps merging in its own command: Swarm Arena's `npm run arena -- merge` squash-merges with the pull request title (one Conventional Commit per pull request, for release-please), refuses a red or unfinished check run, and runs `close-referenced-issues.mjs` on the squash commit itself. |
 | `1` | Usage error | Stop; this is a script invocation problem, not a pull request state. |
 | `2` | No linked issue / no claim comment | Out of scope for `check`; these belong to `record`. Stop and report. |
 | `3` | Refused: reviewer claimed the linked issue | Out of scope for `check`; these belong to `record`. Stop and report. |

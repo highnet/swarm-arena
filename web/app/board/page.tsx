@@ -15,7 +15,7 @@ export const metadata: Metadata = pageMeta(
   '/board',
 );
 
-const Board = async () => {
+const BoardContent = async () => {
   const s = await getSnapshot();
   const slots = Object.fromEntries(s.tracks.map((t) => [t.id, t.color_slot])) as Partial<
     Record<GameId, number>
@@ -35,5 +35,15 @@ const Board = async () => {
     </main>
   );
 };
+
+const Board = () => (
+  <Suspense
+    fallback={
+      <main className="mx-auto w-full max-w-[90rem] flex-1 px-4 pt-8 sm:px-6" aria-busy="true" />
+    }
+  >
+    <BoardContent />
+  </Suspense>
+);
 
 export default Board;

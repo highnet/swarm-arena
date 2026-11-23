@@ -119,10 +119,10 @@ const mergerBrief = async (p: Pull) => {
   });
   return `ROLE merger (Rallypoint)
 You are ${agentName("merger")}. Pull request ${prLine(p)} has an independent approve.
-1. Read .rallypoint/roles/merger.md. Check CI first: gh api repos/${REPO}/commits/${p.head.sha}/check-runs
-   (a FAILURE or an unfinished gating check means stop and report).
+1. Read .rallypoint/roles/merger.md.
 2. Run: npm run arena -- merge ${p.number}
-   It re-checks the verdict, squash-merges with the PR title, deletes the branch, and lands the
+   It re-checks the verdict, refuses a red or unfinished check run, squash-merges with the PR title,
+   deletes the branch, reconciles the issue and claim (close-referenced-issues.mjs), and lands the
    arena task (version, rating, ladder) when the PR carries the referee's pass.
 3. Then run \`npm run arena -- next\` again only if the prompt asked for more than one role.`;
 };
@@ -357,6 +357,27 @@ export const verdict = async (pr: number, decision: string, note: string) => {
   log(`${decision} recorded on #${pr}`);
 };
 
+/**
+ * `review.mjs check` never reads CI, so the merger does: a failed or unfinished check run at the
+ * head refuses the merge. Skipped and neutral runs are not failures.
+ */
+const requireGreenChecks = async (sha: string) => {
+  const { check_runs } = await ghApi<{
+    check_runs: { name: string; status: string; conclusion: string | null }[];
+  }>("GET", `repos/${REPO}/commits/${sha}/check-runs?per_page=100`);
+  const bad = check_runs.filter(
+    (c) =>
+      c.status !== "completed" ||
+      ["failure", "cancelled", "timed_out", "action_required"].includes(
+        c.conclusion ?? "",
+      ),
+  );
+  if (bad.length)
+    throw new Error(
+      `CI is not green at ${sha.slice(0, 7)}: ${bad.map((c) => `${c.name} ${c.conclusion ?? c.status}`).join(", ")}`,
+    );
+};
+
 /** Merge an approved pull request, then land its arena task. */
 export const merge = async (pr: number) => {
   const state = await reviewState(pr);
@@ -378,11 +399,16 @@ export const merge = async (pr: number) => {
         `protocol change touches frozen files: ${outside.join(", ")}`,
       );
   }
-  await ghApi("PUT", `repos/${REPO}/pulls/${pr}/merge`, {
-    merge_method: "squash",
-    commit_title: `${pull.title} (#${pr})`,
-    sha: pull.head.sha,
-  });
+  await requireGreenChecks(pull.head.sha);
+  const merged = await ghApi<{ sha: string }>(
+    "PUT",
+    `repos/${REPO}/pulls/${pr}/merge`,
+    {
+      merge_method: "squash",
+      commit_title: `${pull.title} (#${pr})`,
+      sha: pull.head.sha,
+    },
+  );
   await ghApi(
     "DELETE",
     `repos/${REPO}/git/refs/heads/${encodeURIComponent(pull.head.ref)}`,
@@ -404,8 +430,13 @@ export const merge = async (pr: number) => {
       data: { pr, url: pull.html_url },
     });
   }
-  const closed = /Closes #(\d+)/i.exec(pull.body ?? "")?.[1];
-  if (closed) await rp("cleanup", ["--issue", closed]);
+  // Closes/Refs, the claim, its labels and its reservation: the script reads the body and the
+  // landed commit, so a Refs #N partial delivery stays open with its claim released.
+  const reconciled = await rp("close-referenced-issues", [merged.sha]);
+  if (reconciled.code !== 0)
+    log(
+      `close-referenced-issues exited ${reconciled.code} for ${merged.sha}: ${(reconciled.stderr || reconciled.stdout).trim().slice(0, 300)} (a janitor pass will reconcile it)`,
+    );
   await setAgent(merger, { status: "idle", activity: null });
   log(`merged #${pr}${taskId ? ` (${taskId})` : ""}`);
 };
