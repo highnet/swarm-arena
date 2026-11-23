@@ -87,7 +87,9 @@ K = 3000 lost 4–6 to K = 1000, so K stays 1000 and C stays 0.
 
 Edge pairing (#73) at f6 e7 g5, 3 runs each: `go 200` on 39–51k, off 38–51k; `go 1000` on
 255–294k, off 221–318k playouts: no measurable cost (the machine's noise is larger).
-`arena versus hex` (edge pairing vs v0.4, 200 ms): in progress.
+`arena versus hex` (edge pairing vs v0.4, 200 ms, 20 games): **14–6**. Several games repeat move for
+move (seven 44–48-ply losses look alike: the search is seeded by the move list), so the margin is
+less certain than 20 games suggest.
 
 Speed (native release, shared 4-core machine, position f6 e7 g5): plain UCT (v0.2) ~100k
 playouts per `go 200` and ~460k per `go 1000`; with RAVE ~41k and ~320k. At C = 0.3 the naive AMAF
