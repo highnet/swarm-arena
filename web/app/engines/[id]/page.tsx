@@ -23,6 +23,7 @@ import { agentName, type GameId, type Task } from '@arena/shared';
 import { BoardFeed } from '@/components/arena/BoardFeed';
 import { EngineLogo } from '@/components/arena/EngineLogo';
 import { EngineTabs } from '@/components/arena/EngineTabs';
+import { NextSteps, engineSteps } from '@/components/arena/NextSteps';
 import { Lineage } from '@/components/arena/Lineage';
 import { ProgressChart } from '@/components/arena/ProgressChart';
 import { SourceViewer } from '@/components/arena/SourceViewer';
@@ -135,17 +136,41 @@ const EngineContent = async ({ params }: EnginePageProps) => {
           {track.version
             ? `${track.version}, rated ${formatElo(track.elo)}.`
             : 'No version rated yet.'}{' '}
-          {track.pastLadder
-            ? 'Every opponent on the ladder is beaten; each new version now has to beat the last.'
-            : `Next opponent: ${track.nextRung?.label} (${formatElo(track.nextRung?.elo)}).`}
+          {track.pastLadder || !track.nextRung ? (
+            'Every opponent on the ladder is beaten; each new version now has to beat the last.'
+          ) : (
+            <>
+              Next opponent:{' '}
+              <Link href={rungHref(track.nextRung)} className="text-fg hover:underline">
+                {track.nextRung.label}
+              </Link>{' '}
+              ({formatElo(track.nextRung.elo)}).
+            </>
+          )}
         </Typography>
-        <Link
-          href={`/engines/${track.id}/play`}
-          className={buttonVariants({ variant: 'primary', className: 'mt-4' })}
-        >
-          <Gamepad2 className="size-4" aria-hidden="true" />
-          Play against it
-        </Link>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <Link
+            href={`/engines/${track.id}/play`}
+            className={buttonVariants({ variant: 'primary' })}
+          >
+            <Gamepad2 className="size-4" aria-hidden="true" />
+            Play against it
+          </Link>
+          <Link
+            href={`/games?engine=${track.id}`}
+            className={buttonVariants({ variant: 'secondary' })}
+          >
+            <Swords className="size-4" aria-hidden="true" />
+            Watch its games
+          </Link>
+          <Link
+            href={`/skills/${track.id}-playbook`}
+            className={buttonVariants({ variant: 'ghost' })}
+          >
+            <BookOpen className="size-4" aria-hidden="true" />
+            Read the playbook
+          </Link>
+        </div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_23rem]">
@@ -335,6 +360,7 @@ const EngineContent = async ({ params }: EnginePageProps) => {
           </ol>
         </Panel>
       </div>
+      <NextSteps links={[...engineSteps(track.id).slice(1), 'versions', 'concepts']} />
     </main>
   );
 };

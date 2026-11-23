@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { formatDay } from '@/lib/format';
+import { PAGE_GROUPS, PAGES } from '@/lib/pages';
+import { SHORT_NAME, TRACK_ORDER } from '@/lib/tracks';
 
 type FooterColumnProps = {
   title: string;
@@ -29,31 +31,21 @@ type SiteFooterProps = {
 
 const SiteFooter = ({ runLabel, startedAt }: SiteFooterProps) => (
   <footer className="relative z-10 mt-auto border-t border-line bg-bg">
-    <div className="mx-auto grid max-w-[90rem] gap-8 px-4 py-8 sm:grid-cols-3 sm:px-6 lg:grid-cols-[1fr_1fr_1fr_2fr]">
-      <FooterColumn title="Site">
-        {[
-          item('/', 'Progress'),
-          item('/engines', 'Engines'),
-          item('/board', 'Board'),
-          item('/messages', 'Messages'),
-          item('/fleet', 'Fleet'),
-          item('/rallypoint', 'Rallypoint'),
-          item('/concepts', 'Concepts'),
-          item('/protocol', 'Protocol'),
-          item('/how-it-works', 'How it works'),
-        ]}
-      </FooterColumn>
-      <FooterColumn title="About">
-        {[
-          item('/skills', 'Skills'),
-          item('/board?kind=strategy', 'Strategy calls'),
-          item('/board?kind=dead', 'Graveyard'),
-        ]}
-      </FooterColumn>
+    <div className="mx-auto grid max-w-[90rem] gap-8 px-4 py-8 grid-cols-2 sm:grid-cols-4 sm:px-6 lg:grid-cols-6">
+      {PAGE_GROUPS.map((g) => (
+        <FooterColumn key={g.title} title={g.title}>
+          {g.pages.map((k) => item(PAGES[k].href, PAGES[k].label))}
+        </FooterColumn>
+      ))}
       <FooterColumn title="Follow">
-        {[item('/feed.xml', 'RSS'), item('/engines', 'Follow an engine')]}
+        {[
+          ...TRACK_ORDER.map((id) => item(`/engines/${id}`, `${SHORT_NAME[id]} engine`)),
+          item('/board?kind=strategy', 'Strategy calls'),
+          item('/protocol#prompts', 'Start an agent'),
+          item('/feed.xml', 'RSS feed'),
+        ]}
       </FooterColumn>
-      <div className="text-[13px] text-fg-3 sm:col-span-3 lg:col-span-1 lg:text-right">
+      <div className="text-[13px] text-fg-3 col-span-2 sm:col-span-4 lg:col-span-2 lg:text-right">
         <p>No rating here counts unless the referee played it.</p>
         <p className="mt-1">
           {runLabel} · started {formatDay(startedAt)}

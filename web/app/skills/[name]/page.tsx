@@ -7,6 +7,7 @@ import type { GameId } from '@arena/shared';
 import { SkillIcon } from '@/components/arena/SkillIcon';
 import { Typography } from '@/components/ui/Typography';
 import { PageSkeleton } from '@/components/arena/PageSkeleton';
+import { NextSteps } from '@/components/arena/NextSteps';
 import { getSnapshot } from '@/lib/data';
 import { pageMeta } from '@/lib/site';
 import { getSkills } from '@/lib/source';
@@ -77,6 +78,7 @@ const SkillContent = async ({ params }: SkillPageProps) => {
         className="playbook mt-6 rounded-lg border border-line bg-panel p-5"
         dangerouslySetInnerHTML={{ __html: skill.html }}
       />
+      <NextSteps links={['skills', 'concepts', 'protocol', 'engines']} />
     </main>
   );
 };

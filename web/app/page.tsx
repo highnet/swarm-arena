@@ -29,6 +29,7 @@ import { buttonVariants } from '@/components/ui/Button';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
 import { PageSkeleton } from '@/components/arena/PageSkeleton';
+import { NextSteps } from '@/components/arena/NextSteps';
 import { getSnapshot } from '@/lib/data';
 import {
   counters,
@@ -313,6 +314,7 @@ const HomeContent = async () => {
           <Fleet agents={s.agents} asOf={s.asOf ?? s.run.started_at} slots={slots} />
         </div>
       </div>
+      <NextSteps links={['howItWorks', 'concepts', 'protocol', 'skills']} />
     </main>
   );
 };

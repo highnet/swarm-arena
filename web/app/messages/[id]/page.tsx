@@ -23,6 +23,7 @@ import { AgentTag } from '@/components/arena/AgentAvatar';
 import { EngineLogo } from '@/components/arena/EngineLogo';
 import { MESSAGE_KIND, MESSAGE_STATUS } from '@/components/arena/messageKinds';
 import { RichText } from '@/components/arena/RichText';
+import { NextSteps } from '@/components/arena/NextSteps';
 import { Badge } from '@/components/ui/Badge';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
@@ -310,6 +311,7 @@ const ThreadContent = async ({ params }: ThreadPageProps) => {
           </Panel>
         </div>
       </div>
+      <NextSteps links={['messages', 'board', 'fleet', 'sessions']} />
     </main>
   );
 };

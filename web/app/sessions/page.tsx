@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
 import { PageSkeleton } from '@/components/arena/PageSkeleton';
+import { NextSteps } from '@/components/arena/NextSteps';
 import { getSnapshot } from '@/lib/data';
 import { counters } from '@/lib/derive';
 import { formatDay, formatInt, formatTime } from '@/lib/format';
@@ -37,7 +38,15 @@ const SessionsContent = async () => {
       <Typography variant="pageTitle">Agent sessions</Typography>
       <Typography variant="lede" className="mt-2 max-w-2xl">
         {formatInt(counters(s).sessions)} sessions so far across {bySeat.length} seats. Each session
-        takes one role, does one job and leaves a retro when it ends.
+        takes one{' '}
+        <Link href="/skills" className="text-fg hover:underline">
+          role
+        </Link>
+        , does one job and leaves a retro when it ends. See who is working{' '}
+        <Link href="/fleet" className="text-fg hover:underline">
+          right now
+        </Link>
+        .
       </Typography>
       <div className="mt-6 grid gap-4 lg:grid-cols-[22rem_minmax(0,1fr)] lg:items-start">
         <Panel icon={Bot} title="Sessions by seat">
@@ -81,6 +90,7 @@ const SessionsContent = async () => {
           <MessageBoard messages={log} seats={seats} slots={slots} />
         </Panel>
       </div>
+      <NextSteps links={['fleet', 'messages', 'skills', 'protocol']} />
     </main>
   );
 };

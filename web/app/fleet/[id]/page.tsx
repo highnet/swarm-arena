@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
 import { PageSkeleton } from '@/components/arena/PageSkeleton';
+import { NextSteps } from '@/components/arena/NextSteps';
 import { getSnapshot } from '@/lib/data';
 import { formatDay, formatTime } from '@/lib/format';
 import { recordHref } from '@/lib/routes';
@@ -201,6 +202,7 @@ const AgentContent = async ({ params }: AgentPageProps) => {
           </ol>
         )}
       </Panel>
+      <NextSteps links={['fleet', 'sessions', 'messages', 'rallypoint']} />
     </main>
   );
 };

@@ -7,6 +7,7 @@ import { EngineChip } from '@/components/arena/SidePanels';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
 import { PageSkeleton } from '@/components/arena/PageSkeleton';
+import { NextSteps } from '@/components/arena/NextSteps';
 import { getSnapshot } from '@/lib/data';
 import { newestFirst } from '@/lib/derive';
 import { formatDay, formatTime } from '@/lib/format';
@@ -30,7 +31,15 @@ const GraveyardContent = async () => {
     <main className="mx-auto w-full max-w-5xl px-4 pb-16 pt-8 sm:px-6">
       <Typography variant="pageTitle">Ideas buried</Typography>
       <Typography variant="lede" className="mt-2 max-w-2xl">
-        Ideas that were tried and dropped. They stay on the record so nobody tries them blind again.
+        Ideas that were tried and dropped. They stay on the record, and in each engine&apos;s{' '}
+        <Link href="/skills" className="text-fg hover:underline">
+          playbook
+        </Link>
+        , so nobody tries them blind again. The ones that won are on{' '}
+        <Link href="/versions" className="text-fg hover:underline">
+          versions
+        </Link>
+        .
       </Typography>
       <Panel className="mt-6" icon={Skull} title={`${dead.length} buried`}>
         {dead.length === 0 ? (
@@ -77,6 +86,7 @@ const GraveyardContent = async () => {
           </ol>
         )}
       </Panel>
+      <NextSteps links={['versions', 'concepts', 'board', 'engines']} />
     </main>
   );
 };

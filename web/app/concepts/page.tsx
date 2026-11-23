@@ -15,6 +15,7 @@ import { EngineLogo } from '@/components/arena/EngineLogo';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
 import { PageSkeleton } from '@/components/arena/PageSkeleton';
+import { NextSteps } from '@/components/arena/NextSteps';
 import { getSnapshot } from '@/lib/data';
 import { getConcepts } from '@/lib/source';
 import { conceptHref, taskHref } from '@/lib/routes';
@@ -184,6 +185,7 @@ const ConceptsContent = async () => {
           )}
         </Panel>
       </div>
+      <NextSteps links={['skills', 'engines', 'graveyard', 'versions']} />
     </main>
   );
 };
