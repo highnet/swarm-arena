@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import {
@@ -90,7 +91,7 @@ const RpCard = ({ item, slots }: { item: RpItem; slots: Partial<Record<GameId, n
   );
 };
 
-const Rallypoint = async () => {
+const RallypointContent = async () => {
   const [rp, s] = await Promise.all([getRallypoint(), getSnapshot()]);
   const slots = Object.fromEntries(s.tracks.map((t) => [t.id, t.color_slot])) as Partial<
     Record<GameId, number>
@@ -215,5 +216,15 @@ const Rallypoint = async () => {
     </main>
   );
 };
+
+const Rallypoint = () => (
+  <Suspense
+    fallback={
+      <main className="mx-auto w-full max-w-[90rem] flex-1 px-4 pt-8 sm:px-6" aria-busy="true" />
+    }
+  >
+    <RallypointContent />
+  </Suspense>
+);
 
 export default Rallypoint;

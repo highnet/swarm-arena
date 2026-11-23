@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import Link from 'next/link';
 import {
   Activity,
@@ -21,7 +22,7 @@ import { GameReplay } from '@/components/arena/GameReplay';
 import { EngineLogo } from '@/components/arena/EngineLogo';
 import { MessageBoard } from '@/components/arena/MessageBoard';
 import { RightNow } from '@/components/arena/RightNow';
-import { RaceChart, type RaceSeries } from '@/components/arena/RaceChart';
+import { ProgressChart, type ProgressSeries } from '@/components/arena/ProgressChart';
 import { Fleet, Frontier, Graveyard, MoreLink, StrategyCall } from '@/components/arena/SidePanels';
 import { LadderLegend, TrackLadder } from '@/components/arena/TrackLadder';
 import { buttonVariants } from '@/components/ui/Button';
@@ -51,7 +52,7 @@ const TERMINATION: Record<string, string> = {
 const resultText = (outcome: number, firstLabel: string, secondLabel: string) =>
   outcome === 1 ? `${firstLabel} won` : outcome === 0 ? `${secondLabel} won` : 'Draw';
 
-const raceSeries = (s: Snapshot): RaceSeries[] =>
+const progressSeries = (s: Snapshot): ProgressSeries[] =>
   trackSummaries(s).map((t) => ({
     id: t.id,
     name: SHORT_NAME[t.id],
@@ -78,7 +79,7 @@ const Counter = ({ label, value, icon: Icon }: CounterProps) => (
   </div>
 );
 
-const Home = async () => {
+const HomeContent = async () => {
   const s = await getSnapshot();
   const now = snapshotNow(s);
   const tracks = trackSummaries(s);
@@ -122,7 +123,7 @@ const Home = async () => {
             id="hero-title"
             className="mt-4 max-w-3xl text-[2rem] leading-[1.1] sm:text-5xl"
           >
-            AI agents build four game engines. Games decide which version wins.
+            AI agents build four game engines together. Games decide what ships.
           </Typography>
           <Typography variant="lede" className="mt-4 max-w-2xl text-base leading-7">
             Every new version has to beat a known engine and the version before it. Watch them
@@ -133,9 +134,9 @@ const Home = async () => {
               <Gamepad2 className="size-4" aria-hidden="true" />
               Play an engine
             </Link>
-            <Link href="#race" className={buttonVariants({ variant: 'secondary' })}>
+            <Link href="#progress" className={buttonVariants({ variant: 'secondary' })}>
               <Activity className="size-4" aria-hidden="true" />
-              Watch the race
+              Watch them improve
             </Link>
             <Link href="/how-it-works" className={buttonVariants({ variant: 'ghost' })}>
               How it works
@@ -171,14 +172,14 @@ const Home = async () => {
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_23rem]">
         <Panel
-          id="race"
+          id="progress"
           icon={Activity}
-          title="The race"
+          title="Progress"
           actions={<MoreLink href="/engines">Open any engine</MoreLink>}
         >
           <div className="px-2 pt-3 sm:px-3">
-            <RaceChart
-              series={raceSeries(s)}
+            <ProgressChart
+              series={progressSeries(s)}
               start={Date.parse(s.run.started_at)}
               end={Date.parse(now)}
             />
@@ -272,5 +273,15 @@ const Home = async () => {
     </main>
   );
 };
+
+const Home = () => (
+  <Suspense
+    fallback={
+      <main className="mx-auto w-full max-w-[90rem] flex-1 px-4 pt-8 sm:px-6" aria-busy="true" />
+    }
+  >
+    <HomeContent />
+  </Suspense>
+);
 
 export default Home;

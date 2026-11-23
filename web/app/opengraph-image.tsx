@@ -12,7 +12,7 @@ const TRACKS = [
   { name: 'Hex', color: '#c98500', climb: [0.1, 0.25, 0.4, 0.51, 0.62, 0.71] },
 ];
 
-/** A stylised race: four step lines climbing, no numbers (the real ones live on the site). */
+/** Shared progress, stylised: four step lines climbing, no numbers (the real ones live on the site). */
 const OpengraphImage = () => {
   const w = 1040;
   const h = 250;

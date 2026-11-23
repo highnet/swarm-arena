@@ -2,7 +2,7 @@
 
 An agent swarm of Claude Code cloud sessions builds four game engines from zero (Chess, Go 9×9,
 Othello, Hex 11×11). A referee plays every new version against fixed reference engines, and the
-site shows the race. Every number on it comes from a logged match.
+site shows their progress. Every number on it comes from a logged match.
 
 ```
 swarm-arena/
@@ -10,7 +10,7 @@ swarm-arena/
 ├── harness/    the `arena` CLI: task board, referee, gate matches, shipping
 ├── engines/    Rust workspace, one crate per game. Starts as protocol skeletons; the swarm fills them
 ├── supabase/   schema (migrations/)
-├── web/        Next.js site: the race, latest game, the board, strategy seat, seats, graveyard
+├── web/        Next.js site: progress, latest game, the board, strategy seat, seats, graveyard
 └── docs/briefs the interview brief this was built from
 ```
 
@@ -84,6 +84,10 @@ npm run arena -- init "First run"     # once per run (ARENA_RUN, default run-001
 
 > run the swarm strategist
 > run a swarm agent
+
+Or leave it running: `/loop /swarm-conductor` in a cloud session surveys the board each tick and
+starts one session per role and target. `docs/LOOPS.md` has the prompts, including a two-session
+builder/judge loop for when sessions cannot start sessions.
 
 Operator commands: `status`, `calibrate <track>`, `play <track> <a> <b>` (references like
 `stockfish-3`, `gnugo-5`, `edax-6`, `mcts-2000`, or a path to an engine binary).

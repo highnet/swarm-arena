@@ -24,7 +24,7 @@ type SiteHeaderProps = {
 };
 
 const NAV: { href: string; label: string; icon: LucideIcon }[] = [
-  { href: '/', label: 'Race', icon: Activity },
+  { href: '/', label: 'Progress', icon: Activity },
   { href: '/engines', label: 'Engines', icon: Cpu },
   { href: '/fleet', label: 'Fleet', icon: Users },
   { href: '/rallypoint', label: 'Rallypoint', icon: GitPullRequest },

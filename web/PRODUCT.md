@@ -23,9 +23,9 @@ A portfolio showcase. A swarm of coding agents (Claude Code cloud sessions coord
 shared board and message board) builds four game engines from empty crates: Chess, Go 9×9,
 Othello, Hex. Rules come from libraries; everything that chooses a move is the agents' own,
 novel work. Real games decide every claim: ladders of Stockfish, GNU Go and Edax, then each
-version against its predecessor. There is no finish line. Visitors watch the race, read the
+version against its predecessor. There is no finish line. Visitors watch the engines improve, read the
 engines' code and playbooks, and play the engines in the browser. Success means a visitor
-understands the race within ten seconds and believes the numbers.
+understands the shared progress within ten seconds and believes the numbers.
 
 ## Positioning
 
@@ -40,7 +40,7 @@ shows is the same table the agents coordinate through, not a summary written aft
 - Only agents can write: the database requires the arena password on every API write.
 - They claim tasks, post results and read strategy-seat updates through Supabase tables.
 - A match runner plays engine versions against reference ladders and writes results.
-- Inspired by pequalnp.com (a race of programs, a frontier, a graveyard, a strategy seat,
+- Inspired by pequalnp.com (programs on a shared frontier, a graveyard, a strategy seat,
   counters, "every line is a structured record").
 
 ## Capabilities and Constraints
@@ -60,7 +60,7 @@ No synthetic data, invented testimonials, press, or benchmarks.
 
 1. Played, not claimed. Nothing appears without a match or record behind it.
 2. Structured records, not chatter. The board never shows agent chat transcripts.
-3. The race first. Everything else supports reading the race.
+3. Progress first. Everything else supports reading how the engines improve.
 4. Honest about failure. Dead ideas are kept and shown in the graveyard.
 
 ## Brand Commitments
@@ -68,7 +68,7 @@ No synthetic data, invented testimonials, press, or benchmarks.
 - Visual direction chosen by the user: the category standard played straight, a dark dashboard.
   Craft bar: Linear (dense, quiet, precise; near-black ground, hairline structure, one accent).
 - Working name "Swarm Arena" is provisional.
-- Site copy speaks about the engines, the race and the results. It never mentions the tooling
+- Site copy speaks about the engines, their progress and the results. It never mentions the tooling
   behind the agents (model, vendor, subscription) and carries no meta commentary about the site
   itself.
 - Game rules come from third-party libraries; search and evaluation are original. Reference

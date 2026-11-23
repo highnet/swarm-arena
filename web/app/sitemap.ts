@@ -5,7 +5,7 @@ import { SITE_URL } from '@/lib/site';
 import { getSkills } from '@/lib/source';
 import { TRACK_ORDER } from '@/lib/tracks';
 
-/** Every public page: the race, engines (and their play pages), the board, skills, matches. */
+/** Every public page: progress, engines (and their play pages), the board, skills, matches. */
 const sitemap = async (): Promise<MetadataRoute.Sitemap> => {
   const s = await getSnapshot();
   const now = snapshotNow(s);

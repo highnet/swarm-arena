@@ -7,15 +7,15 @@ import { SERIES } from '@/lib/tracks';
 
 export type RacePoint = { t: number; elo: number; version: string };
 
-export type RaceSeries = {
+export type ProgressSeries = {
   id: string;
   name: string;
   slot: number;
   points: RacePoint[];
 };
 
-type RaceChartProps = {
-  series: RaceSeries[];
+type ProgressChartProps = {
+  series: ProgressSeries[];
   start: number;
   end: number;
   height?: number;
@@ -33,7 +33,12 @@ const valueAt = (points: RacePoint[], t: number) => {
   return v;
 };
 
-const RaceChart = ({ series, start, end: rawEnd, height: fullHeight = 320 }: RaceChartProps) => {
+const ProgressChart = ({
+  series,
+  start,
+  end: rawEnd,
+  height: fullHeight = 320,
+}: ProgressChartProps) => {
   // A fresh run still needs a time axis: show at least six hours.
   const end = Math.max(rawEnd, start + 6 * 3600_000);
   const ref = useRef<HTMLDivElement>(null);
@@ -97,7 +102,7 @@ const RaceChart = ({ series, start, end: rawEnd, height: fullHeight = 320 }: Rac
   const tipLeft = hoverT !== null && x(hoverT) > width - 200;
 
   return (
-    <div ref={ref} data-slot="race-chart" className="relative w-full select-none">
+    <div ref={ref} data-slot="progress-chart" className="relative w-full select-none">
       <svg
         viewBox={`0 0 ${width} ${height}`}
         className="block h-auto w-full overflow-visible"
@@ -276,4 +281,4 @@ const RaceChart = ({ series, start, end: rawEnd, height: fullHeight = 320 }: Rac
   );
 };
 
-export { RaceChart };
+export { ProgressChart };

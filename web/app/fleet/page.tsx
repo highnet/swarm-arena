@@ -1,3 +1,5 @@
+import { Suspense } from 'react';
+import { connection } from 'next/server';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ArrowUpRight, GitPullRequest, Moon, Radio, Users } from 'lucide-react';
@@ -162,7 +164,9 @@ const SeatCard = ({
   );
 };
 
-const Fleet = async () => {
+const FleetContent = async () => {
+  // Live by nature: who is working right now is a request-time question.
+  await connection();
   const s = await getSnapshot();
   const asOf = s.asOf ?? new Date().toISOString();
   const slots = Object.fromEntries(s.tracks.map((t) => [t.id, t.color_slot])) as Partial<
@@ -230,5 +234,15 @@ const Fleet = async () => {
     </main>
   );
 };
+
+const Fleet = () => (
+  <Suspense
+    fallback={
+      <main className="mx-auto w-full max-w-[90rem] flex-1 px-4 pt-8 sm:px-6" aria-busy="true" />
+    }
+  >
+    <FleetContent />
+  </Suspense>
+);
 
 export default Fleet;

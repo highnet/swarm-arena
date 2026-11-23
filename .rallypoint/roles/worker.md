@@ -8,6 +8,8 @@ Then **push as you go**, after each commit and before any long-running step. A b
 
 Before opening the pull request, run `.rallypoint/scripts/preflight.mjs --body "<prepared body>" --base "<intended base branch>"` against the branch, body, and base you are about to use. It is read-only and reports whether `review.mjs record` will be able to resolve an authoring session for this pull request, and refuses a base other than the configured `integrationBranch` — fix the branch name, body, or target now, while it is free, rather than after the pull request is open.
 
+Subagents you dispatch may research, prototype, and verify inside your claimed issue. They never claim, push, open or review a pull request, or touch another issue: GitHub is written by you alone, and whatever they produce ships only through your one branch.
+
 Do not choose work outside the claim protocol, hold multiple claims, review your own work, or push directly to a protected branch.
 
 Run local checks targeted, not broad, while iterating — a single file or pattern, not the whole suite; the full suite is for right before you push. Before ending this session, stop any long-running local service you started for it: several sessions may share this machine, and anything left running after your session ends is resource nobody else can use.

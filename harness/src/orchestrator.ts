@@ -28,7 +28,7 @@ export const RETROS_FOR_IMPROVER = 3;
 
 /** Files an improver may change: the swarm's own skills and the tunable Rallypoint roles. */
 export const IMPROVER_PATHS = [
-  /^\.claude\/skills\/swarm-[a-z-]+\//,
+  /^\.claude\/skills\/swarm-(?!conductor\/)[a-z-]+\//,
   /^\.claude\/skills\/concepts\//,
   /^\.rallypoint\/roles\/(worker|planner|tester|fixer|janitor|orchestrator)\.md$/,
   /^docs\/SWARM\.md$/,
@@ -57,8 +57,8 @@ const retrosSinceLastProtocol = async () => {
   return all.filter((m) => m.kind === "retro" && (!last || m.at > last.at));
 };
 
-const leased = async (pr: number) => {
-  // A live reviewer lease on this PR. Released leases sit on a marker commit until swept.
+/** The agent holding a live reviewer lease on this PR, or null. Released leases are deleted refs. */
+const leaseHolder = async (pr: number): Promise<string | null> => {
   const refs = await ghApi<{ ref: string; object: { sha: string } }[]>(
     "GET",
     `repos/${REPO}/git/matching-refs/heads/rallypoint-sessions`,
@@ -68,72 +68,91 @@ const leased = async (pr: number) => {
       "GET",
       `repos/${REPO}/git/commits/${r.object.sha}`,
     ).catch(() => null);
-    if (c && !c.message.startsWith("rallypoint: released")) return true;
+    if (!c) return "unknown"; // unreadable is never free
+    if (c.message.startsWith("rallypoint: released")) continue;
+    return (
+      /^Rallypoint-Lease-Agent:\s*(\S+)\s*$/m.exec(c.message)?.[1] ?? "unknown"
+    );
   }
-  return false;
+  return null;
 };
 
-/** Decide this session's role and print its brief. */
-export const next = async (onlyTrack?: string) => {
-  const pulls = (await openPulls()).filter(
-    (p) =>
-      !p.draft && (hasLabel(p, "arena") || hasLabel(p, "loop:improvement")),
-  );
-  const states = await Promise.all(
-    pulls.map(async (p) => ({ p, s: await reviewState(p.number) })),
-  );
+/** Leased by somebody other than this session. */
+const leasedByOther = async (pr: number, mine: string) => {
+  const holder = await leaseHolder(pr);
+  return holder !== null && holder !== mine;
+};
 
-  // 1. Merger: an independent approve at the current head.
-  const approved = states.find(({ s }) => APPROVED.has(s.code));
-  if (approved) {
-    await fleet("merger", "merger", {
-      rp_role: "merger",
-      pr: approved.p.number,
-      task_id: taskOf(approved.p.body),
-      activity: `Merging #${approved.p.number}`,
-    });
-    return `ROLE merger (Rallypoint)
-You are ${agentName("merger")}. Pull request ${prLine(approved.p)} has an independent approve.
+export const ROLES = [
+  "merger",
+  "fixer",
+  "reviewer",
+  "improver",
+  "worker",
+  "planner",
+] as const;
+export type Role = (typeof ROLES)[number];
+
+export type NextOptions = {
+  /** Take exactly this role instead of picking one from the board (a conductor dispatched it). */
+  role?: Role;
+  /** The pull request a merger, fixer or reviewer was dispatched to. */
+  pr?: number;
+  /** Engine track for a worker. */
+  track?: string;
+  /** Pick only among these roles (a builder or judge loop); nothing fitting prints ROLE none. */
+  only?: Role[];
+};
+
+/** A dispatched target that no longer needs this role: the session stops, which is a normal outcome. */
+const overtaken = (role: string, why: string) =>
+  `ROLE none (Rallypoint)
+You were dispatched as ${role}, but ${why}. The board moved on; that is the loop working.
+Do nothing else: leave a one-line retro only if the dispatch itself was wrong, then stop.`;
+
+const mergerBrief = async (p: Pull) => {
+  await fleet("merger", "merger", {
+    rp_role: "merger",
+    pr: p.number,
+    task_id: taskOf(p.body),
+    activity: `Merging #${p.number}`,
+  });
+  return `ROLE merger (Rallypoint)
+You are ${agentName("merger")}. Pull request ${prLine(p)} has an independent approve.
 1. Read .rallypoint/roles/merger.md.
-2. Run: npm run arena -- merge ${approved.p.number}
-   It re-checks the verdict, squash-merges with the PR title, deletes the branch, and lands the
+2. Run: npm run arena -- merge ${p.number}
+   It re-checks the verdict, refuses a red or unfinished check run, squash-merges with the PR title,
+   deletes the branch, reconciles the issue and claim (close-referenced-issues.mjs), and lands the
    arena task (version, rating, ladder) when the PR carries the referee's pass.
 3. Then run \`npm run arena -- next\` again only if the prompt asked for more than one role.`;
-  }
+};
 
-  // 2. Fixer: changes requested at the head.
-  const sentBack = states.find(
-    ({ p, s }) =>
-      CHANGES.has(s.code) || hasLabel(p, "status:changes-requested"),
-  );
-  if (sentBack) {
-    const taskId = taskOf(sentBack.p.body);
-    await fleet("fixer", "worker", {
-      rp_role: "fixer",
-      pr: sentBack.p.number,
-      task_id: taskId,
-      activity: `Fixing review feedback on #${sentBack.p.number}`,
-    });
-    return `ROLE fixer (Rallypoint)
-You are ${agentName("fixer")}. Review sent back ${prLine(sentBack.p)}.
-1. Read .rallypoint/roles/fixer.md and the review comments on the PR.
-2. git fetch origin ${sentBack.p.head.ref} && git checkout ${sentBack.p.head.ref}
-3. Address the one actionable point. Log it: npm run arena -- progress ${taskId ?? "<task>"} "..."
+const fixerBrief = async (p: Pull) => {
+  const taskId = taskOf(p.body);
+  await fleet("fixer", "worker", {
+    rp_role: "fixer",
+    pr: p.number,
+    task_id: taskId,
+    activity: `Fixing review feedback on #${p.number}`,
+  });
+  return `ROLE fixer (Rallypoint)
+You are ${agentName("fixer")}. Review sent back ${prLine(p)}.
+1. Read .rallypoint/roles/fixer.md and the newest request-changes verdict on the PR
+   (gh api repos/${REPO}/issues/${p.number}/comments and .../pulls/${p.number}/reviews).
+2. git fetch origin ${p.head.ref} && git checkout ${p.head.ref}
+3. Address each actionable point, nothing more. Log it: npm run arena -- progress ${taskId ?? "<task>"} "..."
 4. ${taskId ? `npm run arena -- submit ${taskId}` : "Push the branch"}: the referee measures again and updates the PR; the old verdict no longer applies.`;
-  }
+};
 
-  // 3. Reviewer: a pull request waiting for its verdict, not already leased.
-  for (const { p, s } of states) {
-    if (APPROVED.has(s.code) || CHANGES.has(s.code) || (await leased(p.number)))
-      continue;
-    const taskId = taskOf(p.body);
-    const id = await fleet("reviewer", "reviewer", {
-      rp_role: "reviewer",
-      pr: p.number,
-      task_id: taskId,
-      activity: `Reviewing #${p.number}`,
-    });
-    return `ROLE reviewer (Rallypoint)
+const reviewerBrief = async (p: Pull) => {
+  const taskId = taskOf(p.body);
+  const id = await fleet("reviewer", "reviewer", {
+    rp_role: "reviewer",
+    pr: p.number,
+    task_id: taskId,
+    activity: `Reviewing #${p.number}`,
+  });
+  return `ROLE reviewer (Rallypoint)
 You are ${agentName("reviewer")}. Review ${prLine(p)}.
 Your Rallypoint agent id: ${sessionAgentId("reviewer")}
 1. Read .rallypoint/roles/reviewer.md and docs/AGENT_LOOP.md (Review).
@@ -143,29 +162,22 @@ Your Rallypoint agent id: ${sessionAgentId("reviewer")}
    npm run arena -- verdict ${p.number} approve "<one line>"
    npm run arena -- verdict ${p.number} request-changes "<the one actionable point>"
    Never review a PR your own session wrote. (fleet seat ${id})`;
-  }
+};
 
-  // 4. Improver: retros have piled up since the last protocol change.
-  const retros = await retrosSinceLastProtocol();
-  const improving = pulls.some((p) => hasLabel(p, "loop:improvement"));
-  if (retros.length >= RETROS_FOR_IMPROVER && !improving) {
-    await fleet("steward", "improver", {
-      rp_role: "improver",
-      activity: `Improving the protocol from ${retros.length} retros`,
-    });
-    return `ROLE improver (Rallypoint) · the swarm improving its own protocol
+const improverBrief = async (retros: Message[]) => {
+  await fleet("steward", "improver", {
+    rp_role: "improver",
+    activity: `Improving the protocol from ${retros.length} retros`,
+  });
+  return `ROLE improver (Rallypoint) · the swarm improving its own protocol
 You are ${agentName("steward")}. Follow the swarm-steward skill (.claude/skills/swarm-steward/SKILL.md).
 Retros since the last protocol change:
-${retros.map((m) => `- #${m.id} ${m.agent_id}: ${m.body}`).join("\n")}
+${retros.map((m) => `- #${m.id} ${m.agent_id}: ${m.body}`).join("\n") || "- none"}
 
 ${await metrics()}`;
-  }
+};
 
-  // 5. Worker: claim the next arena task through Rallypoint.
-  const briefing = await claimNext(onlyTrack);
-  if (briefing) return briefing;
-
-  // 6. Planner: nothing open. The strategist calls the next experiments.
+const plannerBrief = async () => {
   await fleet("strategist", "strategist", {
     rp_role: "planner",
     activity: "Planning the next experiments",
@@ -175,19 +187,134 @@ No open arena task. Run the swarm-strategist skill: \`npm run arena -- brief\`, 
 \`npm run arena -- plan plan.json\` (each task becomes a GitHub issue), then \`npm run arena -- next\` once more.`;
 };
 
+const arenaPulls = async () =>
+  (await openPulls()).filter(
+    (p) =>
+      !p.draft && (hasLabel(p, "arena") || hasLabel(p, "loop:improvement")),
+  );
+
+/** A role a conductor dispatched: re-check that its target still needs it, then brief it. */
+const dispatched = async ({
+  role,
+  pr,
+  track,
+}: NextOptions & { role: Role }) => {
+  if (role === "worker")
+    return (
+      (await claimNext(track)) ??
+      overtaken(
+        "worker",
+        `no claimable arena task${track ? ` on ${track}` : ""} is left`,
+      )
+    );
+  if (role === "planner") return plannerBrief();
+  if (role === "improver") {
+    if ((await arenaPulls()).some((p) => hasLabel(p, "loop:improvement")))
+      return overtaken(
+        "improver",
+        "an improvement pull request is already open",
+      );
+    return improverBrief(await retrosSinceLastProtocol());
+  }
+  if (!pr) throw new Error(`--role ${role} needs --pr <n>`);
+  const p = (await arenaPulls()).find((x) => x.number === pr);
+  if (!p)
+    return overtaken(role, `#${pr} is no longer an open arena pull request`);
+  const s = await reviewState(pr);
+  if (role === "merger")
+    return APPROVED.has(s.code)
+      ? mergerBrief(p)
+      : overtaken(
+          "merger",
+          `#${pr} has no independent approve at its head (check ${s.code})`,
+        );
+  if (role === "fixer")
+    return CHANGES.has(s.code) || hasLabel(p, "status:changes-requested")
+      ? fixerBrief(p)
+      : overtaken(
+          "fixer",
+          `#${pr} has no outstanding request-changes (check ${s.code})`,
+        );
+  if (APPROVED.has(s.code) || CHANGES.has(s.code))
+    return overtaken(
+      "reviewer",
+      `#${pr} already has a verdict at its head (check ${s.code})`,
+    );
+  if (await leasedByOther(pr, sessionAgentId("reviewer")))
+    return overtaken(
+      "reviewer",
+      `another session holds the reviewer lease on #${pr}`,
+    );
+  return reviewerBrief(p);
+};
+
+/** Decide this session's role and print its brief. */
+export const next = async (opts: NextOptions = {}) => {
+  if (opts.role) return dispatched({ ...opts, role: opts.role });
+  const may = (r: Role) => !opts.only || opts.only.includes(r);
+  const pulls = await arenaPulls();
+  const states = await Promise.all(
+    pulls.map(async (p) => ({ p, s: await reviewState(p.number) })),
+  );
+
+  // 1. Merger: an independent approve at the current head.
+  const approved = states.find(({ s }) => APPROVED.has(s.code));
+  if (approved && may("merger")) return mergerBrief(approved.p);
+
+  // 2. Fixer: changes requested at the head.
+  const sentBack = states.find(
+    ({ p, s }) =>
+      CHANGES.has(s.code) || hasLabel(p, "status:changes-requested"),
+  );
+  if (sentBack && may("fixer")) return fixerBrief(sentBack.p);
+
+  // 3. Reviewer: a pull request waiting for its verdict, not already leased.
+  if (may("reviewer"))
+    for (const { p, s } of states) {
+      if (APPROVED.has(s.code) || CHANGES.has(s.code)) continue;
+      if (await leasedByOther(p.number, sessionAgentId("reviewer"))) continue;
+      return reviewerBrief(p);
+    }
+
+  // 4. Improver: retros have piled up since the last protocol change.
+  if (may("improver")) {
+    const retros = await retrosSinceLastProtocol();
+    const improving = pulls.some((p) => hasLabel(p, "loop:improvement"));
+    if (retros.length >= RETROS_FOR_IMPROVER && !improving)
+      return improverBrief(retros);
+  }
+
+  // 5. Worker: claim the next arena task through Rallypoint.
+  if (may("worker")) {
+    const briefing = await claimNext(opts.track);
+    if (briefing) return briefing;
+  }
+
+  // 6. Planner: nothing open. The strategist calls the next experiments.
+  if (may("planner")) return plannerBrief();
+  return `ROLE none (Rallypoint)
+Nothing on the board needs ${opts.only!.join(", ")} right now. Stop; the next tick looks again.`;
+};
+
 /** Record a reviewer verdict through Rallypoint, under a reviewer lease. */
 export const verdict = async (pr: number, decision: string, note: string) => {
   if (!["approve", "request-changes"].includes(decision))
     throw new Error("verdict is approve or request-changes");
   const id = sessionAgentId("reviewer");
-  await rp("lease", [
-    "--role",
-    "reviewer",
-    "--pr",
-    String(pr),
-    "--agent-id",
-    id,
-  ]);
+  const holder = await leaseHolder(pr);
+  if (holder !== null && holder !== id)
+    throw new Error(
+      `another session (${holder}) holds the reviewer lease on #${pr}: stand down`,
+    );
+  if (holder === null)
+    await rp("lease", [
+      "--role",
+      "reviewer",
+      "--pr",
+      String(pr),
+      "--agent-id",
+      id,
+    ]);
   const r = await rp("review", [
     "record",
     "--pr",
@@ -230,6 +357,27 @@ export const verdict = async (pr: number, decision: string, note: string) => {
   log(`${decision} recorded on #${pr}`);
 };
 
+/**
+ * `review.mjs check` never reads CI, so the merger does: a failed or unfinished check run at the
+ * head refuses the merge. Skipped and neutral runs are not failures.
+ */
+const requireGreenChecks = async (sha: string) => {
+  const { check_runs } = await ghApi<{
+    check_runs: { name: string; status: string; conclusion: string | null }[];
+  }>("GET", `repos/${REPO}/commits/${sha}/check-runs?per_page=100`);
+  const bad = check_runs.filter(
+    (c) =>
+      c.status !== "completed" ||
+      ["failure", "cancelled", "timed_out", "action_required"].includes(
+        c.conclusion ?? "",
+      ),
+  );
+  if (bad.length)
+    throw new Error(
+      `CI is not green at ${sha.slice(0, 7)}: ${bad.map((c) => `${c.name} ${c.conclusion ?? c.status}`).join(", ")}`,
+    );
+};
+
 /** Merge an approved pull request, then land its arena task. */
 export const merge = async (pr: number) => {
   const state = await reviewState(pr);
@@ -251,11 +399,16 @@ export const merge = async (pr: number) => {
         `protocol change touches frozen files: ${outside.join(", ")}`,
       );
   }
-  await ghApi("PUT", `repos/${REPO}/pulls/${pr}/merge`, {
-    merge_method: "squash",
-    commit_title: `${pull.title} (#${pr})`,
-    sha: pull.head.sha,
-  });
+  await requireGreenChecks(pull.head.sha);
+  const merged = await ghApi<{ sha: string }>(
+    "PUT",
+    `repos/${REPO}/pulls/${pr}/merge`,
+    {
+      merge_method: "squash",
+      commit_title: `${pull.title} (#${pr})`,
+      sha: pull.head.sha,
+    },
+  );
   await ghApi(
     "DELETE",
     `repos/${REPO}/git/refs/heads/${encodeURIComponent(pull.head.ref)}`,
@@ -277,8 +430,13 @@ export const merge = async (pr: number) => {
       data: { pr, url: pull.html_url },
     });
   }
-  const closed = /Closes #(\d+)/i.exec(pull.body ?? "")?.[1];
-  if (closed) await rp("cleanup", ["--issue", closed]);
+  // Closes/Refs, the claim, its labels and its reservation: the script reads the body and the
+  // landed commit, so a Refs #N partial delivery stays open with its claim released.
+  const reconciled = await rp("close-referenced-issues", [merged.sha]);
+  if (reconciled.code !== 0)
+    log(
+      `close-referenced-issues exited ${reconciled.code} for ${merged.sha}: ${(reconciled.stderr || reconciled.stdout).trim().slice(0, 300)} (a janitor pass will reconcile it)`,
+    );
   await setAgent(merger, { status: "idle", activity: null });
   log(`merged #${pr}${taskId ? ` (${taskId})` : ""}`);
 };

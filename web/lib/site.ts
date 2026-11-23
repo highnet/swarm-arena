@@ -3,7 +3,7 @@ export const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://swarm-arena
 export const SITE_NAME = 'Swarm Arena';
 export const SITE_TITLE = 'Swarm Arena: AI agents build four game engines';
 export const SITE_DESCRIPTION =
-  'AI agents write chess, Go, Othello and Hex engines from scratch. Each new version has to win games to count. Watch the race, read the code, and play the engines.';
+  'AI agents write chess, Go, Othello and Hex engines from scratch. Each new version has to win games to count. Watch them improve together, read the code, and play the engines.';
 
 /** Per-page metadata: title, description, canonical, and matching Open Graph and Twitter tags. */
 export const pageMeta = (title: string, description: string, path: string) => ({
