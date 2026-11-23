@@ -93,18 +93,35 @@ const BoardFeed = ({ records, slots, seats, pageSize = 30, scoped = false }: Boa
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-4 py-2">
         <div role="group" aria-label="Record type" className="flex gap-0.5 rounded-md bg-bg p-0.5">
           {KIND_FILTERS.map((f) => (
-            <Button key={f.id} variant="segment" size="xs" aria-pressed={kind === f.id} onClick={() => setKind(f.id)}>
+            <Button
+              key={f.id}
+              variant="segment"
+              size="xs"
+              aria-pressed={kind === f.id}
+              onClick={() => setKind(f.id)}
+            >
               {f.label}
             </Button>
           ))}
         </div>
         {!scoped && (
           <div role="group" aria-label="Track" className="flex gap-0.5 rounded-md bg-bg p-0.5">
-            <Button variant="segment" size="xs" aria-pressed={track === 'all'} onClick={() => setTrack('all')}>
+            <Button
+              variant="segment"
+              size="xs"
+              aria-pressed={track === 'all'}
+              onClick={() => setTrack('all')}
+            >
               All tracks
             </Button>
             {TRACK_ORDER.filter((t) => slots[t]).map((t) => (
-              <Button key={t} variant="segment" size="xs" aria-pressed={track === t} onClick={() => setTrack(t)}>
+              <Button
+                key={t}
+                variant="segment"
+                size="xs"
+                aria-pressed={track === t}
+                onClick={() => setTrack(t)}
+              >
                 <span className={cn('size-1.5 rounded-full', SERIES[slots[t]!].bg)} />
                 {SHORT_NAME[t]}
               </Button>

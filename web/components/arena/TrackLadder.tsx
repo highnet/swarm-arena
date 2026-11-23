@@ -35,7 +35,9 @@ const LadderRail = ({ track }: LadderRailProps) => {
         />
       ))}
       <span
-        className={cn('absolute top-1/2 h-4 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-fg')}
+        className={cn(
+          'absolute top-1/2 h-4 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-fg',
+        )}
         style={{ left: pct(track.elo ?? 0) }}
       />
     </div>
@@ -52,7 +54,7 @@ const TrackLadder = ({ tracks }: TrackLadderProps) => (
       <li key={t.id}>
         <Link
           href={`/tracks/${t.id}`}
-          className="group grid grid-cols-[7.5rem_1fr] items-center gap-x-4 gap-y-1 px-4 py-2.5 transition-colors hover:bg-panel-raised sm:grid-cols-[8.5rem_1fr_13rem]"
+          className="group grid grid-cols-[7.5rem_1fr] items-center gap-x-4 gap-y-1 px-4 py-2.5 transition-colors hover:bg-panel-raised sm:grid-cols-[8.5rem_1fr_19rem]"
         >
           <div className="flex min-w-0 items-center gap-2">
             <span className={cn('size-2 shrink-0 rounded-full', SERIES[t.colorSlot].bg)} />

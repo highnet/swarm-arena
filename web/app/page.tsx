@@ -47,24 +47,28 @@ const Home = async () => {
   const now = snapshotNow(s);
   const tracks = trackSummaries(s);
   const c = counters(s);
-  const slots = Object.fromEntries(s.tracks.map((t) => [t.id, t.color_slot])) as Partial<Record<GameId, number>>;
+  const slots = Object.fromEntries(s.tracks.map((t) => [t.id, t.color_slot])) as Partial<
+    Record<GameId, number>
+  >;
   const seats = Object.fromEntries(s.agents.map((a) => [a.id, a.seat]));
   const records = newestFirst(s.records);
   const game = latestGame(s);
   const gameMatch = game ? s.matches.find((m) => m.id === game.match_id) : null;
   const gameTrack = game ? s.tracks.find((t) => t.id === game.track_id) : null;
   const engineLabel = gameMatch ? `${gameTrack?.name} ${gameMatch.engine_version}` : 'Engine';
-  const first = game?.engine_first ? engineLabel : gameMatch?.opponent ?? 'Opponent';
-  const second = game?.engine_first ? gameMatch?.opponent ?? 'Opponent' : engineLabel;
+  const first = game?.engine_first ? engineLabel : (gameMatch?.opponent ?? 'Opponent');
+  const second = game?.engine_first ? (gameMatch?.opponent ?? 'Opponent') : engineLabel;
 
   return (
     <main className="mx-auto w-full max-w-[90rem] px-4 pb-16 pt-6 sm:px-6">
       <div className="flex flex-col gap-4 pb-5 lg:flex-row lg:items-end lg:justify-between">
         <div className="max-w-2xl">
-          <Typography variant="pageTitle">Four game engines, built from zero by an agent swarm.</Typography>
+          <Typography variant="pageTitle">
+            Four game engines, built from zero by an agent swarm.
+          </Typography>
           <Typography variant="lede" className="mt-1.5">
-            Claude Code agents on a single subscription write every line. A referee plays each new version
-            against fixed reference engines, and the Elo below is what those games measured.
+            Claude Code agents on a single subscription write every line. A referee plays each new
+            version against fixed reference engines, and the Elo below is what those games measured.
           </Typography>
         </div>
         <dl className="flex flex-wrap gap-x-5 gap-y-1.5 lg:justify-end">
@@ -79,9 +83,9 @@ const Home = async () => {
 
       {s.run.is_sample && (
         <p className="mb-4 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[13px] text-fg-2">
-          <span className="font-medium text-warning">Sample run.</span> Synthetic numbers that show the format
-          until the first real run is recorded. Replayed boards are legal games between simple reference
-          players, not the engines themselves.
+          <span className="font-medium text-warning">Sample run.</span> Synthetic numbers that show
+          the format until the first real run is recorded. Replayed boards are legal games between
+          simple reference players, not the engines themselves.
         </p>
       )}
 
@@ -107,7 +111,11 @@ const Home = async () => {
           }
         >
           <div className="px-2 pt-3 sm:px-3">
-            <RaceChart series={raceSeries(s)} start={Date.parse(s.run.started_at)} end={Date.parse(now)} />
+            <RaceChart
+              series={raceSeries(s)}
+              start={Date.parse(s.run.started_at)}
+              end={Date.parse(now)}
+            />
           </div>
           <div className="border-t border-line">
             <TrackLadder tracks={tracks} />
@@ -140,7 +148,12 @@ const Home = async () => {
                   {game.ply_count} plies · {game.termination}
                 </span>
               </div>
-              <GameReplay game={game.track_id} moves={game.moves} autoplay label={`${gameTrack.name} replay`} />
+              <GameReplay
+                game={game.track_id}
+                moves={game.moves}
+                autoplay
+                label={`${gameTrack.name} replay`}
+              />
               <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[13px]">
                 <dt className="text-fg-3">{gameTrack.id === 'chess' ? 'White' : 'Black'}</dt>
                 <dd className="truncate text-fg">{first}</dd>
@@ -150,7 +163,9 @@ const Home = async () => {
                 <dd className="text-fg">{resultText(game.outcome, first, second)}</dd>
               </dl>
               {s.run.is_sample && (
-                <Typography variant="meta">Sample replay: played by reference players, not the engine.</Typography>
+                <Typography variant="meta">
+                  Sample replay: played by reference players, not the engine.
+                </Typography>
               )}
             </div>
           ) : (
@@ -171,7 +186,7 @@ const Home = async () => {
             </Typography>
           }
         >
-          <BoardFeed records={records} slots={slots} seats={seats} />
+          <BoardFeed records={records} slots={slots} seats={seats} pageSize={20} />
         </Panel>
         <div className="flex flex-col gap-4">
           <StrategySeat updates={records.filter((r) => r.kind === 'strategy')} />

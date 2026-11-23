@@ -57,7 +57,10 @@ const fromSupabase = async (): Promise<Snapshot | null> => {
     }
   }
   const { data: withMoves } = latestIds.size
-    ? await db.from('games').select('id,moves').in('id', [...latestIds])
+    ? await db
+        .from('games')
+        .select('id,moves')
+        .in('id', [...latestIds])
     : { data: [] };
   const moves = new Map((withMoves ?? []).map((g) => [g.id as string, g.moves as string[]]));
 

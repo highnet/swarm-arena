@@ -20,7 +20,9 @@ export const trackSummaries = (s: Snapshot): TrackSummary[] =>
   TRACK_ORDER.map((id) => s.tracks.find((t) => t.id === id))
     .filter((t) => t !== undefined)
     .map((t) => {
-      const rungs = s.rungs.filter((r) => r.track_id === t.id).sort((a, b) => a.position - b.position);
+      const rungs = s.rungs
+        .filter((r) => r.track_id === t.id)
+        .sort((a, b) => a.position - b.position);
       const matches = s.matches.filter((m) => m.track_id === t.id);
       const finishRung = rungs.find((r) => r.label === t.finish_label);
       return {
@@ -41,7 +43,9 @@ export const trackSummaries = (s: Snapshot): TrackSummary[] =>
 
 /** The newest instant in the run: what "now" means for a snapshot. */
 export const snapshotNow = (s: Snapshot) =>
-  [...s.records.map((r) => r.at), ...s.agents.map((a) => a.last_seen), s.run.started_at].sort().at(-1)!;
+  [...s.records.map((r) => r.at), ...s.agents.map((a) => a.last_seen), s.run.started_at]
+    .sort()
+    .at(-1)!;
 
 export const counters = (s: Snapshot) => ({
   games: s.matches.reduce((n, m) => n + m.wins + m.draws + m.losses, 0),
@@ -58,5 +62,6 @@ export const newestFirst = (records: BoardRecord[]) =>
   [...records].sort((a, b) => b.at.localeCompare(a.at) || b.id - a.id);
 
 export const latestGame = (s: Snapshot): GameRow | null =>
-  [...s.games].filter((g) => g.moves.length).sort((a, b) => b.finished_at.localeCompare(a.finished_at))[0] ??
-  null;
+  [...s.games]
+    .filter((g) => g.moves.length)
+    .sort((a, b) => b.finished_at.localeCompare(a.finished_at))[0] ?? null;

@@ -30,8 +30,16 @@ const LiveIndicator = ({ runId, isSample }: LiveIndicatorProps) => {
     };
     const channel = db
       .channel(`run-${runId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'records', filter: `run_id=eq.${runId}` }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'elo_points', filter: `run_id=eq.${runId}` }, refresh)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'records', filter: `run_id=eq.${runId}` },
+        refresh,
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'elo_points', filter: `run_id=eq.${runId}` },
+        refresh,
+      )
       .subscribe((status) => setState(status === 'SUBSCRIBED' ? 'live' : 'connecting'));
     return () => {
       clearTimeout(timer);
@@ -48,7 +56,11 @@ const LiveIndicator = ({ runId, isSample }: LiveIndicatorProps) => {
       <span
         className={cn(
           'size-1.5 rounded-full',
-          state === 'live' ? 'animate-pulse-dot bg-good' : state === 'connecting' ? 'bg-warning' : 'bg-fg-3',
+          state === 'live'
+            ? 'animate-pulse-dot bg-good'
+            : state === 'connecting'
+              ? 'bg-warning'
+              : 'bg-fg-3',
         )}
       />
       {state === 'live' ? 'Live' : state === 'connecting' ? 'Connecting' : 'Snapshot'}

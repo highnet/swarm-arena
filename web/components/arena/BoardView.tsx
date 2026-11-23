@@ -5,7 +5,14 @@ import { ChessPiece } from './ChessPiece';
 const FILES = 'abcdefgh';
 const GO_COLS = 'abcdefghj';
 
-const Stone = ({ c, x, y, r }: { c: string; x: number; y: number; r: number }) => (
+type StoneProps = {
+  c: string;
+  x: number;
+  y: number;
+  r: number;
+};
+
+const Stone = ({ c, x, y, r }: StoneProps) => (
   <circle
     cx={x}
     cy={y}
@@ -16,11 +23,22 @@ const Stone = ({ c, x, y, r }: { c: string; x: number; y: number; r: number }) =
   />
 );
 
-const LastMark = ({ x, y, r, onBlack }: { x: number; y: number; r: number; onBlack: boolean }) => (
+type LastMarkProps = {
+  x: number;
+  y: number;
+  r: number;
+  onBlack: boolean;
+};
+
+const LastMark = ({ x, y, r, onBlack }: LastMarkProps) => (
   <circle cx={x} cy={y} r={r} fill={onBlack ? 'var(--stone-white)' : 'var(--stone-black)'} />
 );
 
-const ChessBoard = ({ view }: { view: BoardViewData }) => {
+type ChessBoardProps = {
+  view: BoardViewData;
+};
+
+const ChessBoard = ({ view }: ChessBoardProps) => {
   const s = 40;
   return (
     <svg viewBox={`0 0 ${8 * s + 16} ${8 * s + 16}`} className="block h-auto w-full">
@@ -57,7 +75,11 @@ const ChessBoard = ({ view }: { view: BoardViewData }) => {
   );
 };
 
-const GoBoard = ({ view }: { view: BoardViewData }) => {
+type GoBoardProps = {
+  view: BoardViewData;
+};
+
+const GoBoard = ({ view }: GoBoardProps) => {
   const n = view.cols;
   const s = 34;
   const pad = 26;
@@ -73,13 +95,27 @@ const GoBoard = ({ view }: { view: BoardViewData }) => {
         </g>
       ))}
       {stars.map((i) => (
-        <circle key={i} cx={pad + (i % n) * s} cy={pad + Math.floor(i / n) * s} r={2.5} fill="oklch(0.22 0.006 265)" />
+        <circle
+          key={i}
+          cx={pad + (i % n) * s}
+          cy={pad + Math.floor(i / n) * s}
+          r={2.5}
+          fill="oklch(0.22 0.006 265)"
+        />
       ))}
       {view.cells.map((c, i) =>
-        c ? <Stone key={i} c={c} x={pad + (i % n) * s} y={pad + Math.floor(i / n) * s} r={s * 0.46} /> : null,
+        c ? (
+          <Stone key={i} c={c} x={pad + (i % n) * s} y={pad + Math.floor(i / n) * s} r={s * 0.46} />
+        ) : null,
       )}
       {view.last.map((i) => (
-        <LastMark key={i} x={pad + (i % n) * s} y={pad + Math.floor(i / n) * s} r={4} onBlack={view.cells[i] === 'b'} />
+        <LastMark
+          key={i}
+          x={pad + (i % n) * s}
+          y={pad + Math.floor(i / n) * s}
+          r={4}
+          onBlack={view.cells[i] === 'b'}
+        />
       ))}
       {Array.from({ length: n }, (_, i) => (
         <g key={i} className="fill-fg-3 font-mono text-[10px]">
@@ -95,7 +131,11 @@ const GoBoard = ({ view }: { view: BoardViewData }) => {
   );
 };
 
-const OthelloBoard = ({ view }: { view: BoardViewData }) => {
+type OthelloBoardProps = {
+  view: BoardViewData;
+};
+
+const OthelloBoard = ({ view }: OthelloBoardProps) => {
   const s = 40;
   const pad = 16;
   return (
@@ -109,7 +149,13 @@ const OthelloBoard = ({ view }: { view: BoardViewData }) => {
       ))}
       {view.cells.map((c, i) =>
         c ? (
-          <Stone key={i} c={c} x={pad + (i % 8) * s + s / 2} y={Math.floor(i / 8) * s + s / 2} r={s * 0.4} />
+          <Stone
+            key={i}
+            c={c}
+            x={pad + (i % 8) * s + s / 2}
+            y={Math.floor(i / 8) * s + s / 2}
+            r={s * 0.4}
+          />
         ) : null,
       )}
       {view.last.map((i) => (
@@ -135,7 +181,11 @@ const OthelloBoard = ({ view }: { view: BoardViewData }) => {
   );
 };
 
-const HexBoard = ({ view }: { view: BoardViewData }) => {
+type HexBoardProps = {
+  view: BoardViewData;
+};
+
+const HexBoard = ({ view }: HexBoardProps) => {
   const n = view.cols;
   const r = 13;
   const w = Math.sqrt(3) * r;
@@ -153,10 +203,42 @@ const HexBoard = ({ view }: { view: BoardViewData }) => {
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="block h-auto w-full">
       {/* Black connects top-bottom, White connects left-right. */}
-      <line x1={cx(0, 0) - w / 2} y1={cy(0) - r - edge} x2={cx(0, n - 1) + w / 2} y2={cy(0) - r - edge} stroke="var(--stone-black)" strokeWidth={4} strokeLinecap="round" />
-      <line x1={cx(n - 1, 0) - w / 2} y1={cy(n - 1) + r + edge} x2={cx(n - 1, n - 1) + w / 2} y2={cy(n - 1) + r + edge} stroke="var(--stone-black)" strokeWidth={4} strokeLinecap="round" />
-      <line x1={cx(0, 0) - w / 2 - edge} y1={cy(0) - r / 2} x2={cx(n - 1, 0) - w / 2 - edge} y2={cy(n - 1) + r / 2} stroke="var(--stone-white)" strokeWidth={4} strokeLinecap="round" />
-      <line x1={cx(0, n - 1) + w / 2 + edge} y1={cy(0) - r / 2} x2={cx(n - 1, n - 1) + w / 2 + edge} y2={cy(n - 1) + r / 2} stroke="var(--stone-white)" strokeWidth={4} strokeLinecap="round" />
+      <line
+        x1={cx(0, 0) - w / 2}
+        y1={cy(0) - r - edge}
+        x2={cx(0, n - 1) + w / 2}
+        y2={cy(0) - r - edge}
+        stroke="var(--stone-black)"
+        strokeWidth={4}
+        strokeLinecap="round"
+      />
+      <line
+        x1={cx(n - 1, 0) - w / 2}
+        y1={cy(n - 1) + r + edge}
+        x2={cx(n - 1, n - 1) + w / 2}
+        y2={cy(n - 1) + r + edge}
+        stroke="var(--stone-black)"
+        strokeWidth={4}
+        strokeLinecap="round"
+      />
+      <line
+        x1={cx(0, 0) - w / 2 - edge}
+        y1={cy(0) - r / 2}
+        x2={cx(n - 1, 0) - w / 2 - edge}
+        y2={cy(n - 1) + r / 2}
+        stroke="var(--stone-white)"
+        strokeWidth={4}
+        strokeLinecap="round"
+      />
+      <line
+        x1={cx(0, n - 1) + w / 2 + edge}
+        y1={cy(0) - r / 2}
+        x2={cx(n - 1, n - 1) + w / 2 + edge}
+        y2={cy(n - 1) + r / 2}
+        stroke="var(--stone-white)"
+        strokeWidth={4}
+        strokeLinecap="round"
+      />
       {view.cells.map((c, i) => {
         const row = Math.floor(i / n);
         const col = i % n;
@@ -166,7 +248,13 @@ const HexBoard = ({ view }: { view: BoardViewData }) => {
           <g key={i}>
             <path
               d={hexPath(x, y)}
-              fill={c === 'b' ? 'var(--stone-black)' : c === 'w' ? 'var(--stone-white)' : 'var(--square-light)'}
+              fill={
+                c === 'b'
+                  ? 'var(--stone-black)'
+                  : c === 'w'
+                    ? 'var(--stone-white)'
+                    : 'var(--square-light)'
+              }
               stroke="var(--panel)"
               strokeWidth={1.5}
             />
@@ -187,7 +275,12 @@ type BoardViewProps = {
 
 /** Pure SVG renderer for every arena game. */
 const BoardView = ({ game, view, className, label }: BoardViewProps) => (
-  <figure data-slot="board" role="img" aria-label={label} className={cn('mx-auto w-full', className)}>
+  <figure
+    data-slot="board"
+    role="img"
+    aria-label={label}
+    className={cn('mx-auto w-full', className)}
+  >
     {game === 'chess' && <ChessBoard view={view} />}
     {game === 'go9' && <GoBoard view={view} />}
     {game === 'othello' && <OthelloBoard view={view} />}

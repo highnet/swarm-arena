@@ -39,7 +39,11 @@ export const TONE_CLASS: Record<KindMeta['tone'], string> = {
 /** Filter groups shown above the board. */
 export const KIND_FILTERS: { id: string; label: string; kinds: RecordKind[] | null }[] = [
   { id: 'all', label: 'All', kinds: null },
-  { id: 'verdicts', label: 'Verdicts', kinds: ['match_verdict', 'patch_landed', 'patch_rejected', 'rung_cleared'] },
+  {
+    id: 'verdicts',
+    label: 'Verdicts',
+    kinds: ['match_verdict', 'patch_landed', 'patch_rejected', 'rung_cleared'],
+  },
   { id: 'tasks', label: 'Tasks', kinds: ['task_opened', 'task_claimed'] },
   { id: 'strategy', label: 'Strategy', kinds: ['strategy'] },
   { id: 'dead', label: 'Dead', kinds: ['idea_dead'] },

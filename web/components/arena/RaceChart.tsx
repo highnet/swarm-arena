@@ -35,7 +35,7 @@ const valueAt = (points: RacePoint[], t: number) => {
   return v;
 };
 
-const RaceChart = ({ series, start, end, height = 320 }: RaceChartProps) => {
+const RaceChart = ({ series, start, end, height: fullHeight = 320 }: RaceChartProps) => {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(720);
   const [hoverT, setHoverT] = useState<number | null>(null);
@@ -49,10 +49,19 @@ const RaceChart = ({ series, start, end, height = 320 }: RaceChartProps) => {
   }, []);
 
   const compact = width < 520;
+  const height = compact ? Math.round(fullHeight * 0.62) : fullHeight;
   const right = compact ? 16 : M.right;
   const innerW = width - M.left - right;
   const innerH = height - M.top - M.bottom;
-  const yMax = Math.ceil((Math.max(...series.map((s) => s.finishElo), ...series.flatMap((s) => s.points.map((p) => p.elo))) + 100) / 500) * 500;
+  const yMax =
+    Math.ceil(
+      (Math.max(
+        ...series.map((s) => s.finishElo),
+        ...series.flatMap((s) => s.points.map((p) => p.elo)),
+      ) +
+        100) /
+        500,
+    ) * 500;
   const x = (t: number) => M.left + ((t - start) / (end - start)) * innerW;
   const y = (elo: number) => M.top + innerH - (Math.max(0, elo) / yMax) * innerH;
 
@@ -67,7 +76,11 @@ const RaceChart = ({ series, start, end, height = 320 }: RaceChartProps) => {
   // Direct labels at the right edge, nudged apart so they never collide.
   const labels = series
     .filter((s) => s.points.length)
-    .map((s) => ({ s, elo: s.points[s.points.length - 1].elo, y: y(s.points[s.points.length - 1].elo) }))
+    .map((s) => ({
+      s,
+      elo: s.points[s.points.length - 1].elo,
+      y: y(s.points[s.points.length - 1].elo),
+    }))
     .sort((a, b) => a.y - b.y);
   for (let i = 1; i < labels.length; i++) {
     if (labels[i].y - labels[i - 1].y < 16) labels[i].y = labels[i - 1].y + 16;
@@ -79,12 +92,13 @@ const RaceChart = ({ series, start, end, height = 320 }: RaceChartProps) => {
     setHoverT(Math.min(end, Math.max(start, t)));
   };
 
-  const hover = hoverT === null
-    ? null
-    : series
-        .map((s) => ({ s, p: valueAt(s.points, hoverT) }))
-        .filter((h) => h.p !== null)
-        .sort((a, b) => b.p!.elo - a.p!.elo);
+  const hover =
+    hoverT === null
+      ? null
+      : series
+          .map((s) => ({ s, p: valueAt(s.points, hoverT) }))
+          .filter((h) => h.p !== null)
+          .sort((a, b) => b.p!.elo - a.p!.elo);
 
   const tipLeft = hoverT !== null && x(hoverT) > width - 200;
 
@@ -93,15 +107,34 @@ const RaceChart = ({ series, start, end, height = 320 }: RaceChartProps) => {
       <svg width={width} height={height} className="block overflow-visible" aria-hidden="true">
         {Array.from({ length: yMax / 500 + 1 }, (_, i) => i * 500).map((v) => (
           <g key={v}>
-            <line x1={M.left} x2={M.left + innerW} y1={y(v)} y2={y(v)} stroke="var(--line)" strokeWidth={1} />
-            <text x={M.left - 8} y={y(v) + 4} textAnchor="end" className="fill-fg-3 font-mono text-[11px]">
+            <line
+              x1={M.left}
+              x2={M.left + innerW}
+              y1={y(v)}
+              y2={y(v)}
+              stroke="var(--line)"
+              strokeWidth={1}
+            />
+            <text
+              x={M.left - 8}
+              y={y(v) + 4}
+              textAnchor="end"
+              className="fill-fg-3 font-mono text-[11px]"
+            >
               {formatElo(v)}
             </text>
           </g>
         ))}
         {days.map((t) => (
           <g key={t}>
-            <line x1={x(t)} x2={x(t)} y1={M.top} y2={M.top + innerH} stroke="var(--line)" strokeDasharray="2 4" />
+            <line
+              x1={x(t)}
+              x2={x(t)}
+              y1={M.top}
+              y2={M.top + innerH}
+              stroke="var(--line)"
+              strokeDasharray="2 4"
+            />
             <text x={x(t) + 4} y={height - 8} className="fill-fg-3 text-[11px]">
               {formatDay(new Date(t).toISOString())}
             </text>
@@ -132,9 +165,23 @@ const RaceChart = ({ series, start, end, height = 320 }: RaceChartProps) => {
           d += ` H${x(end)}`;
           return (
             <g key={s.id}>
-              <path d={d} fill="none" stroke={SERIES[s.slot].stroke} strokeWidth={2} strokeLinejoin="round" />
+              <path
+                d={d}
+                fill="none"
+                stroke={SERIES[s.slot].stroke}
+                strokeWidth={2}
+                strokeLinejoin="round"
+              />
               {s.points.map((p) => (
-                <circle key={p.t} cx={x(p.t)} cy={y(p.elo)} r={2.5} fill={SERIES[s.slot].stroke} stroke="var(--panel)" strokeWidth={1.5} />
+                <circle
+                  key={p.t}
+                  cx={x(p.t)}
+                  cy={y(p.elo)}
+                  r={2.5}
+                  fill={SERIES[s.slot].stroke}
+                  stroke="var(--panel)"
+                  strokeWidth={1.5}
+                />
               ))}
             </g>
           );
@@ -156,9 +203,24 @@ const RaceChart = ({ series, start, end, height = 320 }: RaceChartProps) => {
 
         {hoverT !== null && (
           <g>
-            <line x1={x(hoverT)} x2={x(hoverT)} y1={M.top} y2={M.top + innerH} stroke="var(--fg-3)" strokeWidth={1} />
+            <line
+              x1={x(hoverT)}
+              x2={x(hoverT)}
+              y1={M.top}
+              y2={M.top + innerH}
+              stroke="var(--fg-3)"
+              strokeWidth={1}
+            />
             {hover?.map(({ s, p }) => (
-              <circle key={s.id} cx={x(hoverT)} cy={y(p!.elo)} r={4.5} fill={SERIES[s.slot].stroke} stroke="var(--panel)" strokeWidth={2} />
+              <circle
+                key={s.id}
+                cx={x(hoverT)}
+                cy={y(p!.elo)}
+                r={4.5}
+                fill={SERIES[s.slot].stroke}
+                stroke="var(--panel)"
+                strokeWidth={2}
+              />
             ))}
           </g>
         )}
@@ -181,7 +243,8 @@ const RaceChart = ({ series, start, end, height = 320 }: RaceChartProps) => {
           style={{ left: tipLeft ? x(hoverT) - 216 : x(hoverT) + 12 }}
         >
           <div className="mb-1.5 text-xs text-fg-3">
-            {formatDay(new Date(hoverT).toISOString())} · {formatTime(new Date(hoverT).toISOString())} UTC
+            {formatDay(new Date(hoverT).toISOString())} ·{' '}
+            {formatTime(new Date(hoverT).toISOString())} UTC
           </div>
           {hover.length === 0 && <div className="text-xs text-fg-2">No engine measured yet</div>}
           {hover.map(({ s, p }) => (

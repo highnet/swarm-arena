@@ -28,14 +28,19 @@ const MatchContent = async ({ params }: MatchPageProps) => {
   const match = s.matches.find((m) => m.id === id);
   if (!match) notFound();
   const track = s.tracks.find((t) => t.id === match.track_id)!;
-  const games = (await getMatchGames(match.id)).sort((a, b) => a.finished_at.localeCompare(b.finished_at));
+  const games = (await getMatchGames(match.id)).sort((a, b) =>
+    a.finished_at.localeCompare(b.finished_at),
+  );
   const total = match.wins + match.draws + match.losses;
   const verdict = s.records.find((r) => r.match_id === match.id && r.kind === 'match_verdict');
   const firstLabel = track.id === 'chess' ? 'White' : 'Black';
 
   return (
     <main className="mx-auto w-full max-w-[90rem] px-4 pb-16 pt-6 sm:px-6">
-      <Link href={`/tracks/${track.id}`} className="inline-flex items-center gap-1 text-xs text-fg-3 hover:text-fg">
+      <Link
+        href={`/tracks/${track.id}`}
+        className="inline-flex items-center gap-1 text-xs text-fg-3 hover:text-fg"
+      >
         <ArrowLeft className="size-3" aria-hidden="true" />
         {track.name}
       </Link>
@@ -43,7 +48,8 @@ const MatchContent = async ({ params }: MatchPageProps) => {
         <div className="flex items-center gap-2 text-[13px] text-fg-2">
           <span className={cn('size-2 rounded-full', SERIES[track.color_slot].bg)} />
           {track.name} · {match.purpose} match
-          {match.finished_at && ` · ${formatDay(match.finished_at)} ${formatTime(match.finished_at)} UTC`}
+          {match.finished_at &&
+            ` · ${formatDay(match.finished_at)} ${formatTime(match.finished_at)} UTC`}
         </div>
         <Typography variant="pageTitle" className="mt-1">
           {match.engine_version} vs {match.opponent}
@@ -55,7 +61,11 @@ const MatchContent = async ({ params }: MatchPageProps) => {
           ['Score', `${match.wins}–${match.losses}–${match.draws}`, `W–L–D over ${total} games`],
           ['Performance', formatElo(match.elo), `± ${Math.round(match.elo_error)} (95%)`],
           ['Opponent', formatElo(match.opponent_elo), match.opponent],
-          ['Points', `${match.wins + match.draws / 2} / ${total}`, `${Math.round(((match.wins + match.draws / 2) / Math.max(total, 1)) * 100)}%`],
+          [
+            'Points',
+            `${match.wins + match.draws / 2} / ${total}`,
+            `${Math.round(((match.wins + match.draws / 2) / Math.max(total, 1)) * 100)}%`,
+          ],
         ].map(([k, v, note]) => (
           <div key={k} className="bg-panel px-4 py-3">
             <dt className="text-xs text-fg-3">{k}</dt>
@@ -93,7 +103,11 @@ const MatchContent = async ({ params }: MatchPageProps) => {
               }
             >
               <div className="p-4">
-                <GameReplay game={g.track_id} moves={g.moves} label={`${track.name} game ${i + 1}`} />
+                <GameReplay
+                  game={g.track_id}
+                  moves={g.moves}
+                  label={`${track.name} game ${i + 1}`}
+                />
               </div>
             </Panel>
           ))}
@@ -104,7 +118,11 @@ const MatchContent = async ({ params }: MatchPageProps) => {
 };
 
 const MatchPage = ({ params }: MatchPageProps) => (
-  <Suspense fallback={<main className="mx-auto w-full max-w-[90rem] flex-1 px-4 pt-6 sm:px-6" aria-busy="true" />}>
+  <Suspense
+    fallback={
+      <main className="mx-auto w-full max-w-[90rem] flex-1 px-4 pt-6 sm:px-6" aria-busy="true" />
+    }
+  >
     <MatchContent params={params} />
   </Suspense>
 );

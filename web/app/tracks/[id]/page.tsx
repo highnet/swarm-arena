@@ -26,7 +26,12 @@ export const generateMetadata = async ({ params }: TrackPageProps): Promise<Meta
   return { title: SHORT_NAME[id as GameId] ?? 'Track' };
 };
 
-const TASK_TONE = { open: 'outline', claimed: 'neutral', landed: 'good', dead: 'critical' } as const;
+const TASK_TONE = {
+  open: 'outline',
+  claimed: 'neutral',
+  landed: 'good',
+  dead: 'critical',
+} as const;
 
 const TrackContent = async ({ params }: TrackPageProps) => {
   const { id } = await params;
@@ -57,8 +62,10 @@ const TrackContent = async ({ params }: TrackPageProps) => {
         <div>
           <Typography variant="pageTitle">{track.name}</Typography>
           <Typography variant="lede" className="mt-1">
-            {track.version ? `${track.version} at ${formatElo(track.elo)} Elo` : 'No version measured yet'}.
-            Finish line: {track.finishLabel} ({formatElo(track.finishElo)}).
+            {track.version
+              ? `${track.version} at ${formatElo(track.elo)} Elo`
+              : 'No version measured yet'}
+            . Finish line: {track.finishLabel} ({formatElo(track.finishElo)}).
           </Typography>
         </div>
         {track.finished && <Badge tone="good">Finished</Badge>}
@@ -94,7 +101,10 @@ const TrackContent = async ({ params }: TrackPageProps) => {
                 <span className="w-12 font-mono text-xs tabular text-fg-3">{formatElo(r.elo)}</span>
                 <span className="flex-1 text-[13px] text-fg">{r.label}</span>
                 {r.cleared_at ? (
-                  <Link href={`/matches/${r.cleared_by_match}`} className="text-xs text-good-text hover:underline">
+                  <Link
+                    href={`/matches/${r.cleared_by_match}`}
+                    className="text-xs text-good-text hover:underline"
+                  >
                     cleared {formatDay(r.cleared_at)}
                   </Link>
                 ) : (
@@ -104,7 +114,8 @@ const TrackContent = async ({ params }: TrackPageProps) => {
             ))}
           </ol>
           <Typography variant="meta" as="p" className="border-t border-line px-4 py-2.5">
-            A rung clears when a version&apos;s performance minus half its error bar is above the opponent&apos;s Elo.
+            A rung clears when a version&apos;s performance minus half its error bar is above the
+            opponent&apos;s Elo.
           </Typography>
         </Panel>
       </div>
@@ -124,7 +135,9 @@ const TrackContent = async ({ params }: TrackPageProps) => {
             {matches.map((m) => (
               <tr key={m.id} className="hover:bg-panel-raised">
                 <td className="px-4 py-2 font-mono text-xs tabular text-fg-3">
-                  {m.finished_at ? `${formatDay(m.finished_at)} ${formatTime(m.finished_at)}` : 'running'}
+                  {m.finished_at
+                    ? `${formatDay(m.finished_at)} ${formatTime(m.finished_at)}`
+                    : 'running'}
                 </td>
                 <td className="px-4 py-2 font-mono text-xs text-fg">
                   <Link href={`/matches/${m.id}`} className="hover:underline">
@@ -132,7 +145,8 @@ const TrackContent = async ({ params }: TrackPageProps) => {
                   </Link>
                 </td>
                 <td className="px-4 py-2 text-fg-2">
-                  {m.opponent} <span className="font-mono text-xs text-fg-3">({formatElo(m.opponent_elo)})</span>
+                  {m.opponent}{' '}
+                  <span className="font-mono text-xs text-fg-3">({formatElo(m.opponent_elo)})</span>
                 </td>
                 <td className="px-4 py-2 text-right font-mono tabular text-fg">
                   {m.wins}–{m.losses}–{m.draws}
@@ -178,7 +192,11 @@ const TrackContent = async ({ params }: TrackPageProps) => {
 };
 
 const TrackPage = ({ params }: TrackPageProps) => (
-  <Suspense fallback={<main className="mx-auto w-full max-w-[90rem] flex-1 px-4 pt-6 sm:px-6" aria-busy="true" />}>
+  <Suspense
+    fallback={
+      <main className="mx-auto w-full max-w-[90rem] flex-1 px-4 pt-6 sm:px-6" aria-busy="true" />
+    }
+  >
     <TrackContent params={params} />
   </Suspense>
 );

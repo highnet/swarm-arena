@@ -20,7 +20,12 @@ const StrategySeat = ({ updates }: StrategySeatProps) => {
           <Typography variant="meta">
             In force since {formatDay(current.at)}, {formatTime(current.at)} UTC
           </Typography>
-          <Typography variant="body" color="primary" weight="medium" className="mt-1 text-[15px] text-pretty">
+          <Typography
+            variant="body"
+            color="primary"
+            weight="medium"
+            className="mt-1 text-[15px] text-pretty"
+          >
             {current.title}
           </Typography>
           {current.detail && (
@@ -65,7 +70,11 @@ const Graveyard = ({ dead, slots }: GraveyardProps) => (
   <Panel
     id="graveyard"
     title="Graveyard"
-    actions={<Typography variant="meta" as="span">{dead.length} ruled dead</Typography>}
+    actions={
+      <Typography variant="meta" as="span">
+        {dead.length} ruled dead
+      </Typography>
+    }
   >
     {dead.length === 0 ? (
       <Typography variant="small" className="px-4 py-6">
@@ -84,10 +93,18 @@ const Graveyard = ({ dead, slots }: GraveyardProps) => (
               )}
               <time dateTime={d.at}>{formatDay(d.at)}</time>
             </div>
-            <Typography variant="small" color="primary" className="mt-0.5 text-fg-2 line-through decoration-fg-3/60">
+            <Typography
+              variant="small"
+              color="primary"
+              className="mt-0.5 text-fg-2 line-through decoration-fg-3/60"
+            >
               {d.title}
             </Typography>
-            {d.detail && <Typography variant="meta" as="p" className="mt-0.5 text-pretty">{d.detail}</Typography>}
+            {d.detail && (
+              <Typography variant="meta" as="p" className="mt-0.5 text-pretty">
+                {d.detail}
+              </Typography>
+            )}
           </li>
         ))}
       </ol>
@@ -109,26 +126,39 @@ const STATUS_DOT: Record<Agent['status'], string> = {
 const AgentRoster = ({ agents, slots }: AgentRosterProps) => {
   const sorted = [...agents].sort(
     (a, b) =>
-      ['working', 'idle', 'stopped'].indexOf(a.status) - ['working', 'idle', 'stopped'].indexOf(b.status) ||
-      a.seat.localeCompare(b.seat),
+      ['working', 'idle', 'stopped'].indexOf(a.status) -
+        ['working', 'idle', 'stopped'].indexOf(b.status) || a.seat.localeCompare(b.seat),
   );
   const working = agents.filter((a) => a.status === 'working').length;
   return (
     <Panel
       id="seats"
       title="Seats"
-      actions={<Typography variant="meta" as="span">{working} of {agents.length} working</Typography>}
+      actions={
+        <Typography variant="meta" as="span">
+          {working} of {agents.length} working
+        </Typography>
+      }
     >
       <ul className="grid grid-cols-1 divide-y divide-line">
         {sorted.map((a) => (
           <li key={a.id} className="flex items-center gap-2.5 px-4 py-2">
-            <span className={cn('size-1.5 shrink-0 rounded-full', STATUS_DOT[a.status])} aria-hidden="true" />
+            <span
+              className={cn('size-1.5 shrink-0 rounded-full', STATUS_DOT[a.status])}
+              aria-hidden="true"
+            />
             <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{a.seat}</span>
             {a.track_id && slots[a.track_id] && (
-              <span className={cn('size-1.5 shrink-0 rounded-full', SERIES[slots[a.track_id]!].bg)} aria-hidden="true" />
+              <span
+                className={cn('size-1.5 shrink-0 rounded-full', SERIES[slots[a.track_id]!].bg)}
+                aria-hidden="true"
+              />
             )}
             <span className="w-16 shrink-0 text-right text-xs text-fg-3">{a.status}</span>
-            <span className="w-20 shrink-0 text-right font-mono text-xs tabular text-fg-3" title="Claude Code sessions">
+            <span
+              className="w-20 shrink-0 text-right font-mono text-xs tabular text-fg-3"
+              title="Claude Code sessions"
+            >
               {a.sessions} sess.
             </span>
           </li>

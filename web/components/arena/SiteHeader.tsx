@@ -15,7 +15,14 @@ const NAV = [
 
 const Mark = () => (
   <svg viewBox="0 0 20 20" className="size-5" aria-hidden="true">
-    <path d="M3 16 7 10l3 3 3-6 4 9" fill="none" stroke="var(--fg)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+    <path
+      d="M3 16 7 10l3 3 3-6 4 9"
+      fill="none"
+      stroke="var(--fg)"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
     <circle cx="17" cy="16" r="1.75" fill="var(--fg)" />
   </svg>
 );
@@ -23,7 +30,10 @@ const Mark = () => (
 const SiteHeader = ({ runId, isSample }: SiteHeaderProps) => (
   <header className="sticky top-0 z-20 border-b border-line bg-bg/90 backdrop-blur-md">
     <div className="mx-auto flex h-12 max-w-[90rem] items-center gap-4 px-4 sm:px-6">
-      <Link href="/" className="flex items-center gap-2 text-sm font-semibold tracking-tight text-fg">
+      <Link
+        href="/"
+        className="flex items-center gap-2 text-sm font-semibold tracking-tight text-fg"
+      >
         <Mark />
         Swarm Arena
       </Link>

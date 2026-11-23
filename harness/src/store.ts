@@ -22,8 +22,8 @@ const supabaseStore = (): Store => {
   const db: SupabaseClient = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
     auth: { persistSession: false },
   });
-  const apply = <Q extends { eq: (k: string, v: unknown) => Q }>(q: Q, f: Filter) =>
-    Object.entries(f).reduce((acc, [k, v]) => acc.eq(k, v), q);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const apply = (q: any, f: Filter): any => Object.entries(f).reduce((acc, [k, v]) => acc.eq(k, v), q);
   const check = <T>(r: { data: T; error: { message: string } | null }, what: string) => {
     if (r.error) throw new Error(`${what}: ${r.error.message}`);
     return r.data;

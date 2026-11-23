@@ -61,7 +61,12 @@ const GameReplay = ({ game, moves, autoplay = false, speed = 450, label }: GameR
         >
           <ChevronLeft className="size-4" />
         </Button>
-        <Button variant="icon" size="icon" aria-label={playing ? 'Pause' : 'Play'} onClick={togglePlay}>
+        <Button
+          variant="icon"
+          size="icon"
+          aria-label={playing ? 'Pause' : 'Play'}
+          onClick={togglePlay}
+        >
           {playing ? <Pause className="size-4" /> : <Play className="size-4" />}
         </Button>
         <Button
@@ -87,7 +92,7 @@ const GameReplay = ({ game, moves, autoplay = false, speed = 450, label }: GameR
           }}
           className="h-1 min-w-0 flex-1 cursor-pointer accent-fg"
         />
-        <Typography variant="data" as="span" className="w-20 text-right text-fg-2">
+        <Typography variant="data" as="span" className="shrink-0 text-right text-fg-2">
           {ply}/{last}
           {move ? ` ${move}` : ''}
         </Typography>

@@ -277,7 +277,6 @@ const main = async () => {
 
       const prevElo = landedIndex === 0 ? 0 : plan.curve[landedIndex - 1];
       const target = idea.landed ? plan.curve[landedIndex] : prevElo - 10 - rand() * 40;
-      const nextVersion = idea.landed ? `v0.${version + 1}` : `v0.${version}+${n}`;
 
       // Gate vs the opponent nearest the target, so the estimate is meaningful.
       const opp = [...trackRungs].sort((a, b) => Math.abs(a.elo - target) - Math.abs(b.elo - target))[0];
@@ -293,6 +292,8 @@ const main = async () => {
       }
       const losses = gamesPlayed - wins - draws;
       const est = performanceElo([{ opponentElo: opp.elo, score: wins + draws / 2, games: gamesPlayed }]);
+      const lands = idea.landed && est.elo > (track.current_elo ?? -Infinity);
+      const nextVersion = lands ? `v0.${version + 1}` : `candidate ${n + 1}`;
       const tMatch = t0 + 2.2 * 3600_000;
       const matchId = `${spec.id}-m${n + 1}`;
       matches.push({
@@ -341,7 +342,7 @@ const main = async () => {
         data: { wins, draws, losses, elo: Math.round(est.elo), error: Math.round(est.error) },
       });
 
-      if (idea.landed && est.elo > prevElo - 5) {
+      if (lands) {
         version++;
         landedIndex++;
         track.current_elo = Math.round(est.elo);
