@@ -127,8 +127,11 @@ If you cannot finish, run:
   npm run arena -- release ${task.id}`;
 };
 
-/** Claim the oldest open task on a track nobody else is working on. Returns the briefing. */
-export const claimNext = async (onlyTrack?: string) => {
+/**
+ * Claim the oldest open task on a track nobody else is working on (only the one mirroring
+ * `onlyIssue`, when a conductor dispatched this session to it). Returns the briefing.
+ */
+export const claimNext = async (onlyTrack?: string, onlyIssue?: number) => {
   const db = getStore();
   const all = await tasks();
   const busy = new Set(
@@ -139,7 +142,8 @@ export const claimNext = async (onlyTrack?: string) => {
       (t) =>
         t.status === "open" &&
         !busy.has(t.track_id) &&
-        (!onlyTrack || t.track_id === onlyTrack),
+        (!onlyTrack || t.track_id === onlyTrack) &&
+        (!onlyIssue || t.issue === onlyIssue),
     )
     .sort((a, b) => a.created_at.localeCompare(b.created_at));
 
@@ -224,6 +228,117 @@ export const release = async (taskId: string) => {
 };
 
 const git = (args: string[]) => run("git", args, { cwd: ARENA_ROOT });
+
+/** The paths a session executes from: a checkout missing a commit to them runs a stale harness. */
+const HARNESS_PATHS = ["harness", "shared", ".rallypoint"];
+
+/**
+ * Harness files origin/main changed since this checkout's merge base with it (three dots, as
+ * `freshness.mjs` measures: the branch's own edits do not count). Null when origin/main could not
+ * be fetched or compared, which is no evidence either way.
+ */
+export const staleHarness = async (fetch = true) => {
+  if (fetch && (await git(["fetch", "origin", "main"])).code !== 0) return null;
+  const r = await git([
+    "diff",
+    "--name-only",
+    "HEAD...origin/main",
+    "--",
+    ...HARNESS_PATHS,
+  ]);
+  return r.code === 0 ? r.stdout.split("\n").filter(Boolean) : null;
+};
+
+/**
+ * Cloud containers can start on a local `main` that diverged from origin/main (its pre-squash
+ * history, issue #115), so a setup `git pull` fails and the session runs a stale harness. On a
+ * clean `main` this detaches to origin/main (the local branch keeps its commits); anywhere else it
+ * says what is wrong and how to fix it.
+ */
+const syncWithMain = async () => {
+  if ((await git(["fetch", "origin", "main"])).code !== 0) {
+    log(
+      "warn: git fetch origin main failed; cannot tell whether this checkout is current",
+    );
+    return;
+  }
+  const out = async (args: string[]) => (await git(args)).stdout.trim();
+  const branch = await out(["branch", "--show-current"]);
+  const behind =
+    Number(await out(["rev-list", "--count", "HEAD..origin/main"])) || 0;
+  const hasMain =
+    (await git(["rev-parse", "--verify", "-q", "refs/heads/main"])).code === 0;
+  const diverged =
+    hasMain &&
+    (await git(["merge-base", "--is-ancestor", "main", "origin/main"])).code !==
+      0;
+  const fix = "git checkout --detach origin/main";
+  if (branch === "main") {
+    if (!behind && !diverged) return;
+    const what = diverged
+      ? "local main has diverged from origin/main"
+      : `main is ${behind} commit(s) behind origin/main`;
+    const clean =
+      (await out(["status", "--porcelain", "--untracked-files=no"])) === "";
+    if (
+      clean &&
+      (await git(["checkout", "--detach", "origin/main"])).code === 0
+    ) {
+      log(
+        `${what}: detached HEAD to origin/main (${await out(["rev-parse", "--short", "HEAD"])}) so this session runs the current harness; local main is untouched`,
+      );
+      return;
+    }
+    log(
+      `warn: ${what} and ${clean ? "detaching failed" : "the working tree has changes"}. Fix: ${fix}`,
+    );
+    return;
+  }
+  if (branch) {
+    const stale = await staleHarness(false);
+    if (stale?.length)
+      log(
+        `warn: ${branch} lacks harness changes on origin/main (${stale.slice(0, 3).join(", ")}${stale.length > 3 ? ", …" : ""}). Rebase it onto origin/main, or for a fresh session: ${fix}`,
+      );
+  } else if (behind)
+    log(
+      `warn: detached HEAD is ${behind} commit(s) behind origin/main. Fix: ${fix}`,
+    );
+  if (diverged)
+    log(
+      "warn: local main has diverged from origin/main (not checked out here). Fix: git branch -f main origin/main",
+    );
+};
+
+/**
+ * Workspace dependencies missing from node_modules. A container snapshot from before a workspace
+ * was added (swarm-graph's d3) leaves `tsc -p web` with a wall of implicit-any errors.
+ */
+const missingWorkspaceDeps = () => {
+  const root = JSON.parse(
+    readFileSync(resolve(ARENA_ROOT, "package.json"), "utf8"),
+  ) as { workspaces?: string[] };
+  const missing = new Set<string>();
+  for (const ws of root.workspaces ?? []) {
+    const file = resolve(ARENA_ROOT, ws, "package.json");
+    if (!existsSync(file)) continue;
+    const pkg = JSON.parse(readFileSync(file, "utf8")) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    for (const name of Object.keys({
+      ...pkg.dependencies,
+      ...pkg.devDependencies,
+    }))
+      if (
+        ![resolve(ARENA_ROOT, ws), ARENA_ROOT].some((dir) =>
+          existsSync(resolve(dir, "node_modules", name, "package.json")),
+        )
+      )
+        missing.add(name);
+  }
+  return [...missing];
+};
 
 const playbook = (trackId: string) =>
   resolve(ARENA_ROOT, ".claude/skills", `${trackId}-playbook`, "SKILL.md");
@@ -428,13 +543,36 @@ export const prepare = async () => {
       log((r.stderr || r.stdout).trim().split("\n").slice(-8).join("\n"));
     return r.code === 0;
   };
-  let ok = await step(
-    "reference engines",
-    "bash",
-    [resolve(ARENA_ROOT, "scripts/install-references.sh")],
-    ARENA_ROOT,
-  );
-  await git(["fetch", "origin", "main"]);
+  await syncWithMain();
+  const missing = missingWorkspaceDeps();
+  let ok = missing.length
+    ? await step(
+        `npm install (missing ${missing.slice(0, 3).join(", ")}${missing.length > 3 ? ", …" : ""})`,
+        "npm",
+        ["install", "--no-audit", "--no-fund"],
+        ARENA_ROOT,
+      )
+    : true;
+  // The site imports swarm-graph as source; typecheck it so a reviewer's `tsc -p web` is trustworthy.
+  ok =
+    (await step(
+      "tsc swarm-graph (the site's workspace package)",
+      process.execPath,
+      [
+        resolve(ARENA_ROOT, "node_modules/typescript/bin/tsc"),
+        "--noEmit",
+        "-p",
+        "swarm-graph",
+      ],
+      ARENA_ROOT,
+    )) && ok;
+  ok =
+    (await step(
+      "reference engines",
+      "bash",
+      [resolve(ARENA_ROOT, "scripts/install-references.sh")],
+      ARENA_ROOT,
+    )) && ok;
   ok =
     (await step("cargo build (release)", "cargo", [
       "build",

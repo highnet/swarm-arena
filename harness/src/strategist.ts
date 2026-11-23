@@ -1,4 +1,10 @@
-import { TASK_TYPES, TRACKS, type GameId, type TaskType } from "@arena/shared";
+import {
+  TASK_TYPES,
+  TRACKS,
+  type GameId,
+  type Task,
+  type TaskType,
+} from "@arena/shared";
 import {
   bumpSessions,
   now,
@@ -10,7 +16,7 @@ import {
   tracks,
 } from "./board";
 import { log, RUN_ID } from "./config";
-import { openIssue } from "./rallypoint";
+import { getIssue, openIssue, prioLabel, REPO } from "./rallypoint";
 import { getStore } from "./store";
 import { boardDigest } from "./messages";
 
@@ -28,6 +34,10 @@ export type Plan = {
     concept?: string;
     title: string;
     spec: string;
+    /** The issue's `prio:p<n>`: 0-9, "p3" or "prio:p3"; `prio:p2` when absent. */
+    prio?: string | number;
+    /** An issue this task waits on: opened with `status:blocked` and a `Blocked-By:` line. */
+    blocked_by?: number;
   }[];
 };
 
@@ -86,8 +96,10 @@ ${board || "- quiet"}
 Write plan.json and run: npm run arena -- plan plan.json
 {
   "update": { "title": "one-line decision", "detail": "one or two sentences of reasoning" },
-  "tasks": [{ "track": "${TRACK_IDS.join("|")}", "seat": "e.g. chess/search", "type": "${TASK_TYPES.join("|")}", "concept": "the general idea, e.g. transposition table", "title": "...", "spec": "..." }]
+  "tasks": [{ "track": "${TRACK_IDS.join("|")}", "seat": "e.g. chess/search", "type": "${TASK_TYPES.join("|")}", "concept": "the general idea, e.g. transposition table", "title": "...", "spec": "...", "prio": "p2", "blocked_by": 42 }]
 }
+prio is optional (p2 by default; p0/p1 only for something broken). blocked_by is optional: the
+issue number this task waits on; it opens with status:blocked and comes back when that issue closes.
 At most one new task per engine that has nothing open or in progress.
 Concepts: the four games exist to find general ideas that make each engine better. Name the concept
 each task tests, prefer porting a concept that already gained Elo in one game to the others, and
@@ -109,6 +121,12 @@ const validate = (raw: unknown): Plan => {
       throw new Error("each task needs seat, title and spec");
     if (t.type && !TASK_TYPES.includes(t.type))
       throw new Error(`task type must be one of: ${TASK_TYPES.join(", ")}`);
+    prioLabel(t.prio);
+    if (
+      t.blocked_by !== undefined &&
+      !(Number.isInteger(t.blocked_by) && t.blocked_by > 0)
+    )
+      throw new Error("blocked_by is an issue number, e.g. 42");
   }
   return p;
 };
@@ -148,14 +166,17 @@ export const applyPlan = async (raw: unknown) => {
       closed_at: null,
     });
     // Rallypoint: every task is a GitHub issue the worker claims atomically.
-    const issue = await openIssue({
-      id,
-      track_id: t.track,
-      type: t.type ?? "experiment",
-      title: t.title,
-      spec: t.spec,
-      concept: t.concept ?? null,
-    }).catch((e) => {
+    const issue = await openIssue(
+      {
+        id,
+        track_id: t.track,
+        type: t.type ?? "experiment",
+        title: t.title,
+        spec: t.spec,
+        concept: t.concept ?? null,
+      },
+      { prio: t.prio, blockedBy: t.blocked_by },
+    ).catch((e) => {
       log(
         `issue for ${id} not opened yet (${String(e).slice(0, 120)}); the worker opens it on claim`,
       );
@@ -170,9 +191,65 @@ export const applyPlan = async (raw: unknown) => {
       detail: t.spec,
       data: { seat: t.seat, issue, concept: t.concept ?? null },
     });
-    log(`opened [${t.track}] ${t.title} (${id})`);
+    log(
+      `opened [${t.track}] ${t.title} (${id}) → ${issue ? `issue #${issue} https://github.com/${REPO}/issues/${issue}` : "no issue yet"}${t.blocked_by ? `, blocked by #${t.blocked_by}` : ""}`,
+    );
     opened++;
   }
   await setAgent("strategist", { activity: `Opened ${opened} tasks` });
   return opened;
+};
+
+/** The engine an issue's `engine:<track>` label names, or null for a harness or site issue. */
+export const issueTrack = (labels: { name: string }[]) =>
+  (labels
+    .map((l) => /^engine:(.+)$/.exec(l.name)?.[1])
+    .find((t) => t && TRACK_IDS.includes(t)) as GameId | undefined) ?? null;
+
+/**
+ * Give an arena issue opened outside `arena plan` its `tasks` row, so `next`, `submit` and
+ * `progress` can find it. Idempotent: an issue that already has a row returns it unchanged.
+ */
+export const adopt = async (number: number) => {
+  const existing = (await tasks()).find((t) => t.issue === number);
+  if (existing) return { task: existing, created: false };
+  const issue = await getIssue(number);
+  if (issue.pull_request) throw new Error(`#${number} is a pull request`);
+  if (issue.state !== "open") throw new Error(`#${number} is closed`);
+  const track = issueTrack(issue.labels);
+  if (!track)
+    throw new Error(
+      `#${number} has no engine:<${TRACK_IDS.join("|")}> label, so it is not an arena task`,
+    );
+  const named = issue.labels
+    .map((l) => /^type:(.+)$/.exec(l.name)?.[1])
+    .find((t) => t && (TASK_TYPES as readonly string[]).includes(t));
+  const type = (named ?? "experiment") as TaskType;
+  const body = issue.body ?? "";
+  const task = {
+    id: `${RUN_ID}-${track}-${Date.now().toString(36)}`,
+    run_id: RUN_ID,
+    track_id: track,
+    type,
+    concept:
+      /· concept `([^`]+)`/.exec(body)?.[1]?.trim().toLowerCase() ?? null,
+    title: issue.title,
+    spec: body || issue.title,
+    issue: number,
+    status: "open" as const,
+    claimed_by: null,
+    created_at: now(),
+    closed_at: null,
+  };
+  await getStore().insert("tasks", task);
+  await post("task_opened", {
+    track_id: track,
+    agent_id: "strategist",
+    task_id: task.id,
+    title: issue.title,
+    detail: `Adopted from issue #${number}.`,
+    data: { seat: `${track}/builder`, issue: number, concept: task.concept },
+  });
+  log(`adopted #${number} as [${track}] ${task.id}`);
+  return { task: task as Task, created: true };
 };

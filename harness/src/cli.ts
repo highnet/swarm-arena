@@ -26,6 +26,7 @@ import {
   prepare,
   progress,
   release,
+  staleHarness,
   submit,
 } from "./seat";
 import {
@@ -40,19 +41,24 @@ import {
 import { pinAgentId } from "./rallypoint";
 import { buildWasm } from "./wasm";
 import { getStore } from "./store";
-import { applyPlan, brief } from "./strategist";
+import { adopt, applyPlan, brief } from "./strategist";
 
 const USAGE = `arena <command>
 
 Agent sessions (run inside a Claude Code session on this repo):
-  prepare                       reference engines, warm builds, cached main binaries (seconds when warm)
-  next [track] [--role R] [--pr N] [--agent-id ID] [--only R,R]
+  prepare                       sync a stale main to origin/main, workspace deps, reference engines,
+                                warm builds, cached main binaries (seconds when warm)
+  next [track] [--role R] [--pr N] [--issue N] [--agent-id ID] [--only R,R] [--allow-stale]
                                 take this session's Rallypoint role (merger, fixer, reviewer, improver,
                                 worker or planner) and print its brief; a worker claims an issue.
                                 --role skips the picker (a conductor dispatched this session to one
                                 target; it prints ROLE none if the target no longer needs it), --pr
-                                names the pull request, --agent-id pins the id the lease was written under,
-                                --only limits the picker (a builder or judge loop)
+                                names the pull request, --issue the issue a worker takes (an arena
+                                issue is adopted; a harness or site issue gets a plain PR brief),
+                                --agent-id pins the id the lease was written under,
+                                --only limits the picker (a builder or judge loop).
+                                Exits 75 when this checkout lacks harness commits from origin/main
+  adopt <issue>                 give an arena issue opened outside \`plan\` its task row (idempotent)
   verdict <pr> approve|request-changes "<note>"
                                 reviewer: record one verdict through review.mjs
   merge <pr>                    merger: merge an approved PR and land its arena task
@@ -197,19 +203,50 @@ const main = async () => {
       const agentId = opt("agent-id");
       if (agentId) pinAgentId(agentId);
       const pr = opt("pr");
+      const issue = opt("issue");
+      if (issue !== undefined && !(Number(issue) > 0))
+        throw new Error("--issue takes an issue number");
       const only = opt("only")?.split(",") as Role[] | undefined;
       const bad = only?.find((r) => !(ROLES as readonly string[]).includes(r));
       if (bad) throw new Error(`--only takes ${ROLES.join(",")}; not ${bad}`);
       const track = args.find(
-        (a, i) => !a.startsWith("--") && !args[i - 1]?.startsWith("--"),
+        (a, i) =>
+          !a.startsWith("--") &&
+          (!args[i - 1]?.startsWith("--") || args[i - 1] === "--allow-stale"),
       );
+      // A session on a checkout missing harness commits from origin/main runs superseded
+      // briefs and scripts: refuse with Rallypoint's stale-checkout code (freshness.mjs).
+      const stale = args.includes("--allow-stale")
+        ? null
+        : await staleHarness();
+      if (stale?.length) {
+        console.error(
+          `This checkout lacks ${stale.length} harness file change(s) on origin/main (${stale.slice(0, 3).join(", ")}${stale.length > 3 ? ", …" : ""}).
+Run \`git checkout --detach origin/main\` (or \`npm run arena -- prepare\`, which does it on a clean main), then \`npm run arena -- next\` again.
+--allow-stale skips this check.`,
+        );
+        process.exitCode = 75;
+        return;
+      }
       console.log(
         await next({
           role: role as Role | undefined,
           pr: pr ? Number(pr) : undefined,
+          issue: issue ? Number(issue) : undefined,
           track,
           only,
         }),
+      );
+      return;
+    }
+    case "adopt": {
+      const n = Number(args[0]);
+      if (!(n > 0)) throw new Error("usage: adopt <issue>");
+      const { task, created } = await adopt(n);
+      console.log(
+        created
+          ? `Adopted #${n} as task ${task.id} [${task.track_id}, ${task.type}].`
+          : `#${n} already has task ${task.id} (${task.status}).`,
       );
       return;
     }
@@ -279,7 +316,11 @@ const main = async () => {
       if (!seat)
         throw new Error(`${cmd} needs --as <seat>, e.g. --as chess/search`);
       const replyTo =
-        cmd === "comment" ? Number(args[0]) : opt("reply") ? Number(opt("reply")) : null;
+        cmd === "comment"
+          ? Number(args[0])
+          : opt("reply")
+            ? Number(opt("reply"))
+            : null;
       if (cmd === "comment" && !replyTo)
         throw new Error('usage: comment <id> "<text>" --as <seat>');
       const { message, thread } = await postMessage({
@@ -311,7 +352,12 @@ const main = async () => {
         : process.argv.includes("--close")
           ? "closed"
           : "resolved";
-      const root = await setThreadStatus({ seat, id, status, note: opt("note") });
+      const root = await setThreadStatus({
+        seat,
+        id,
+        status,
+        note: opt("note"),
+      });
       console.log(`Thread msg#${root} is ${status}.`);
       return;
     }

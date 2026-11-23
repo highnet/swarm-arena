@@ -14,9 +14,11 @@ import { getStore } from "./store";
 import {
   APPROVED,
   CHANGES,
+  getIssue,
   ghApi,
   hasLabel,
   BRANCH_PREFIX,
+  CLAIM_REF_PREFIX,
   isRallypointPull,
   openPulls,
   REPO,
@@ -27,6 +29,7 @@ import {
   type Pull,
 } from "./rallypoint";
 import { claimNext, land } from "./seat";
+import { adopt, issueTrack } from "./strategist";
 
 /**
  * The orchestrator: one session, one Rallypoint role, chosen from the state of the repository.
@@ -53,7 +56,10 @@ export const IMPROVER_PATHS = [
 const fleet = async (
   seat: string,
   role: Parameters<typeof agent>[2],
-  patch: { activity: string; task_id?: string | null } & Record<string, unknown>,
+  patch: { activity: string; task_id?: string | null } & Record<
+    string,
+    unknown
+  >,
   { countSession = true }: { countSession?: boolean } = {},
 ) => {
   const id = await agent(seat, null, role);
@@ -65,7 +71,9 @@ const fleet = async (
     ...patch,
   });
   const taskId = patch.task_id ?? null;
-  const task = taskId ? (await tasks()).find((t) => t.id === taskId) : undefined;
+  const task = taskId
+    ? (await tasks()).find((t) => t.id === taskId)
+    : undefined;
   await post("progress", {
     agent_id: id,
     task_id: taskId,
@@ -126,6 +134,8 @@ export type NextOptions = {
   pr?: number;
   /** Engine track for a worker. */
   track?: string;
+  /** The issue a worker was dispatched to (an arena task, or a harness or site issue). */
+  issue?: number;
   /** Pick only among these roles (a builder or judge loop); nothing fitting prints ROLE none. */
   only?: Role[];
 };
@@ -204,6 +214,66 @@ ${retros.map((m) => `- #${m.id} ${m.agent_id}: ${m.body}`).join("\n") || "- none
 ${await metrics()}`;
 };
 
+/** Hold labels that take an issue out of the claimable pool (AGENTIC_LOOP.md, Hard rules). */
+const HOLDS = [
+  "status:claimed",
+  "status:blocked",
+  "status:deferred",
+  "needs:human",
+];
+
+/**
+ * A worker dispatched to one issue. An arena issue without a `tasks` row is adopted and claimed
+ * like any arena task; a harness or site issue gets a plain Rallypoint brief: claim it with
+ * claim.mjs and deliver a normal pull request (there is no referee for it).
+ */
+const issueWorker = async (number: number, track?: string) => {
+  const issue = await getIssue(number);
+  if (issue.pull_request)
+    return overtaken("worker", `#${number} is a pull request`);
+  if (issue.state !== "open")
+    return overtaken("worker", `#${number} is closed`);
+  const held = issue.labels.map((l) => l.name).filter((l) => HOLDS.includes(l));
+  if (held.length || issue.assignees?.length)
+    return overtaken(
+      "worker",
+      `#${number} is not claimable (${held.join(", ") || "it has an assignee"})`,
+    );
+  if (issueTrack(issue.labels)) {
+    const { task, created } = await adopt(number);
+    if (track && task.track_id !== track)
+      return overtaken(
+        "worker",
+        `#${number} is a ${task.track_id} task, not ${track}`,
+      );
+    if (task.status !== "open")
+      return overtaken("worker", `its task ${task.id} is ${task.status}`);
+    return (
+      (await claimNext(task.track_id, number)) ??
+      overtaken(
+        "worker",
+        `#${number}${created ? " (adopted just now)" : ""} could not be claimed: another ${task.track_id} task is in progress, or claim.mjs refused (see the log above)`,
+      )
+    );
+  }
+  const agentId = sessionAgentId("worker");
+  await fleet("worker", "worker", {
+    rp_role: "worker",
+    activity: `Working issue #${number}`,
+  });
+  return `ROLE worker (Rallypoint) · not an arena task
+You are ${agentName("worker")}. Issue #${number} ${issue.title} (${issue.html_url}).
+Your Rallypoint agent id: ${agentId}
+It has no engine:<track> label, so there is no referee and no \`arena submit\`.
+1. Read .rallypoint/roles/worker.md and the issue in full.
+2. Claim it: node .rallypoint/scripts/claim.mjs --issue ${number} --agent-id ${agentId}
+   and check out the CLAIM_BRANCH it prints, from origin/main.
+3. Make the change the issue asks for, nothing more, and run its validation (npm test, npm run typecheck).
+4. node .rallypoint/scripts/preflight.mjs --body "<prepared body>" --base main
+5. Open a ready-for-review pull request from that branch with \`Closes #${number}\` and the validation
+   results (gh api repos/${REPO}/pulls -X POST ...). An independent reviewer judges it.`;
+};
+
 const plannerBrief = async () => {
   await fleet(
     "strategist",
@@ -227,7 +297,13 @@ const dispatched = async ({
   role,
   pr,
   track,
+  issue,
 }: NextOptions & { role: Role }) => {
+  if (issue && role !== "worker")
+    throw new Error(
+      "--issue is for a worker; a merger, fixer or reviewer takes --pr",
+    );
+  if (role === "worker" && issue) return issueWorker(issue, track);
   if (role === "worker")
     return (
       (await claimNext(track)) ??
@@ -288,7 +364,8 @@ const dispatched = async ({
 
 /** Decide this session's role and print its brief. */
 export const next = async (opts: NextOptions = {}) => {
-  if (opts.role) return dispatched({ ...opts, role: opts.role });
+  if (opts.role || opts.issue)
+    return dispatched({ ...opts, role: opts.role ?? "worker" });
   const may = (r: Role) => !opts.only || opts.only.includes(r);
   const pulls = await loopPulls();
   const states = await Promise.all(
@@ -394,7 +471,9 @@ export const verdict = async (pr: number, decision: string, note: string) => {
   // Still working: the session goes on to its retro, which is what marks the seat idle.
   await setAgent(reviewer, {
     activity:
-      decision === "approve" ? `Approved #${pr}` : `Requested changes on #${pr}`,
+      decision === "approve"
+        ? `Approved #${pr}`
+        : `Requested changes on #${pr}`,
   });
   log(`${decision} recorded on #${pr}`);
 };
@@ -474,14 +553,108 @@ export const merge = async (pr: number) => {
   }
   // Closes/Refs, the claim, its labels and its reservation: the script reads the body and the
   // landed commit, so a Refs #N partial delivery stays open with its claim released.
-  const reconciled = await rp("close-referenced-issues", [merged.sha]);
-  if (reconciled.code !== 0)
-    log(
-      `close-referenced-issues exited ${reconciled.code} for ${merged.sha}: ${(reconciled.stderr || reconciled.stdout).trim().slice(0, 300)} (a janitor pass will reconcile it)`,
-    );
+  const summary = await reconcileClaim(pull, merged.sha);
   // Still working: the session goes on to its retro, which is what marks the seat idle.
   await setAgent(merger, { activity: `Merged #${pr}` });
-  log(`merged #${pr}${taskId ? ` (${taskId})` : ""}`);
+  log(
+    `merged #${pr}${taskId ? ` (${taskId})` : ""} as ${merged.sha.slice(0, 7)}`,
+  );
+  log(summary);
+};
+
+/** The issue a pull request delivers: its `Closes #N` / `Refs #N` line, else its `agent/<N>-…` branch. */
+export const deliveredIssue = (pull: Pull) => {
+  const closes =
+    /^\s*(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)/im.exec(
+      pull.body ?? "",
+    )?.[1];
+  const refs = /^\s*refs\s+#(\d+)/im.exec(pull.body ?? "")?.[1];
+  const branch = new RegExp(`^${BRANCH_PREFIX}(\\d+)-`).exec(
+    pull.head.ref,
+  )?.[1];
+  const n = Number(closes ?? refs ?? branch);
+  return n ? { issue: n, closes: Boolean(closes) } : null;
+};
+
+/** Whether the claim reservation ref for an issue still exists. */
+const hasReservation = async (issue: number) => {
+  const ref = `refs/heads/${CLAIM_REF_PREFIX}${issue}`;
+  const refs = await ghApi<{ ref: string }[]>(
+    "GET",
+    `repos/${REPO}/git/matching-refs/heads/${CLAIM_REF_PREFIX}${issue}`,
+  );
+  return refs.some((r) => r.ref === ref);
+};
+
+/**
+ * After a merge: close the delivered issue and release its claim (close-referenced-issues.mjs on
+ * the merge SHA), then read the issue back and clear what is left on a closed one
+ * (clear-status-labels.mjs for the label; the reservation ref close-referenced-issues would have
+ * removed). Returns one line saying what was reconciled.
+ */
+const reconcileClaim = async (pull: Pull, sha: string) => {
+  const target = deliveredIssue(pull);
+  const pass = async () => {
+    const r = await rp("close-referenced-issues", [sha]);
+    if (r.code !== 0)
+      log(
+        `close-referenced-issues exited ${r.code} for ${sha.slice(0, 7)}: ${(r.stderr || r.stdout).trim().slice(0, 300)}`,
+      );
+  };
+  await pass();
+  if (!target)
+    return "reconciled: the PR names no issue, so there was no claim to release";
+  const read = async () => {
+    const issue = await getIssue(target.issue);
+    return {
+      closed: issue.state === "closed",
+      claimed: hasLabel(issue, "status:claimed"),
+      status: issue.labels
+        .map((l) => l.name)
+        .filter((l) => l.startsWith("status:")),
+      reserved: await hasReservation(target.issue),
+    };
+  };
+  let state = await read().catch(() => null);
+  // GitHub indexes a fresh merge commit's pull request a moment late; one more pass picks it up.
+  if (
+    state &&
+    (state.reserved || state.claimed || (target.closes && !state.closed))
+  ) {
+    await new Promise((r) => setTimeout(r, 5000));
+    await pass();
+    state = await read().catch(() => null);
+  }
+  if (!state)
+    return `reconciled: could not read #${target.issue} back; a janitor pass will check it`;
+  if (state.closed && state.status.length) {
+    const r = await rp("clear-status-labels", [
+      "--issue",
+      String(target.issue),
+    ]);
+    if (r.code !== 0)
+      log(
+        `clear-status-labels exited ${r.code}: ${(r.stderr || r.stdout).trim().slice(0, 300)}`,
+      );
+  }
+  if (state.closed && state.reserved)
+    await ghApi(
+      "DELETE",
+      `repos/${REPO}/git/refs/heads/${CLAIM_REF_PREFIX}${target.issue}`,
+    ).catch((e) =>
+      log(`could not delete the reservation: ${String(e).slice(0, 200)}`),
+    );
+  const after = await read().catch(() => null);
+  if (!after)
+    return `reconciled: could not read #${target.issue} back; a janitor pass will check it`;
+  const parts = [
+    `issue #${target.issue} ${after.closed ? "closed" : target.closes ? "STILL OPEN" : "left open (no Closes line)"}`,
+    after.claimed ? "status:claimed STILL SET" : "no status:claimed",
+    after.reserved ? "reservation ref STILL PRESENT" : "no reservation ref",
+  ];
+  const clean =
+    !after.claimed && !after.reserved && (after.closed || !target.closes);
+  return `reconciled: ${parts.join(", ")}${clean ? "" : " (a janitor pass will reconcile the rest)"}`;
 };
 
 /** A retro: what slowed this session down, or what would make the protocol better. */
