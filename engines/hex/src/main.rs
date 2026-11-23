@@ -10,28 +10,24 @@
 //! therefore column letter ↔ `column`, row number − 1 ↔ `row`; `to_coords`/`to_move` below do it
 //! explicitly (rather than trusting the library's string parser) and the tests pin it down.
 
+mod board;
+mod search;
+
 use hexgame::{Board, Color, Coords, Edge, Game, Status};
+use search::Limit;
 use std::io::{self, BufRead, Write};
+use std::time::Duration;
 
 /// Board size used by the referee.
 const N: u8 = 11;
 
 /// The six neighbour offsets (row, column) shared by the referee and `hexgame`.
+#[cfg(test)]
 const NEIGHBOURS: [(i8, i8); 6] = [(-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0)];
 
-/// Bridge offsets: (target, carrier a, carrier b). Two stones at a bridge distance are virtually
-/// connected while both carrier cells are empty.
 /// A (row, column) step.
+#[cfg(test)]
 type Step = (i8, i8);
-
-const BRIDGES: [(Step, Step, Step); 6] = [
-    ((-2, 1), (-1, 0), (-1, 1)),
-    ((-1, 2), (-1, 1), (0, 1)),
-    ((1, 1), (0, 1), (1, 0)),
-    ((2, -1), (1, -1), (1, 0)),
-    ((1, -2), (0, -1), (1, -1)),
-    ((-1, -1), (-1, 0), (0, -1)),
-];
 
 /// Parse a referee move (`a1`..`k11`) into `hexgame` coordinates.
 fn to_coords(mv: &str) -> Option<Coords> {
@@ -89,6 +85,7 @@ fn wins_with(board: &Board, c: Coords, color: Color) -> bool {
     b.play(c, color).is_ok() && has_won(&b, color)
 }
 
+#[cfg(test)]
 fn offset(c: Coords, (dr, dc): Step) -> Option<Coords> {
     let r = c.row as i8 + dr;
     let k = c.column as i8 + dc;
@@ -96,40 +93,35 @@ fn offset(c: Coords, (dr, dc): Step) -> Option<Coords> {
     (on(r) && on(k)).then(|| Coords::new(r as u8, k as u8))
 }
 
-/// Hex distance from the centre cell (5, 5).
-fn centre_distance(c: Coords) -> i32 {
-    let dr = c.row as i32 - (N as i32 / 2);
-    let dc = c.column as i32 - (N as i32 / 2);
-    (dr.abs() + dc.abs() + (dr + dc).abs()) / 2
+/// The position as the flat board's bitboards (cell index `row * 11 + column`).
+fn bitboards(board: &Board) -> (u128, u128) {
+    let (mut black, mut white) = (0u128, 0u128);
+    for row in 0..N {
+        for column in 0..N {
+            let bit = 1u128 << (row as u32 * N as u32 + column as u32);
+            match board.get_color(Coords::new(row, column)) {
+                Some(Color::Black) => black |= bit,
+                Some(Color::White) => white |= bit,
+                None => {}
+            }
+        }
+    }
+    (black, white)
 }
 
-/// Heuristic score of `color` playing on the empty cell `c`: near the centre, touching or
-/// bridging to its own stones, and pressing against the opponent's.
-fn score(board: &Board, c: Coords, color: Color) -> i32 {
-    let mut s = 20 - 3 * centre_distance(c);
-    for d in NEIGHBOURS {
-        match offset(c, d).and_then(|n| board.get_color(n)) {
-            Some(x) if x == color => s += 4,
-            Some(_) => s += 2,
-            None => {}
+/// Deterministic seed from the game so far: the same position always searches the same way.
+fn seed(moves: &[String]) -> u64 {
+    let mut h = 0xcbf2_9ce4_8422_2325u64;
+    for m in moves {
+        for b in m.bytes().chain([b' ']) {
+            h = (h ^ b as u64).wrapping_mul(0x0100_0000_01b3);
         }
     }
-    for (t, a, b) in BRIDGES {
-        let (Some(t), Some(a), Some(b)) = (offset(c, t), offset(c, a), offset(c, b)) else {
-            continue;
-        };
-        if board.get_color(t) == Some(color)
-            && board.get_color(a).is_none()
-            && board.get_color(b).is_none()
-        {
-            s += 5;
-        }
-    }
-    s
+    h
 }
 
 /// Pick a move for the side to move, given the moves so far.
-fn choose(moves: &[String], _budget_ms: u64) -> Option<String> {
+fn choose(moves: &[String], limit: Limit) -> Option<String> {
     let game = replay(moves);
     let Status::Ongoing(me) = game.get_status() else {
         return None;
@@ -146,17 +138,21 @@ fn choose(moves: &[String], _budget_ms: u64) -> Option<String> {
     if let Some(&c) = empty.iter().find(|&&c| wins_with(board, c, opp)) {
         return Some(to_move(c));
     }
-    // Deterministic tie-break that varies with the position, so equal cells do not always
-    // resolve to the top-left one.
-    let salt = moves.len() as u32;
-    let best = empty.iter().copied().max_by_key(|&c| {
-        let i = c.row as u32 * N as u32 + c.column as u32;
-        (
-            score(board, c, me),
-            (i.wrapping_mul(2654435761) ^ salt.wrapping_mul(40503)) & 0xff,
-        )
-    })?;
-    Some(to_move(best))
+    // Without the swap rule the centre is the strongest first move; skip the search.
+    if moves.is_empty() {
+        return Some("f6".into());
+    }
+    let (black, white) = bitboards(board);
+    let out = search::search(black, white, me == Color::Black, limit, seed(moves))?;
+    eprintln!("info playouts {} winrate {:.3}", out.playouts, out.winrate);
+    let c = Coords::new(out.mv / N, out.mv % N);
+    debug_assert!(board.get_color(c).is_none());
+    Some(to_move(c))
+}
+
+/// Search time for `go <ms>`: about 80% of the budget, leaving room for replay and output.
+fn time_limit(budget_ms: u64) -> Limit {
+    Limit::Time(Duration::from_millis(budget_ms * 4 / 5))
 }
 
 /// Handles one protocol line, returning the reply to print (if any) and whether to quit.
@@ -170,7 +166,7 @@ fn handle(line: &str, moves: &mut Vec<String>) -> (Option<String>, bool) {
         }
         Some("go") => {
             let budget = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1000);
-            let mv = choose(moves, budget).unwrap_or_else(|| "none".into());
+            let mv = choose(moves, time_limit(budget)).unwrap_or_else(|| "none".into());
             (Some(format!("bestmove {mv}")), false)
         }
         Some("quit") => (None, true),
@@ -316,7 +312,7 @@ mod tests {
             moves.push(format!("a{r}"));
             moves.push(format!("k{r}"));
         }
-        assert_eq!(choose(&moves, 100).as_deref(), Some("a11"));
+        assert_eq!(choose(&moves, Limit::Playouts(200)).as_deref(), Some("a11"));
     }
 
     #[test]
@@ -328,12 +324,12 @@ mod tests {
             moves.push(format!("{}11", "abcdefghijk".chars().nth(i).unwrap()));
             moves.push(format!("{c}1"));
         }
-        assert_eq!(choose(&moves, 100).as_deref(), Some("k1"));
+        assert_eq!(choose(&moves, Limit::Playouts(200)).as_deref(), Some("k1"));
     }
 
     #[test]
     fn opens_in_the_centre() {
-        assert_eq!(choose(&[], 100).as_deref(), Some("f6"));
+        assert_eq!(choose(&[], Limit::Playouts(200)).as_deref(), Some("f6"));
     }
 
     /// Self-play random-ish games to the end: every move chosen is legal and every game ends
@@ -346,11 +342,63 @@ mod tests {
             if let Status::Finished(_) = game.get_status() {
                 break;
             }
-            let m = choose(&moves, 50).expect("a move");
+            let m = choose(&moves, Limit::Playouts(500)).expect("a move");
             let c = to_coords(&m).expect("parsable");
             assert!(game.get_board().get_color(c).is_none(), "occupied {m}");
             moves.push(m);
             assert!(moves.len() <= 121);
         }
+    }
+
+    /// The flat board's connection check agrees with `hexgame` on random full boards, and on
+    /// the partial boards along the way (where neither, or exactly one, side has connected).
+    #[test]
+    fn flat_board_winner_matches_hexgame() {
+        let mut rng = board::Rng::new(42);
+        for game_no in 0..300 {
+            let mut lib = Board::new(N);
+            let (mut black, mut white) = (0u128, 0u128);
+            let mut cells: Vec<u8> = (0..121).collect();
+            for i in (1..cells.len()).rev() {
+                cells.swap(i, rng.below(i + 1));
+            }
+            for (ply, &i) in cells.iter().enumerate() {
+                let color = if ply % 2 == 0 {
+                    Color::Black
+                } else {
+                    Color::White
+                };
+                lib.play(Coords::new(i / N, i % N), color).unwrap();
+                if color == Color::Black {
+                    black |= 1u128 << i;
+                } else {
+                    white |= 1u128 << i;
+                }
+                if ply % 10 == 9 || ply == 120 {
+                    assert_eq!(
+                        board::black_connects(black),
+                        has_won(&lib, Color::Black),
+                        "game {game_no} ply {ply}"
+                    );
+                    assert_eq!(
+                        board::white_connects(white),
+                        has_won(&lib, Color::White),
+                        "game {game_no} ply {ply}"
+                    );
+                    assert_eq!(bitboards(&lib), (black, white));
+                }
+            }
+            assert_ne!(board::black_connects(black), board::white_connects(white));
+        }
+    }
+
+    /// The same position and playout budget always gives the same move.
+    #[test]
+    fn search_is_deterministic() {
+        let moves: Vec<String> = ["f6", "e7", "g4"].iter().map(|s| s.to_string()).collect();
+        let a = choose(&moves, Limit::Playouts(2000));
+        let b = choose(&moves, Limit::Playouts(2000));
+        assert!(a.is_some());
+        assert_eq!(a, b);
     }
 }

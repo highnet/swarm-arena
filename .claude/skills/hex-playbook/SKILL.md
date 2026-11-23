@@ -38,19 +38,45 @@ One thread, modest memory, and every reply within the `go <ms>` budget (200 ms i
 
 ## Architecture now
 
-Foundation (issue #3): no search. `go` replays the moves into a `hexgame::Game`, then
-1. plays a cell that wins at once, else
-2. blocks a cell where the opponent would win at once, else
-3. plays the empty cell with the best one-ply heuristic: `20 − 3·(hex distance to f6)`,
-   +4 per own neighbour, +2 per opponent neighbour, +5 per own stone at a bridge with both
-   carrier cells empty. Ties break by a deterministic hash of cell and ply.
-It ignores the clock (it answers in microseconds). Opens f6. Beats the random mover 10–0, but
-games run ~100 plies: it does not understand connection, only clumping. The next step is a real
-search (MCTS with fill-in playouts) or a distance/resistance evaluation.
+MCTS (UCT) since #42. Three files in `engines/hex/src`:
+
+- `main.rs`: protocol, coordinates, `hexgame` replay (the authority for legality), and `choose`:
+  1. plays a cell that wins at once (checked with `hexgame`), else
+  2. blocks a cell where the opponent would win at once, else
+  3. on the empty board plays f6 (no swap rule: the centre is strongest), else
+  4. converts the board to bitboards and runs UCT until 80% of `go <ms>`, playing the
+     most-visited root child. Prints `info playouts N winrate W` on stderr.
+  The search seed is a hash of the moves so far: a position always searches the same way.
+- `board.rs`: own flat board, one `u128` per colour (index `row * 11 + column`). `grow` is the
+  six-neighbour dilation with column masks (±1, ±11, +10, −10). Connection = flood fill from the
+  start edge with `grow`, then test the far edge. Playout: list the empty cells, partial
+  Fisher–Yates picks ⌈k/2⌉ of them for the side to move, the rest go to the other side, one
+  connection check for Black (a full board has exactly one winner). No per-move win checks.
+- `search.rs`: node arena (`Vec<Node>`, 16 bytes a node, children contiguous and shuffled at
+  expansion), UCB1 on win rates with **C = 0.3**, unvisited children first, expand a leaf on its
+  2nd visit, tree capped at 2M nodes (32 MB), clock checked every 64 playouts.
+  `Limit::Playouts(n)` makes it deterministic for tests; `Limit::Time` is for `go`.
+
+Speed (native release, this machine): **~840k playouts/s**, about 135k playouts per `go 200`
+move (160 ms of search), ~680k per `go 1000`. Tests: flat-board winner vs `hexgame` along 300
+random games to a full board, `grow` vs the neighbour offsets on every cell, one-winner property,
+and the legal-moves self-play now uses a fixed playout budget (no wall clock in tests).
+
+Measured at 200 ms: vs main (v0.1 heuristic) 10–0; C = 0.5 build vs `mcts-2000` 10–0; C = 0.3 vs
+`mcts-20000` 8–0. C sweep (self-play, 12 games each, seeded so pairs repeat): 0.3 beat 0.5
+10–2, 0.2 12–0, 0.12 12–0.
+
+Go 9×9 MCTS (#29, not merged when this was written) uses the same shape (arena, C = 0.6, expand
+on 2nd visit, 2M-node cap) but gets ~25k playouts/s: its playouts need legality and eye checks
+per move. Hex's fill-in playout is ~30× faster, so Hex can afford far more playouts per move.
 
 ## Ideas worth trying
 
-- MCTS with random fill-in playouts and one connection check at the end.
+- RAVE/AMAF: a fill-in playout assigns every empty cell to a colour, so all-moves-as-first
+  statistics come for free from the final bitboards; probably the next big gain.
+- Heuristic prior (the old one-ply score: centre distance, neighbours, bridges) as virtual
+  wins on new nodes; the issue left it optional and it was not measured.
+- Tree reuse between moves (the next position's subtree is already searched).
 - Bridge-save playout rule; two-distance or resistance evaluation as priors.
 - Dead-cell and captured-cell pruning; parallel root search within the time budget.
 
@@ -70,3 +96,4 @@ differently. Never re-propose an idea from this list unchanged.
 
 <!-- The referee appends one line per verdict. Do not edit by hand. -->
 - 2026-11-23 12:45 UTC · v0.1 passed the referee · Wire hexgame to the protocol and play legal moves · rated 759 (first rated version)
+- 2026-11-23 14:33 UTC · v0.2 passed the referee · MCTS (UCT) with random fill-in playouts on a flat 121-cell board · rated 1459 (+700)

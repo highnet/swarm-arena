@@ -50,3 +50,4 @@ The referee appends here. Never edit past lines.
 
 - 2026-11-23 · **alpha-beta** · Chess · v0.2 rated 1259 (+500) · Negamax alpha-beta with iterative deepening inside the go budget
 - 2026-11-23 · **alpha-beta** · Othello · v0.2 rated 1459 (+1218) · Alpha-beta with iterative deepening and X/C-square evaluation
+- 2026-11-23 · **mcts** · Hex 11×11 · v0.2 rated 1459 (+700) · MCTS (UCT) with random fill-in playouts on a flat 121-cell board
