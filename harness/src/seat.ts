@@ -636,6 +636,7 @@ export const submit = async (taskId: string) => {
     // against different opponents are not comparable, so rate main (built from main, as the
     // head-to-head does) on the same rung with the same pairs, and hold the candidate to that.
     let sameRung: Rating | null = null;
+    let sameRungMatch: string | null = null;
     if (rung && t.current_version && needsRungBaseline(rung.elo, prev)) {
       const label = `${t.name} ${t.current_version}`;
       const main = await currentVersion(task.track_id, label);
@@ -659,6 +660,7 @@ export const submit = async (taskId: string) => {
       await yardstick.close?.();
       await main.close?.();
       sameRung = { elo: baseline.est.elo, error: baseline.est.error };
+      sameRungMatch = baseline.matchId;
       await progress(
         task,
         "referee",
@@ -738,6 +740,17 @@ export const submit = async (taskId: string) => {
       prev,
       delta,
       matchId: gate.matchId,
+      // The version being replaced, re-rated on this rung: on landing it goes on the curve too,
+      // so the curve compares like with like instead of keeping a rating from an easier rung.
+      baseline:
+        sameRung && sameRungMatch && t.current_version
+          ? {
+              version: t.current_version,
+              elo: Math.round(sameRung.elo),
+              error: Math.round(sameRung.error),
+              matchId: sameRungMatch,
+            }
+          : null,
       score: {
         wins: gate.result.wins,
         draws: gate.result.draws,
@@ -823,6 +836,12 @@ type TaskResult = {
   prev: number | null;
   delta: string;
   matchId: string;
+  baseline?: {
+    version: string;
+    elo: number;
+    error: number;
+    matchId: string;
+  } | null;
 };
 
 /**
@@ -847,6 +866,17 @@ export const land = async (taskId: string, mergedBy = "merger") => {
     { run_id: RUN_ID, id: task.track_id },
     { current_elo: r.elo, current_version: r.version },
   );
+  if (r.baseline) {
+    await db.insert("elo_points", {
+      run_id: RUN_ID,
+      track_id: task.track_id,
+      at: now(),
+      engine_version: r.baseline.version,
+      elo: r.baseline.elo,
+      elo_error: r.baseline.error,
+      match_id: r.baseline.matchId,
+    });
+  }
   await db.insert("elo_points", {
     run_id: RUN_ID,
     track_id: task.track_id,

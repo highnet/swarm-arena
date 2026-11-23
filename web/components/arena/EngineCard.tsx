@@ -2,8 +2,7 @@ import Link from 'next/link';
 import { ArrowRight, Gamepad2, Swords, Trophy } from 'lucide-react';
 import type { TrackSummary } from '@/lib/derive';
 import { formatElo } from '@/lib/format';
-import { ENGINE_FACTS, SERIES } from '@/lib/tracks';
-import { cn } from '@/lib/utils';
+import { ENGINE_FACTS } from '@/lib/tracks';
 import { EngineLogo } from './EngineLogo';
 
 type EngineCardProps = {
@@ -66,18 +65,6 @@ const EngineCard = ({ track }: EngineCardProps) => {
           </dd>
         </div>
       </dl>
-
-      <div className="mt-3 flex gap-1" aria-hidden="true">
-        {track.rungs.map((r) => (
-          <span
-            key={r.id}
-            className={cn(
-              'h-1 flex-1 rounded-full',
-              r.cleared_at ? SERIES[track.colorSlot].bg : 'bg-line-strong',
-            )}
-          />
-        ))}
-      </div>
 
       <div className="mt-3 flex items-center justify-between gap-2 text-xs">
         <span className="inline-flex min-w-0 items-center gap-1.5 text-fg-3">
