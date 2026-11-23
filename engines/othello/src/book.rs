@@ -373,3 +373,111 @@ pub fn game_stats(moves: &[String], side: usize) -> (u32, u32, Option<usize>) {
     }
     (hits, n, first)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Square-by-square reference for `transform`.
+    fn slow(t: u8, x: u64) -> u64 {
+        let mut out = 0;
+        for i in 0..64 {
+            if x >> i & 1 == 1 {
+                let (mut r, mut c) = (i / 8, i % 8);
+                if t & 1 != 0 {
+                    r = 7 - r;
+                }
+                if t & 2 != 0 {
+                    c = 7 - c;
+                }
+                if t & 4 != 0 {
+                    std::mem::swap(&mut r, &mut c);
+                }
+                out |= 1 << (r * 8 + c);
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn transforms_are_the_eight_board_symmetries() {
+        let mut x = 0x9e37_79b9_7f4a_7c15u64;
+        for _ in 0..200 {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            for t in 0..8 {
+                assert_eq!(transform(t, x), slow(t, x), "t={t} x={x:x}");
+            }
+        }
+        let images: BTreeSet<u64> = (0..8).map(|t| transform(t, 1 << 1 | 1 << 10 | 1 << 20)).collect();
+        assert_eq!(images.len(), 8);
+    }
+
+    #[test]
+    fn mirrored_positions_share_a_key_and_map_the_move_back() {
+        // d3 and its mirror f5... all four first moves are symmetric: one canonical position.
+        let g = Game::default();
+        let keys: BTreeSet<_> = ["d3", "c4", "f5", "e6"]
+            .iter()
+            .map(|m| {
+                let n = g.make_move(crate::parse_square(m).unwrap()).unwrap();
+                canonical(n.get()[0], n.get()[1]).0
+            })
+            .collect();
+        assert_eq!(keys.len(), 1);
+    }
+
+    #[test]
+    fn every_book_move_is_legal_and_the_book_is_sorted_and_small() {
+        assert!(BOOK.len() % RECORD == 0 && BOOK.len() < 1 << 20, "{} bytes", BOOK.len());
+        let mut prev = None;
+        for i in 0..entries() {
+            let (me, opp, m, _) = record(i);
+            assert!(prev < Some((me, opp)), "sorted, no duplicates");
+            prev = Some((me, opp));
+            assert_eq!(canonical(me, opp).0, (me, opp), "stored canonical");
+            let g = game(me, opp);
+            assert!(g.available_moves() >> m & 1 == 1, "legal move in entry {i}");
+            // Probing any symmetric copy yields the mapped, legal move.
+            for t in 0..8 {
+                let h = game(transform(t, me), transform(t, opp));
+                let p = probe(&h).expect("symmetric copy is in book");
+                assert!(h.available_moves() >> p & 1 == 1);
+                // Same move up to symmetry (a self-symmetric position may map to a twin).
+                let a = g.make_move(m as usize).unwrap().get();
+                let b = h.make_move(p).unwrap().get();
+                assert_eq!(canonical(a[0], a[1]).0, canonical(b[0], b[1]).0);
+            }
+        }
+    }
+
+    #[test]
+    fn every_root_position_is_in_the_book() {
+        let roots = roots();
+        assert_eq!(roots.len(), 382);
+        if entries() == 0 {
+            return; // generator not yet run
+        }
+        for (me, opp) in roots {
+            assert!(lookup((me, opp)).is_some());
+        }
+    }
+
+    #[test]
+    fn generator_is_deterministic() {
+        let g = game(Game::default().get()[0], Game::default().get()[1]);
+        assert_eq!(fixed_depth(&g, 6), fixed_depth(&g, 6));
+        let empty = BTreeMap::new();
+        assert_eq!(frontier(&empty, MAX_PLY), roots());
+    }
+
+    #[test]
+    fn stats_count_only_the_given_side_after_the_random_plies() {
+        let moves: Vec<String> = "f5 d6 c3 d3 c4 f4".split(' ').map(String::from).collect();
+        let (hits, n, first) = game_stats(&moves, 0);
+        assert_eq!(n, 1); // ply 4 only
+        assert!(hits <= n);
+        assert!(first.is_none() || first == Some(4));
+    }
+}
