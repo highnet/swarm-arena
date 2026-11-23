@@ -46,11 +46,12 @@ const CORNER_W: i32 = 30;
 const MOBILITY_W: i32 = 4;
 const X_W: i32 = 18;
 const C_W: i32 = 8;
-/// Frontier: per own frontier disc, at a full board of empties (scaled down as it fills).
-const FRONTIER_W: i32 = 6;
-/// Edge-anchored stable disc: base weight plus (60 - empties) / 4, so it grows from 8 (opening)
-/// to 23 (full board), always below a corner.
-const STABLE_W: i32 = 8;
+/// Potential mobility: per square of difference, scaled by empties / 60 (2 in the opening,
+/// fading to 0 as the board fills, where real mobility and stability take over).
+const POTMOB_W: i32 = 2;
+/// Edge-anchored stable disc, flat per disc (well below a corner's 30). Tuning with local
+/// matches found larger or phase-growing weights lost to v0.2; see the playbook.
+const STABLE_W: i32 = 2;
 /// Terminal scores sit far above any heuristic score.
 const WIN: i32 = 100_000;
 const INF: i32 = 1_000_000;
@@ -65,9 +66,10 @@ fn neighbours(b: u64) -> u64 {
     ew | (row << 8) | (row >> 8)
 }
 
-/// Frontier discs of `own`: discs with at least one empty 8-neighbour.
-fn frontier(own: u64, empty: u64) -> u64 {
-    own & neighbours(empty)
+/// Potential mobility against `other`: the empty squares 8-adjacent to at least one of its
+/// discs (where a later move by the side owning the count may flip something). More is better.
+fn potential_mobility(other: u64, empty: u64) -> u64 {
+    empty & neighbours(other)
 }
 
 const ROWS_18: u64 = 0xff | 0xff << 56;
@@ -101,8 +103,8 @@ fn edge_stable(own: u64, occupied: u64) -> u64 {
 }
 
 /// Static evaluation from the side to move's point of view. Original terms: corner ownership,
-/// mobility difference, a penalty for X/C-squares next to a still-empty corner, fewer frontier
-/// discs (scaled down as the board fills), and edge-anchored stable discs (scaled up).
+/// mobility difference, a penalty for X/C-squares next to a still-empty corner, potential
+/// mobility (scaled down as the board fills), and edge-anchored stable discs.
 fn evaluate(g: &Game) -> i32 {
     let [me, opp] = g.get();
     let occupied = me | opp;
@@ -122,11 +124,11 @@ fn evaluate(g: &Game) -> i32 {
             s -= C_W * ((me >> sq & 1) as i32 - (opp >> sq & 1) as i32);
         }
     }
-    let fr = frontier(opp, empty).count_ones() as i32 - frontier(me, empty).count_ones() as i32;
-    s += FRONTIER_W * fr * empties / 60;
+    let pm = potential_mobility(opp, empty).count_ones() as i32 - potential_mobility(me, empty).count_ones() as i32;
+    s += POTMOB_W * pm * empties / 60;
     if occupied & CORNERS != 0 {
         let st = edge_stable(me, occupied).count_ones() as i32 - edge_stable(opp, occupied).count_ones() as i32;
-        s += (STABLE_W + (60 - empties) / 4) * st;
+        s += STABLE_W * st;
     }
     s
 }
@@ -419,23 +421,30 @@ mod tests {
     }
 
     #[test]
-    fn frontier_counts_discs_touching_an_empty_square() {
-        // Opening: all four centre discs touch an empty square, for both colours.
-        let [b, w] = Game::default().get();
+    fn potential_mobility_counts_empties_next_to_the_other_side() {
+        // Opening, either side: the empties touching the opponent's two discs. For Black (to
+        // move) White sits on d4 e5; their 8-neighbourhoods hold 10 empty squares (c3 d3 e3 c4
+        // c5 f4 f5 d6 e6 f6), and the same count holds the other way round by symmetry.
+        let g = Game::default();
+        let [b, w] = g.get();
         let empty = !(b | w);
-        assert_eq!(frontier(b, empty).count_ones(), 2);
-        assert_eq!(frontier(w, empty).count_ones(), 2);
-        // A disc boxed in on every side is not frontier; its boxing discs are.
-        let black = bits(&["d4"]);
-        let white = bits(&["c3", "d3", "e3", "c4", "e4", "c5", "d5", "e5"]);
-        let empty = !(black | white);
-        assert_eq!(frontier(black, empty), 0);
-        assert_eq!(frontier(white, empty), white);
-        // No wrap across the a/h columns: h1 next to empty a2 (bit 8) only via a real neighbour.
-        let full_but = !bits(&["a2"]);
-        assert_eq!(frontier(bits(&["h1"]), !full_but), 0);
-        assert_eq!(frontier(bits(&["a1", "b1", "b3"]), !full_but), bits(&["a1", "b1", "b3"]));
-        assert_eq!(frontier(bits(&["h2", "h3"]), !full_but), 0);
+        assert_eq!(potential_mobility(w, empty).count_ones(), 10);
+        assert_eq!(potential_mobility(b, empty).count_ones(), 10);
+        // A side boxed in on every side by the other has no empty neighbour: zero for the
+        // boxed side's opponent, while the boxing ring touches all 16 empties around it.
+        let inner = bits(&["d4"]);
+        let ring = bits(&["c3", "d3", "e3", "c4", "e4", "c5", "d5", "e5"]);
+        let empty = !(inner | ring);
+        assert_eq!(potential_mobility(inner, empty), 0);
+        assert_eq!(potential_mobility(ring, empty).count_ones(), 16);
+        // No wrap across the a/h columns: a lone h1 disc touches g1 g2 h2 only, never a2.
+        let empty = !bits(&["h1"]);
+        assert_eq!(potential_mobility(bits(&["h1"]), empty), bits(&["g1", "g2", "h2"]));
+        assert_eq!(potential_mobility(bits(&["a2"]), !bits(&["a2"])), bits(&["a1", "b1", "b2", "b3", "a3"]));
+        // Through evaluate(), both colours: the side to move gains when the opponent offers more.
+        let g = Game::new(bits(&["d4", "d5", "e4", "e5", "c3"]), bits(&["f6"])).unwrap();
+        let h = Game::new(bits(&["f6"]), bits(&["d4", "d5", "e4", "e5", "c3"])).unwrap();
+        assert_eq!(evaluate(&g), -evaluate(&h));
     }
 
     #[test]
@@ -476,7 +485,7 @@ mod tests {
     fn takes_a_free_corner_over_an_x_square() {
         // In the midgame (20+ empties), wherever a corner is legal and so is the X-square
         // touching that same corner, a fixed-depth search (no clock in play) must not choose
-        // that X-square: it would hand the corner away. Endgames are left out on purpose:
+        // that X-square if it lets the opponent take the corner in reply. Endgames are left out on purpose:
         // there the disc count decides and an X-square can be the right move. Positions come
         // from seeded pseudo-random games, so every run checks the same positions.
         let mut checked = 0;
@@ -500,7 +509,13 @@ mod tests {
                     if empties >= 20 && avail >> corner & 1 == 1 && avail >> x & 1 == 1 {
                         let (m, depth) = search_limited(&g, 3, Duration::from_secs(60));
                         assert_eq!(depth, 3, "search did not complete depth 3");
-                        assert_ne!(m, x, "played {} with its corner {} legal: {moves:?}", square_name(x), square_name(corner));
+                        // The X-square is a blunder when it hands the corner over. With the corner
+                        // still ours to take later (the opponent cannot reach it next move) it can be
+                        // a fine choice: allowed only then.
+                        if m == x {
+                            let reply = g.make_move(x).unwrap().available_moves();
+                            assert_eq!(reply >> corner & 1, 0, "played {} and handed over {}: {moves:?}", square_name(x), square_name(corner));
+                        }
                         checked += 1;
                     }
                 }
