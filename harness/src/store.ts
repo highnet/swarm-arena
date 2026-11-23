@@ -5,6 +5,32 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 type Row = Record<string, unknown>;
 type Filter = Record<string, unknown>;
 
+type Result = {
+  data: unknown;
+  error: { message: string; code?: string } | null;
+  status?: number;
+};
+
+/**
+ * A transient network failure ("fetch failed", a reset, a gateway 5xx): no database error code.
+ * Constraint and permission errors carry a code (23505, 42501, PGRST…) and are never retried.
+ */
+export const transient = (r: Result) =>
+  !!r.error && !r.error.code && (!r.status || r.status >= 500);
+
+/** Run a write up to `attempts` times, backing off 0.5 s, 1 s, … while it fails transiently. */
+export const withRetry = async <R extends Result>(
+  write: () => PromiseLike<R>,
+  attempts = 3,
+  baseMs = 500,
+): Promise<R> => {
+  for (let i = 1; ; i++) {
+    const r = await write();
+    if (i >= attempts || !transient(r)) return r;
+    await new Promise((ok) => setTimeout(ok, baseMs * 2 ** (i - 1)));
+  }
+};
+
 /**
  * Minimal table store. Supabase in production (service role key, bypasses RLS);
  * a JSON file for dry runs (`ARENA_STORE=file`), so the harness can be exercised offline.
@@ -61,13 +87,15 @@ const supabaseStore = (): Store => {
       ) as never,
     insert: async (table, row) =>
       check(
-        await db.from(table).insert(row).select().single(),
+        await withRetry(() => db.from(table).insert(row).select().single()),
         `insert ${table}`,
       ) as never,
     update: async (table, filter, patch) =>
       (
         check(
-          await apply(db.from(table).update(patch), filter).select("*"),
+          await withRetry(() =>
+            apply(db.from(table).update(patch), filter).select("*"),
+          ),
           `update ${table}`,
         ) as Row[]
       ).length,

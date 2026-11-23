@@ -280,13 +280,227 @@ fn search_counted(g: &Game, max_depth: u32, deadline: Duration) -> (usize, u32, 
     (best, done, s.nodes)
 }
 
+// ---------------------------------------------------------------------------------------------
+// Exact endgame solver (task #94). Its own negamax on the final disc count: no evaluate() calls.
+// ---------------------------------------------------------------------------------------------
+
+/// At or below this many empties `go` runs the exact solve after a short midgame search.
+/// Chosen from `solve_report` (see the playbook's solve-time table).
+const SOLVE_EMPTIES: u32 = 14;
+/// Below this many empties the solver orders by parity only (computing every reply's mobility
+/// costs more than it saves this close to the end).
+const SHALLOW: u32 = 6;
+/// Scores are final disc differences, so they lie inside [-64, 64].
+const SOLVE_INF: i32 = 65;
+
+/// The four 4×4 quadrants, for the parity tiebreak (an odd empty region is the mover's to close).
+const QUADRANTS: [u64; 4] = [
+    0x0000_0000_0f0f_0f0f,
+    0x0000_0000_f0f0_f0f0,
+    0x0f0f_0f0f_0000_0000,
+    0xf0f0_f0f0_0000_0000,
+];
+
+/// Final disc difference for the side owning `me`, with the empty squares going to the winner.
+fn final_score(me: u64, opp: u64) -> i32 {
+    let m = me.count_ones() as i32;
+    let o = opp.count_ones() as i32;
+    let e = 64 - m - o;
+    let d = m - o;
+    if d > 0 {
+        d + e
+    } else if d < 0 {
+        d - e
+    } else {
+        0
+    }
+}
+
+/// The empty squares that lie in a quadrant holding an odd number of empties.
+fn odd_regions(empty: u64) -> u64 {
+    let mut odd = 0;
+    for q in QUADRANTS {
+        if (empty & q).count_ones() & 1 == 1 {
+            odd |= q;
+        }
+    }
+    odd & empty
+}
+
+struct Solver {
+    start: Instant,
+    deadline: Duration,
+    nodes: u64,
+    stopped: bool,
+    /// Order moves by the opponent's reply count (fastest-first); off only for the report.
+    fastest_first: bool,
+    /// Prefer moves into odd empty quadrants as a tiebreak; off only for the report.
+    parity: bool,
+    /// Null windows after the first child (principal variation search).
+    pvs: bool,
+}
+
+impl Solver {
+    fn new(deadline: Duration) -> Self {
+        Solver { start: Instant::now(), deadline, nodes: 0, stopped: false, fastest_first: true, parity: true, pvs: true }
+    }
+
+    fn out_of_time(&mut self) -> bool {
+        if !self.stopped && self.nodes & 1023 == 0 && self.start.elapsed() >= self.deadline {
+            self.stopped = true;
+        }
+        self.stopped
+    }
+
+    /// Exact final disc difference for the side to move, inside the window (alpha, beta):
+    /// fail-soft, so a score <= alpha or >= beta is a bound. Returns 0 once stopped.
+    fn solve(&mut self, me: u64, opp: u64, mut alpha: i32, beta: i32) -> i32 {
+        self.nodes += 1;
+        if self.out_of_time() {
+            return 0;
+        }
+        let empty = !(me | opp);
+        let n = empty.count_ones();
+        if n == 0 {
+            return me.count_ones() as i32 - opp.count_ones() as i32;
+        }
+        if n == 1 {
+            return last_empty(me, opp, empty.trailing_zeros() as usize);
+        }
+        let g = Game::new(me, opp).expect("disjoint boards");
+        let avail = g.available_moves();
+        if avail == 0 {
+            let mut p = g.clone();
+            p.pass_move();
+            if p.available_moves() == 0 {
+                return final_score(me, opp);
+            }
+            return -self.solve(opp, me, -beta, -alpha);
+        }
+        // Children with their ordering key (lower first).
+        let mut kids = [(0u32, 0u64, 0u64); 32];
+        let mut k = 0;
+        let odd = if self.parity { odd_regions(empty) } else { 0 };
+        let mut m = avail;
+        while m != 0 {
+            let i = m.trailing_zeros() as usize;
+            m &= m - 1;
+            let Some(next) = g.make_move(i) else { continue };
+            let [p, q] = next.get();
+            let mut key = 0;
+            if self.fastest_first && n > SHALLOW {
+                key = next.available_moves().count_ones() * 2;
+            }
+            if odd >> i & 1 == 0 {
+                key += 1;
+            }
+            kids[k] = (key, p, q);
+            k += 1;
+        }
+        let kids = &mut kids[..k];
+        kids.sort_unstable_by_key(|c| c.0);
+        let mut best = -SOLVE_INF;
+        for (j, &(_, p, q)) in kids.iter().enumerate() {
+            // Principal variation search: the first child gets the full window, the rest a null
+            // window at alpha, re-searched only when one fails high inside (alpha, beta).
+            let mut v;
+            if j == 0 || !self.pvs {
+                v = -self.solve(p, q, -beta, -alpha);
+            } else {
+                v = -self.solve(p, q, -alpha - 1, -alpha);
+                if v > alpha && v < beta && !self.stopped {
+                    v = -self.solve(p, q, -beta, -v);
+                }
+            }
+            if self.stopped {
+                return 0;
+            }
+            if v > best {
+                best = v;
+                if v > alpha {
+                    alpha = v;
+                    if alpha >= beta {
+                        break;
+                    }
+                }
+            }
+        }
+        best
+    }
+}
+
+/// One empty square left: the mover plays it if it can, else the opponent, else nobody.
+fn last_empty(me: u64, opp: u64, sq: usize) -> i32 {
+    let g = Game::new(me, opp).expect("disjoint boards");
+    if let Some(next) = g.make_move(sq) {
+        let [p, q] = next.get();
+        return q.count_ones() as i32 - p.count_ones() as i32;
+    }
+    let mut o = g;
+    o.pass_move();
+    if let Some(next) = o.make_move(sq) {
+        let [p, q] = next.get();
+        return p.count_ones() as i32 - q.count_ones() as i32;
+    }
+    final_score(me, opp)
+}
+
+/// Root of the exact solve: tries the moves in `order` (the midgame's best first). Returns the
+/// best move found and its exact score, and whether every root move was settled. An unfinished
+/// solve still returns its best move once the first root move is exact: any later move that
+/// replaced it was proven better.
+fn solve_root(g: &Game, order: &[usize], s: &mut Solver) -> (Option<(usize, i32)>, bool) {
+    let mut best: Option<(usize, i32)> = None;
+    let mut alpha = -SOLVE_INF;
+    for &i in order {
+        let Some(next) = g.make_move(i) else { continue };
+        let [p, q] = next.get();
+        let mut v;
+        if best.is_none() || !s.pvs {
+            v = -s.solve(p, q, -SOLVE_INF, -alpha);
+        } else {
+            v = -s.solve(p, q, -alpha - 1, -alpha);
+            if v > alpha && !s.stopped {
+                v = -s.solve(p, q, -SOLVE_INF, -v);
+            }
+        }
+        if s.stopped {
+            return (best, false);
+        }
+        if best.is_none() || v > alpha {
+            alpha = v;
+            best = Some((i, v));
+        }
+    }
+    (best, true)
+}
+
+/// The move to play: below `SOLVE_EMPTIES` a short midgame search gives a fallback move and the
+/// root order, then the exact solve takes the rest of the budget.
+fn best_move(g: &Game, budget_ms: u64) -> usize {
+    let empties = (!(g.get()[0] | g.get()[1])).count_ones();
+    if empties > SOLVE_EMPTIES || g.available_moves().count_ones() == 1 {
+        return search(g, budget_ms).0;
+    }
+    let total = Duration::from_millis(budget_ms * 8 / 10);
+    let t = Instant::now();
+    let (fallback, _) = search_limited(g, u32::MAX, Duration::from_millis(budget_ms / 10));
+    let mut order = vec![fallback];
+    order.extend(ordered(g.available_moves(), None).into_iter().filter(|&i| i != fallback));
+    let mut s = Solver::new(total.saturating_sub(t.elapsed()));
+    match solve_root(g, &order, &mut s).0 {
+        Some((m, _)) => m,
+        None => fallback,
+    }
+}
+
 /// Picks a move for the side to move. Passes only with no placement.
 fn choose(moves: &[String], budget_ms: u64) -> Option<String> {
     let g = replay(moves)?;
     if g.available_moves() == 0 {
         return Some("pass".into());
     }
-    Some(square_name(search(&g, budget_ms).0))
+    Some(square_name(best_move(&g, budget_ms)))
 }
 
 /// Handles one protocol line, returning the reply to print (if any) and whether to quit.
@@ -593,6 +807,237 @@ mod tests {
                 depths,
                 n as f64 / secs / 1000.0
             );
+        }
+    }
+
+    /// Full-width minimax to the end of the game, no pruning: the reference for the solver.
+    fn brute(g: &Game) -> i32 {
+        let avail = g.available_moves();
+        let [me, opp] = g.get();
+        if avail == 0 {
+            let mut p = g.clone();
+            p.pass_move();
+            if p.available_moves() == 0 {
+                return final_score(me, opp);
+            }
+            return -brute(&p);
+        }
+        (0..64).filter(|i| avail >> i & 1 == 1).map(|i| -brute(&g.make_move(i).unwrap())).max().unwrap()
+    }
+
+    /// Seeded pseudo-random play until at most `empties` remain with the side to move able to
+    /// place; `None` if the game ended first.
+    fn position_at(empties: u32, seed0: u64) -> Option<Game> {
+        let mut seed = seed0;
+        let mut g = Game::default();
+        loop {
+            let avail = g.available_moves();
+            let e = (!(g.get()[0] | g.get()[1])).count_ones();
+            if e <= empties && avail != 0 {
+                return Some(g);
+            }
+            if avail == 0 {
+                let mut p = g.clone();
+                p.pass_move();
+                if p.available_moves() == 0 {
+                    return None;
+                }
+                g = p;
+                continue;
+            }
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let k = (seed >> 33) as u32 % avail.count_ones();
+            let i = (0..64).filter(|i| avail >> i & 1 == 1).nth(k as usize).unwrap();
+            g = g.make_move(i).unwrap();
+        }
+    }
+
+    fn solve_exact(g: &Game) -> (usize, i32) {
+        let mut s = Solver::new(Duration::from_secs(600));
+        let (r, complete) = solve_root(g, &ordered(g.available_moves(), None), &mut s);
+        assert!(complete);
+        r.unwrap()
+    }
+
+    #[test]
+    fn solver_matches_brute_force_minimax() {
+        // A hand-built position, 9 empties (rows 1 and 8 partly open), Black to move, then
+        // seeded positions at 4..=10 empties. Move and score must agree with full-width minimax.
+        let black = bits(&["a2", "b2", "c2", "d2", "e3", "f3", "c4", "d4", "e4", "a5", "b5", "c5", "d6", "e6", "f6", "g6", "c7", "d7", "e7"]);
+        let empty = bits(&["a1", "b1", "c1", "h1", "a8", "d8", "e8", "g8", "h8"]);
+        let white = !(black | empty);
+        let hand = Game::new(black, white).unwrap();
+        assert_eq!((!(black | white)).count_ones(), 9);
+        assert_ne!(hand.available_moves(), 0, "the hand-built position must give Black a move");
+        let mut positions = vec![hand];
+        for seed in 0..60u64 {
+            if let Some(g) = position_at(4 + (seed % 7) as u32, seed * 7919 + 1) {
+                positions.push(g);
+            }
+        }
+        let mut checked = 0;
+        for g in &positions {
+            if g.available_moves() == 0 {
+                continue;
+            }
+            let (m, v) = solve_exact(g);
+            let want = brute(g);
+            assert_eq!(v, want, "solver score vs brute force:\n{g:?}");
+            assert_eq!(-brute(&g.make_move(m).unwrap()), want, "solver move is not optimal:\n{g:?}");
+            // Each ordering variant gives the same exact score.
+            for (ff, par, pvs) in [(false, false, false), (true, false, false), (false, true, true), (true, true, false)] {
+                let mut s = Solver::new(Duration::from_secs(600));
+                s.fastest_first = ff;
+                s.parity = par;
+                s.pvs = pvs;
+                let [p, q] = g.get();
+                assert_eq!(s.solve(p, q, -SOLVE_INF, SOLVE_INF), want);
+            }
+            checked += 1;
+        }
+        assert!(checked >= 40, "only {checked} positions");
+    }
+
+    #[test]
+    fn solver_handles_passes_and_never_passes_with_a_placement() {
+        // Forced pass inside the solve: row 1 is "W B . . . . . ." with Black to move after a
+        // pass. Black has no placement; White plays c1 and takes all three: Black loses by 64.
+        let g = Game::new(1 << 1, 1 << 0).unwrap();
+        assert_eq!(g.available_moves(), 0);
+        let mut s = Solver::new(Duration::from_secs(5));
+        assert_eq!(s.solve(1 << 1, 1 << 0, -SOLVE_INF, SOLVE_INF), brute(&g));
+        assert_eq!(brute(&g), -64);
+        // A pass in the middle of the line: seeded endgames where some side must pass before the
+        // end; the solver still agrees with brute force.
+        let mut with_pass = 0;
+        for seed in 0..400u64 {
+            let Some(g) = position_at(8, seed * 104729 + 3) else { continue };
+            if !has_pass(&g) {
+                continue;
+            }
+            let [p, q] = g.get();
+            let mut s = Solver::new(Duration::from_secs(60));
+            assert_eq!(s.solve(p, q, -SOLVE_INF, SOLVE_INF), brute(&g));
+            with_pass += 1;
+            if with_pass >= 10 {
+                break;
+            }
+        }
+        assert!(with_pass >= 3, "only {with_pass} endgames with a pass inside");
+        // Through `choose` at solver depth: never "pass" while a placement exists, and always legal.
+        for seed in 0..40u64 {
+            let mut moves: Vec<String> = Vec::new();
+            let mut s = seed + 17;
+            loop {
+                let g = replay(&moves).unwrap();
+                let avail = g.available_moves();
+                let mut o = g.clone();
+                o.pass_move();
+                if avail == 0 && o.available_moves() == 0 {
+                    break;
+                }
+                let e = (!(g.get()[0] | g.get()[1])).count_ones();
+                if e <= 12 {
+                    let m = choose(&moves, 50).unwrap();
+                    if avail != 0 {
+                        assert_ne!(m, "pass");
+                    } else {
+                        assert_eq!(m, "pass");
+                    }
+                    moves.push(m);
+                    assert!(replay(&moves).is_some());
+                    continue;
+                }
+                if avail == 0 {
+                    moves.push("pass".into());
+                    continue;
+                }
+                s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                let k = (s >> 33) as u32 % avail.count_ones();
+                let i = (0..64).filter(|i| avail >> i & 1 == 1).nth(k as usize).unwrap();
+                moves.push(square_name(i));
+            }
+        }
+    }
+
+    #[test]
+    fn self_play_from_a_solved_position_reaches_the_solved_score() {
+        // Both sides playing `best_move` from a position the solver can finish: the game ends at
+        // exactly the solved score (perfect play on both sides keeps the value).
+        let mut checked = 0;
+        for seed in 0..30u64 {
+            let Some(start) = position_at(12, seed * 6151 + 5) else { continue };
+            let (_, want) = solve_exact(&start);
+            let mut g = start.clone();
+            let mut sign = 1;
+            loop {
+                if g.available_moves() == 0 {
+                    let mut p = g.clone();
+                    p.pass_move();
+                    if p.available_moves() == 0 {
+                        break;
+                    }
+                    g = p;
+                    sign = -sign;
+                    continue;
+                }
+                g = g.make_move(best_move(&g, 2000)).unwrap();
+                sign = -sign;
+            }
+            let [me, opp] = g.get();
+            assert_eq!(sign * final_score(me, opp), want, "seed {seed}");
+            checked += 1;
+        }
+        assert!(checked >= 20);
+    }
+
+    /// Whether some line from `g` has a side pass before the game ends.
+    fn has_pass(g: &Game) -> bool {
+        let avail = g.available_moves();
+        if avail == 0 {
+            let mut p = g.clone();
+            p.pass_move();
+            return p.available_moves() != 0;
+        }
+        (0..64).filter(|i| avail >> i & 1 == 1).any(|i| has_pass(&g.make_move(i).unwrap()))
+    }
+
+    #[test]
+    #[ignore = "report: cargo test --release -p othello-engine solve_report -- --ignored --nocapture"]
+    fn solve_report() {
+        // Exact-solve wall time over 8 seeded positions at each empty count 12..=20, for the
+        // ordering variants. Wall clock: informational. Half of a go-200 budget is 100 ms.
+        let variants = [("plain", false, false, false), ("fastest+parity", true, true, false), ("fastest+parity+pvs", true, true, true)];
+        for n in 12..=20u32 {
+            let ps: Vec<Game> = (0..200u64).filter_map(|s| position_at(n, s * 31 + n as u64)).filter(|g| (!(g.get()[0] | g.get()[1])).count_ones() == n).take(8).collect();
+            let mut line = format!("{n} empties ({} pos):", ps.len());
+            for &(name, ff, par, pvs) in &variants {
+                if !ff && n > 13 {
+                    continue; // unordered search is far too slow out here
+                }
+                let mut times = Vec::new();
+                let mut nodes = 0;
+                for g in &ps {
+                    // Capped at 2 s per position so the report finishes; a capped solve counts as 2000 ms.
+                    let mut s = Solver::new(Duration::from_secs(2));
+                    s.fastest_first = ff;
+                    s.parity = par;
+                    s.pvs = pvs;
+                    let t = Instant::now();
+                    solve_root(g, &ordered(g.available_moves(), None), &mut s);
+                    times.push(t.elapsed().as_secs_f64() * 1000.0);
+                    nodes += s.nodes;
+                }
+                times.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                let under = times.iter().filter(|&&t| t <= 100.0).count();
+                line += &format!(
+                    "  {name}: median {:.1} ms max {:.1} ms, {under}/{} <= 100 ms, {nodes} nodes",
+                    times[times.len() / 2],
+                    times[times.len() - 1],
+                    times.len()
+                );
+            }
+            println!("{line}");
         }
     }
 

@@ -13,9 +13,14 @@ export const wasmPaths = (track: string) => [
   resolve(PUBLIC, `${track}.json`),
 ];
 
+/**
+ * Build the browser engine. With `meta` it is published to web/public/wasm (tracked files the
+ * site serves); without it the build is only checked, so a submit leaves the tree clean until it
+ * delivers the version.
+ */
 export const buildWasm = async (
   track: string,
-  meta: { version: string; elo: number | null },
+  meta?: { version: string; elo: number | null },
 ) => {
   await run("rustup", ["target", "add", "wasm32-wasip1"]);
   const build = await run(
@@ -33,6 +38,7 @@ export const buildWasm = async (
     },
   );
   if (build.code !== 0) return false;
+  if (!meta) return true;
   mkdirSync(PUBLIC, { recursive: true });
   copyFileSync(
     resolve(

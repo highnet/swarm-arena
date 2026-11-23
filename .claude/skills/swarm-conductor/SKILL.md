@@ -60,7 +60,8 @@ started — `{ id, role, target, session, lease, tick, at }`. If it is missing, 
 board is the truth, the ledger only tells you what *you* started.
 
 Start from current `main`: if `git status --porcelain` is not empty, stop and report it (somebody's
-work is in this checkout); otherwise `git checkout -q main && git pull -q --ff-only origin main`.
+work is in this checkout); otherwise `git fetch -q origin main && git checkout -q --detach origin/main`
+(a cloud container's local `main` can have diverged from `origin/main`, and nothing here commits to it).
 
 ### 1. Survey once
 
@@ -113,7 +114,10 @@ that a worker opens is reviewed and merged at once instead of waiting hours for 
 to free a slot. Anything cut is simply next tick's work.
 
 Never dispatch for an issue or PR carrying `needs:human`, and never more than one session per
-target.
+target. An issue filed by hand (outside `arena plan`) has no arena `tasks` row: dispatch its worker
+with `--issue <N>` (`next --issue` adopts an arena issue, and briefs a harness or site issue as a
+normal PR), or run `npm run arena -- adopt <N>` first. A worker for a specific issue always gets
+`--issue <N>` in its dispatch flags.
 
 ### 4. Dispatch
 
@@ -135,6 +139,8 @@ For each dispatch, in order:
    `create_session` refuses a prompt that opens with `/`.
 
    ```text
+   First run: git fetch origin main && git checkout --detach origin/main (your local main may have
+   diverged from origin/main; never commit to main).
    Run a swarm agent dispatched by the swarm conductor. Follow .claude/skills/swarm-agent/SKILL.md
    with these dispatch flags: --role <role> [--pr <N>] [<track>] --agent-id <id> (that is:
    npm run arena -- next --role <role> [--pr <N>] [<track>] --agent-id <id>).
@@ -149,6 +155,8 @@ For each dispatch, in order:
    An improver prompt adds: if the evidence does not yet support one specific change, propose
    nothing, leave a retro saying so, and end. A janitor prompt says `--role janitor` and runs
    `.rallypoint/roles/janitor.md` (`janitor-pass.mjs --agent-id <id>`) rather than `arena next`.
+   Re-read `report.mjs` right before dispatching a janitor, and if you name findings in its prompt,
+   call them hints to verify, not work owed: they are often stale by the time it boots.
 4. Write the ledger entry.
 
 ### 5. Report and pace

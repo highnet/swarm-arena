@@ -45,7 +45,7 @@ export const parseArgs = (argv) => {
 /**
  * @param {{
  *   argv: string[],
- *   config: { claimRefPrefix: string },
+ *   config: { claimRefPrefix: string, labels?: { claimed?: string } },
  *   gh: (...args: string[]) => string,
  *   stdout?: (line: string) => void,
  *   stderr?: (line: string) => void,
@@ -69,7 +69,9 @@ export const cleanup = ({
   const repository = JSON.parse(
     gh("repo", "view", "--json", "nameWithOwner"),
   ).nameWithOwner;
-  const { state } = JSON.parse(gh("issue", "view", issue, "--json", "state"));
+  const { state, labels } = JSON.parse(
+    gh("issue", "view", issue, "--json", "state,labels"),
+  );
 
   if (state !== "CLOSED") {
     stderr(
@@ -96,8 +98,15 @@ export const cleanup = ({
   }
 
   if (presence.kind === "absent") {
-    stdout(`No reservation for closed issue #${issue}; already clean.`);
-    return EXIT.ok;
+    // A ref whose tip is a `rallypoint: released` marker reads as absent here,
+    // exactly as a deleted one would: that is how a session without ref-delete
+    // rights releases it, and the maintenance workflow deletes it for good. A
+    // raw `gh api` read of the ref still returns it until then.
+    stdout(
+      `No live reservation for closed issue #${issue}; already clean ` +
+        "(a ref left at a `rallypoint: released` marker counts as released).",
+    );
+    return clearClaimedLabel({ issue, labels, config, gh, stdout, stderr });
   }
 
   try {
@@ -110,6 +119,44 @@ export const cleanup = ({
   }
 
   stdout(`Removed reservation for closed issue #${issue}.`);
+  return clearClaimedLabel({ issue, labels, config, gh, stdout, stderr });
+};
+
+/**
+ * The other half of a closed issue's leftover claim: `status:claimed` still on
+ * the issue after its reservation is gone. Only ever reached once the ref is
+ * established absent or removed — the same order `release-claim.mjs` keeps, so
+ * a failed delete never leaves a live ref behind an unlabelled issue.
+ *
+ * Decided from labels that were read; labels that could not be read are left
+ * alone rather than guessed at.
+ *
+ * @param {{
+ *   issue: string,
+ *   labels: unknown,
+ *   config: { labels?: { claimed?: string } },
+ *   gh: (...args: string[]) => string,
+ *   stdout: (line: string) => void,
+ *   stderr: (line: string) => void,
+ * }} input
+ * @returns {number}
+ */
+const clearClaimedLabel = ({ issue, labels, config, gh, stdout, stderr }) => {
+  const claimed = config.labels?.claimed;
+
+  if (!claimed || !Array.isArray(labels)) return EXIT.ok;
+  if (!labels.some((label) => label?.name === claimed)) return EXIT.ok;
+
+  try {
+    gh("issue", "edit", issue, "--remove-label", claimed);
+  } catch (error) {
+    stderr(
+      `\`${claimed}\` could not be removed from closed issue #${issue} (${describeError(error)}).`,
+    );
+    return EXIT.deleteFailed;
+  }
+
+  stdout(`Removed leftover \`${claimed}\` from closed issue #${issue}.`);
   return EXIT.ok;
 };
 

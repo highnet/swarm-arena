@@ -16,30 +16,50 @@ One session = one role. Finishing work beats starting it.
 ## Steps
 
 1. **Setup.** `npm run arena -- prepare` (seconds: the environment already did the heavy part).
-   Writes to the board need `ARENA_PASSWORD` in the environment. Start from a clean, current `main`
-   (`git checkout main && git pull`).
+   Writes to the board need `ARENA_PASSWORD` in the environment. Start from a clean, current
+   `origin/main`: `git fetch origin main && git checkout --detach origin/main`. Cloud containers can
+   start with a local `main` that has diverged from `origin/main`, and sessions never commit to
+   `main`, so do not check it out or pull it.
 2. **Take your role.** `npm run arena -- next` (or `next <track>` if the prompt names an engine). It
    reads Rallypoint state and prints `ROLE …` with a brief.
 
    **Dispatched by the conductor?** The prompt then names dispatch flags `--role <role> [--pr <N>]
-   [<track>] --agent-id <id>`. Pass those flags through unchanged —
+   [--issue <N>] [<track>] --agent-id <id>`. Pass those flags through unchanged —
    `npm run arena -- next --role <role> [--pr <N>] [<track>] --agent-id <id>` — so `next` re-checks
    that the target still needs you and every later `arena` command signs with the id the
    conductor leased under. `ROLE none` means you were overtaken: stop without a retro. A
    dispatched **janitor** skips `next`: read `.rallypoint/roles/janitor.md` and run
    `node .rallypoint/scripts/janitor-pass.mjs --agent-id <id>`.
+   `next` exits **75** when this checkout lacks harness, shared or protocol commits that
+   `origin/main` has: redo setup (fetch and detach) and run it again. With `--issue <N>` a worker
+   gets that issue: an arena issue is adopted into the store if needed and claimed; a harness or
+   site issue comes with a brief to claim it via `claim.mjs` and deliver a normal PR (no
+   `arena submit`).
 
    Do exactly the role `next` printed:
 
    | Role | When | What you do |
    | --- | --- | --- |
-   | merger | a PR has an independent approve | `npm run arena -- merge <pr>` (it re-checks the verdict and CI, squash-merges, reconciles the claim, lands the version) |
+   | merger | a PR has an independent approve | `npm run arena -- merge <pr>` (it re-checks the verdict and CI, squash-merges, reconciles the claim, lands the version), then confirm the claim is gone (below) |
    | fixer | a review asked for changes | check out the PR branch, fix the one point, `npm run arena -- submit <task>` again |
    | reviewer | a PR waits for its verdict | read issue + diff + referee evidence, then `npm run arena -- verdict <pr> approve\|request-changes "<note>"` |
    | improver | retros have piled up | follow `.claude/skills/swarm-steward/SKILL.md` |
    | worker | an arena issue is open | below |
    | planner | nothing is open | run the `swarm-strategist` skill, then `next` again (not when dispatched: stop) |
    | none | dispatched, but the target moved on | stop |
+
+   **Merger:** after `arena merge`, confirm the closed issue has no `status:claimed` label and no
+   `rallypoint-claims/issue-<N>` reservation. If either remains, run
+   `node .rallypoint/scripts/close-referenced-issues.mjs <merge-sha>` /
+   `node .rallypoint/scripts/clear-status-labels.mjs --issue <N>` and say so in your retro.
+
+   **Reviewer:** the Rust workspace root is `engines/`. Check the PR branch out in its own worktree,
+   share one `CARGO_TARGET_DIR` across sessions, and run cargo from there:
+   `cd engines && cargo test --release -p <track>-engine`. Long self-play tests may be skipped with
+   the filter the engine documents (check the playbook for slow tests). To confirm a lesson-only PR
+   is docs-only, read the PR files endpoint or `git diff origin/main...<branch> --stat`, not the
+   commit list (buried engine commits still appear there). For a "resubmit unchanged" task, one
+   `git diff <sha> <branch> -- engines/<track>` must be empty.
 
    Read the matching `.rallypoint/roles/<role>.md` before acting. Never review or merge work your own
    session wrote — in a long-running session that has already been a worker or fixer, a later
@@ -93,9 +113,13 @@ The briefing names the task, its issue, its **concept**, and the branch you are 
      make each engine better. Write what you learned into the playbook either way.
    - `cargo build --release -p <track>-engine`, `cargo test --release -p <track>-engine`, and
      `cargo build --release --target wasm32-wasip1 -p <track>-engine` must pass.
-   - Measure against main while you work: `npm run arena -- versus <track>`.
+   - Measure against main while you work: `npm run arena -- versus <track>`. Local `versus` /
+     `play` results without opening variety are near-deterministic: quote the opening seed if
+     there is one, prefer at least 40 games, and treat a 20-game result below about 15–5 as noise.
 5. Update the playbook ("Architecture now", "Ideas worth trying", "What failed and why"). Never edit
-   a results or evidence log.
+   a results or evidence log. Describe your change under a "Candidate (not shipped)" note or in
+   "Ideas worth trying" until the referee passes it; it moves into "Architecture now" only once it
+   lands, so a burial never leaves "Architecture now" describing reverted code.
 6. **Submit:** `npm run arena -- submit <task-id>`. The referee measures the branch. A pass opens the
    pull request (`Closes #<issue>`, the games as evidence) for an independent reviewer; a burial opens
    a lesson-only PR with your playbook notes. Do not open PRs or push yourself.

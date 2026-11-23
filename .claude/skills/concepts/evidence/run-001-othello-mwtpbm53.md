@@ -1,0 +1,1 @@
+- 2026-11-23 · **endgame solver** · Othello · v0.4 rated 1317 (+52) · Resubmit #94's exact endgame solver on the varied-opening gate
