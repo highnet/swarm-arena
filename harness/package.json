@@ -8,7 +8,7 @@
   },
   "scripts": {
     "arena": "NODE_USE_ENV_PROXY=1 tsx src/cli.ts",
-    "test": "tsc -p ."
+    "test": "tsc -p . && tsx --test src/**/*.test.ts"
   },
   "dependencies": {
     "@arena/shared": "*",
