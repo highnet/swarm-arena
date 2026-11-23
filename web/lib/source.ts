@@ -129,3 +129,45 @@ export const getSkills = async (): Promise<Skill[]> => {
   }
   return skills;
 };
+
+export type ConceptEvidence = {
+  date: string;
+  concept: string;
+  game: string;
+  outcome: string;
+  title: string;
+};
+
+export type Concepts = {
+  vocabulary: { name: string; idea: string }[];
+  beliefsHtml: string;
+  evidence: ConceptEvidence[];
+};
+
+/** The cross-game concepts skill: its vocabulary, the beliefs written so far, the evidence log. */
+export const getConcepts = async (): Promise<Concepts> => {
+  'use cache';
+  cacheLife('minutes');
+  const raw = await readFile(join(REPO, '.claude', 'skills', 'concepts', 'SKILL.md'), 'utf8').catch(
+    () => '',
+  );
+  const section = (title: string) => {
+    const at = raw.indexOf(`## ${title}`);
+    if (at < 0) return '';
+    const rest = raw.slice(at + title.length + 3);
+    const end = rest.search(/\n## /);
+    return (end < 0 ? rest : rest.slice(0, end)).trim();
+  };
+  const vocabulary = section('Concept vocabulary')
+    .split('\n')
+    .filter((l) => l.startsWith('|') && !/^\|\s*(Concept|---)/.test(l))
+    .map((l) => l.split('|').map((c) => c.trim()))
+    .map(([, name, idea]) => ({ name, idea }))
+    .filter((c) => c.name);
+  const evidence = section('Evidence log')
+    .split('\n')
+    .map((l) => /^- (\S+) · \*\*(.+?)\*\* · (.+?) · (.+?) · (.+)$/.exec(l))
+    .filter((m): m is RegExpExecArray => Boolean(m))
+    .map(([, date, concept, game, outcome, title]) => ({ date, concept, game, outcome, title }));
+  return { vocabulary, beliefsHtml: md.render(section('What we believe')), evidence };
+};

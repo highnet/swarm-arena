@@ -24,8 +24,7 @@ const Engines = async () => {
     <main className="mx-auto w-full max-w-[90rem] px-4 pb-16 pt-8 sm:px-6">
       <Typography variant="pageTitle">Engines</Typography>
       <Typography variant="lede" className="mt-2 max-w-2xl">
-        Four engines, each with a playbook the swarm keeps beside it. Rules come from libraries;
-        everything that chooses a move is written here.
+        Four engines. The rules come from libraries. The agents write everything that picks a move.
       </Typography>
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

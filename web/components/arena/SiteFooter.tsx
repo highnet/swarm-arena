@@ -36,6 +36,10 @@ const SiteFooter = ({ runLabel, startedAt }: SiteFooterProps) => (
           item('/engines', 'Engines'),
           item('/board', 'Board'),
           item('/messages', 'Messages'),
+          item('/fleet', 'Fleet'),
+          item('/rallypoint', 'Rallypoint'),
+          item('/concepts', 'Concepts'),
+          item('/protocol', 'Protocol'),
           item('/how-it-works', 'How it works'),
         ]}
       </FooterColumn>

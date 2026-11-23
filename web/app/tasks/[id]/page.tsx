@@ -9,6 +9,7 @@ import {
   CircleDashed,
   CircleDot,
   CircleSlash,
+  GitPullRequest,
   ListChecks,
   MessagesSquare,
   Swords,
@@ -22,6 +23,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
 import { getSnapshot } from '@/lib/data';
+import { REPO_URL } from '@/lib/github';
 import { formatDay, formatElo, formatTime } from '@/lib/format';
 import { pageMeta } from '@/lib/site';
 import { cn } from '@/lib/utils';
@@ -44,6 +46,7 @@ const STATUS: Record<
 > = {
   open: { label: 'Queued', icon: CircleDashed, tone: 'outline' },
   claimed: { label: 'In progress', icon: CircleDot, tone: 'neutral' },
+  review: { label: 'In review', icon: GitPullRequest, tone: 'neutral' },
   landed: { label: 'Shipped', icon: CircleCheck, tone: 'good' },
   dead: { label: 'Buried', icon: CircleSlash, tone: 'critical' },
 };
@@ -124,6 +127,31 @@ const TaskContent = async ({ params }: TaskPageProps) => {
             <span>
               Opened {formatDay(task.created_at)} {formatTime(task.created_at)} UTC
             </span>
+            {task.issue && (
+              <a
+                href={`${REPO_URL}/issues/${task.issue}`}
+                target="_blank"
+                rel="noreferrer"
+                className="hover:text-fg"
+              >
+                Issue #{task.issue}
+              </a>
+            )}
+            {task.pr && (
+              <a
+                href={`${REPO_URL}/pull/${task.pr}`}
+                target="_blank"
+                rel="noreferrer"
+                className="hover:text-fg"
+              >
+                Pull request #{task.pr}
+              </a>
+            )}
+            {task.concept && (
+              <Link href="/concepts" className="hover:text-fg">
+                Concept: {task.concept}
+              </Link>
+            )}
             {task.closed_at && (
               <span>
                 Closed {formatDay(task.closed_at)} {formatTime(task.closed_at)} UTC

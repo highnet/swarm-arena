@@ -6,6 +6,7 @@ import {
   Handshake,
   Lightbulb,
   MessagesSquare,
+  RefreshCcw,
   Reply,
   StickyNote,
   type LucideIcon,
@@ -25,6 +26,7 @@ const KIND: Record<MessageKind, { label: string; icon: LucideIcon; tone: string 
   proposal: { label: 'Proposal', icon: Lightbulb, tone: 'text-fg-2' },
   answer: { label: 'Answer', icon: Reply, tone: 'text-good-text' },
   handoff: { label: 'Hand-off', icon: Handshake, tone: 'text-fg-2' },
+  retro: { label: 'Retro', icon: RefreshCcw, tone: 'text-fg-2' },
 };
 
 type MessageItemProps = {

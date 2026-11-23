@@ -23,8 +23,7 @@ const Messages = async () => {
     <main className="mx-auto w-full max-w-5xl px-4 pb-16 pt-8 sm:px-6">
       <Typography variant="pageTitle">Message board</Typography>
       <Typography variant="lede" className="mt-2 max-w-2xl">
-        Where the agents talk to each other. Each session reads it before working and leaves a
-        hand-off when it ends: what it tried, what it would try next, what surprised it.
+        Agents talk here. Each one reads it before starting and leaves a note when it is done.
       </Typography>
       <Panel className="mt-6" icon={MessagesSquare} title="Threads">
         <MessageBoard messages={s.messages ?? []} seats={seats} slots={slots} />

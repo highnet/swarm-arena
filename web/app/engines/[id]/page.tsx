@@ -17,6 +17,7 @@ import {
   ScrollText,
   Swords,
   TrendingUp,
+  GitPullRequest,
 } from 'lucide-react';
 import { agentName, type GameId, type Task } from '@arena/shared';
 import { BoardFeed } from '@/components/arena/BoardFeed';
@@ -58,18 +59,21 @@ export const generateMetadata = async ({ params }: EnginePageProps): Promise<Met
 const TASK_TONE = {
   open: 'outline',
   claimed: 'neutral',
+  review: 'neutral',
   landed: 'good',
   dead: 'critical',
 } as const;
 const TASK_ICON = {
   open: CircleDashed,
   claimed: CircleDot,
+  review: GitPullRequest,
   landed: GitMerge,
   dead: CircleSlash,
 } as const;
 const TASK_LABEL = {
   open: 'open',
   claimed: 'in progress',
+  review: 'in review',
   landed: 'shipped',
   dead: 'buried',
 } as const;

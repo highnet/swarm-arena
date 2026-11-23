@@ -45,10 +45,8 @@ const RightNow = ({ s, slots }: RightNowProps) => {
       <div className="flex flex-1 flex-col gap-3 p-4">
         {claimed.length === 0 && (
           <p className="text-[13px] text-fg-2 text-pretty">
-            No agent is working this minute.{' '}
-            {queued.length > 0
-              ? 'Up next, for the next session:'
-              : 'The strategy seat calls the next experiments when a session starts.'}
+            Nobody is working right now.{' '}
+            {queued.length > 0 ? 'Up next:' : 'The next session will plan new tasks.'}
           </p>
         )}
         {(claimed.length > 0 ? claimed : queued).length > 0 && (
@@ -91,7 +89,7 @@ const RightNow = ({ s, slots }: RightNowProps) => {
         {last && (
           <div className="border-t border-line pt-3">
             <p className="text-xs text-fg-3">
-              Last on the record · {formatTime(last.at)} UTC
+              Latest · {formatTime(last.at)} UTC
               {last.track_id && ` · ${SHORT_NAME[last.track_id]}`}
             </p>
             <p className="mt-0.5 text-[13px] text-fg text-pretty">

@@ -3,8 +3,11 @@ import {
   Activity,
   BookOpen,
   Cpu,
+  GitPullRequest,
+  Grid3x3,
   MessagesSquare,
   ScrollText,
+  Users,
   Workflow,
   type LucideIcon,
 } from 'lucide-react';
@@ -23,10 +26,13 @@ type SiteHeaderProps = {
 const NAV: { href: string; label: string; icon: LucideIcon }[] = [
   { href: '/', label: 'Race', icon: Activity },
   { href: '/engines', label: 'Engines', icon: Cpu },
+  { href: '/fleet', label: 'Fleet', icon: Users },
+  { href: '/rallypoint', label: 'Rallypoint', icon: GitPullRequest },
+  { href: '/concepts', label: 'Concepts', icon: Grid3x3 },
+  { href: '/protocol', label: 'Protocol', icon: Workflow },
   { href: '/board', label: 'Board', icon: ScrollText },
   { href: '/messages', label: 'Messages', icon: MessagesSquare },
   { href: '/skills', label: 'Skills', icon: BookOpen },
-  { href: '/how-it-works', label: 'How it works', icon: Workflow },
 ];
 
 const Mark = () => (
@@ -62,7 +68,7 @@ const SiteHeader = ({ runId, working, slots }: SiteHeaderProps) => (
         <Mark />
         Swarm Arena
       </Link>
-      <nav aria-label="Main" className="hidden min-w-0 items-center gap-0.5 lg:flex">
+      <nav aria-label="Main" className="hidden min-w-0 items-center gap-0.5 xl:flex">
         {NAV.map(({ href, label, icon: Icon }) => (
           <Link key={href} href={href} className={navLink}>
             <Icon className="size-3.5 text-fg-3" aria-hidden="true" />
@@ -79,7 +85,7 @@ const SiteHeader = ({ runId, working, slots }: SiteHeaderProps) => (
     </div>
     <nav
       aria-label="Sections"
-      className="flex flex-wrap gap-0.5 border-t border-line px-2 py-1 lg:hidden"
+      className="flex flex-wrap gap-0.5 border-t border-line px-2 py-1 xl:hidden"
     >
       {NAV.map(({ href, label, icon: Icon }) => (
         <Link key={href} href={href} className={navLink}>

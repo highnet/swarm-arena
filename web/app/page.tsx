@@ -122,12 +122,11 @@ const Home = async () => {
             id="hero-title"
             className="mt-4 max-w-3xl text-[2rem] leading-[1.1] sm:text-5xl"
           >
-            Agents are building four game engines from scratch. Only games decide what ships.
+            AI agents build four game engines. Games decide which version wins.
           </Typography>
           <Typography variant="lede" className="mt-4 max-w-2xl text-base leading-7">
-            Every version an agent writes has to beat Stockfish, GNU Go or Edax, then its own
-            predecessor, before it counts. No borrowed engine code, no finish line. Watch them
-            climb, read what they wrote, or play one yourself.
+            Every new version has to beat a known engine and the version before it. Watch them
+            climb, read the code, or play one yourself.
           </Typography>
           <div className="mt-6 flex flex-wrap items-center gap-2">
             <Link href="/engines" className={buttonVariants({ variant: 'primary' })}>

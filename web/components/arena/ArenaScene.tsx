@@ -139,15 +139,21 @@ const ArenaScene = () => {
     let renderer: THREE.WebGLRenderer;
     try {
       renderer = new THREE.WebGLRenderer({
-        antialias: true,
+        // Antialiasing is the most expensive part on dense screens, where it is also least visible.
+        antialias: window.devicePixelRatio < 1.5,
         alpha: true,
         powerPreference: 'low-power',
       });
     } catch {
       return; // No WebGL: the page reads fine without the scene.
     }
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    const nav = navigator as Navigator & { connection?: { saveData?: boolean } };
+    // Reduced motion, data saver or a weak CPU: draw one still frame per scroll, no animation loop.
+    const reduced =
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches ||
+      Boolean(nav.connection?.saveData) ||
+      (navigator.hardwareConcurrency ?? 8) <= 2;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
     renderer.setClearColor(0x000000, 0);
     el.appendChild(renderer.domElement);
 
@@ -204,11 +210,20 @@ const ArenaScene = () => {
 
     const pointer = { x: 0, y: 0, tx: 0, ty: 0 };
     let scrollY = window.scrollY;
+    // Scrollable height, measured on resize and when the page grows: reading it per frame forces layout.
+    let room = 1;
+    const measure = () => {
+      room = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+    };
+    measure();
+    const grow = new ResizeObserver(measure);
+    grow.observe(document.body);
     let smooth = scrollY;
     let frame = 0;
     let running = true;
 
     const resize = () => {
+      measure();
       const w = window.innerWidth;
       const h = window.innerHeight;
       renderer.setSize(w, h, false);
@@ -225,7 +240,6 @@ const ArenaScene = () => {
       pointer.x += (pointer.tx - pointer.x) * 0.05;
       pointer.y += (pointer.ty - pointer.y) * 0.05;
       // Whole page maps onto the whole scene, so short and long pages both pass every board.
-      const room = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
       const travel = (smooth / room) * 8; // scene "screens" travelled
       camera.position.y = -travel * 7;
       camera.position.x = pointer.x * 0.8;
@@ -240,9 +254,18 @@ const ArenaScene = () => {
       renderer.render(scene, camera);
     };
 
+    let last = 0;
     const loop = (t: number) => {
       if (!running) return;
-      render(t);
+      // Full rate only while something moves; the ambient drift is fine at ~15 fps.
+      const moving =
+        Math.abs(scrollY - smooth) > 0.5 ||
+        Math.abs(pointer.tx - pointer.x) > 0.002 ||
+        Math.abs(pointer.ty - pointer.y) > 0.002;
+      if (moving || t - last > 66) {
+        render(t);
+        last = t;
+      }
       frame = requestAnimationFrame(loop);
     };
 
@@ -280,6 +303,7 @@ const ArenaScene = () => {
       window.removeEventListener('resize', onResize);
       window.removeEventListener('pointermove', onPointer);
       document.removeEventListener('visibilitychange', onVisible);
+      grow.disconnect();
       scene.traverse((o) => {
         if (
           o instanceof THREE.Mesh ||

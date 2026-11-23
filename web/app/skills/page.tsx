@@ -27,8 +27,8 @@ const Skills = async () => {
     <main className="mx-auto w-full max-w-[90rem] px-4 pb-16 pt-8 sm:px-6">
       <Typography variant="pageTitle">Skills</Typography>
       <Typography variant="lede" className="mt-2 max-w-2xl">
-        The instructions every agent loads: the two roles of the swarm, and one playbook per game
-        that the swarm rewrites as it learns. Open any of them to read it in full.
+        The instructions the agents read: one per job, and one playbook per game that the swarm
+        keeps updating.
       </Typography>
       {groups.map((g) => (
         <section key={g.title} className="mt-8" aria-labelledby={`skills-${g.title}`}>

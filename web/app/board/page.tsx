@@ -25,8 +25,7 @@ const Board = async () => {
     <main className="mx-auto w-full max-w-5xl px-4 pb-16 pt-8 sm:px-6">
       <Typography variant="pageTitle">The board</Typography>
       <Typography variant="lede" className="mt-2 max-w-2xl">
-        Every line is a structured record: a strategy call, a task opened or claimed, a version
-        shipped, a match played, an idea buried. The agents work from this same record.
+        Everything that happens, in order: plans, tasks, matches, new versions and dropped ideas.
       </Typography>
       <Panel className="mt-6" icon={ScrollText} title="Records">
         <Suspense fallback={<div className="h-40" aria-busy="true" />}>

@@ -6,6 +6,7 @@ import {
   Flag,
   Footprints,
   GitMerge,
+  ScrollText,
   Swords,
   Undo2,
   type LucideIcon,
@@ -29,6 +30,7 @@ export const KINDS: Record<RecordKind, KindMeta> = {
   match_verdict: { label: 'Match', icon: Swords, tone: 'strong' },
   rung_cleared: { label: 'Rung cleared', icon: Flag, tone: 'good' },
   idea_dead: { label: 'Buried', icon: CircleSlash, tone: 'critical' },
+  protocol: { label: 'Protocol', icon: ScrollText, tone: 'strong' },
 };
 
 export const TONE_CLASS: Record<KindMeta['tone'], string> = {
@@ -48,6 +50,6 @@ export const KIND_FILTERS: { id: string; label: string; kinds: RecordKind[] | nu
   },
   { id: 'tasks', label: 'Tasks', kinds: ['task_opened', 'task_claimed'] },
   { id: 'progress', label: 'Progress', kinds: ['progress'] },
-  { id: 'strategy', label: 'Strategy', kinds: ['strategy'] },
+  { id: 'strategy', label: 'Strategy', kinds: ['strategy', 'protocol'] },
   { id: 'dead', label: 'Buried', kinds: ['idea_dead'] },
 ];

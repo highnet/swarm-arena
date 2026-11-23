@@ -13,6 +13,7 @@ const nextConfig: NextConfig = {
     ],
     '/skills': ['../.claude/skills/*/SKILL.md'],
     '/skills/[name]': ['../.claude/skills/*/SKILL.md'],
+    '/concepts': ['../.claude/skills/concepts/SKILL.md'],
   },
   async redirects() {
     return [
