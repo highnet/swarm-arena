@@ -220,6 +220,26 @@ export const createTransport = ({ request, repository }) => {
     const [group, command, ...rest] = args;
     const base = `/repos/${repository}`;
 
+    /**
+     * An issue's comments in `gh`'s shape, which the scripts read, alongside
+     * the REST fields.
+     *
+     * @param {unknown} issue
+     */
+    const issueComments = (issue) =>
+      /** @type {Record<string, any>[]} */ (
+        sendPaginated({
+          method: "GET",
+          path: `${base}/issues/${issue}/comments?per_page=100`,
+        }).flat()
+      ).map((c) => ({
+        ...c,
+        author: c.user ? { login: c.user.login } : null,
+        createdAt: c.created_at,
+        updatedAt: c.updated_at,
+        url: c.html_url,
+      }));
+
     // `gh pr view <branch>` accepts a branch name; REST wants the number.
     /** @param {string} ref */
     const pullNumber = (ref) => {
@@ -255,24 +275,50 @@ export const createTransport = ({ request, repository }) => {
 
     // gh issue list --state open --label … --limit … --json …
     if (group === "issue" && command === "list") {
+      const limit = Number(value(args, "--limit") ?? "30");
+      if (!Number.isInteger(limit) || limit < 1) throw new UnsupportedCommand(args);
+
+      // REST caps a page at 100, and `--limit` counts issues while the REST list
+      // also carries pull requests, so page until `limit` issues are in hand.
       const query = new URLSearchParams({
         state: value(args, "--state") ?? "open",
-        per_page: value(args, "--limit") ?? "30",
+        per_page: "100",
       });
       const labels = values(args, "--label");
 
       if (labels.length > 0) query.set("labels", labels.join(","));
 
-      const issues = /** @type {Record<string, unknown>[]} */ (
-        send({ method: "GET", path: `${base}/issues?${query}` })
-      );
+      /** @type {Record<string, unknown>[]} */
+      const issues = [];
+      /** @type {string | null | undefined} */
+      let path = `${base}/issues?${query}`;
+
+      while (path && issues.length < limit) {
+        const call = { method: "GET", path };
+        const response = request(call);
+
+        if (response.status < 200 || response.status >= 300) {
+          throw new ApiError(call, response);
+        }
+
+        issues.push(
+          .../** @type {Record<string, unknown>[]} */ (response.body)
+            // The REST issues list includes pull requests; `gh issue list` does
+            // not. Without this, `claim.mjs` could reserve a pull request number.
+            .filter((issue) => !("pull_request" in issue)),
+        );
+        path = response.nextPath;
+      }
+
+      const requested = value(args, "--json")?.split(",") ?? [];
 
       return JSON.stringify(
-        issues
-          // The REST issues list includes pull requests; `gh issue list` does
-          // not. Without this, `claim.mjs` could reserve a pull request number.
-          .filter((issue) => !("pull_request" in issue))
-          .map((issue) => pick(issueFields(issue), value(args, "--json"), args)),
+        issues.slice(0, limit).map((issue) => {
+          const available = issueFields(issue);
+          // Comments are a separate resource, so only fetch them when asked.
+          if (requested.includes("comments")) available.comments = issueComments(issue.number);
+          return pick(available, value(args, "--json"), args);
+        }),
       );
     }
 
@@ -286,19 +332,7 @@ export const createTransport = ({ request, repository }) => {
 
       // Comments are a separate resource, so only fetch them when asked.
       if (requested.includes("comments")) {
-        available.comments = /** @type {Record<string, any>[]} */ (
-          sendPaginated({
-            method: "GET",
-            path: `${base}/issues/${rest[0]}/comments?per_page=100`,
-          }).flat()
-        ).map((c) => ({
-          // gh's shape, which the scripts read, alongside the REST fields.
-          ...c,
-          author: c.user ? { login: c.user.login } : null,
-          createdAt: c.created_at,
-          updatedAt: c.updated_at,
-          url: c.html_url,
-        }));
+        available.comments = issueComments(rest[0]);
       }
 
       return JSON.stringify(pick(available, value(args, "--json"), args));
