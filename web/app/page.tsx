@@ -4,13 +4,22 @@ import type { GameId, Snapshot } from '@arena/shared';
 import { BoardFeed } from '@/components/arena/BoardFeed';
 import { GameReplay } from '@/components/arena/GameReplay';
 import { RaceChart, type RaceSeries } from '@/components/arena/RaceChart';
-import { AgentRoster, Graveyard, StrategySeat } from '@/components/arena/SidePanels';
-import { TrackLadder } from '@/components/arena/TrackLadder';
+import { Fleet, Frontier, Graveyard, MoreLink, StrategyCall } from '@/components/arena/SidePanels';
+import { LadderLegend, TrackLadder } from '@/components/arena/TrackLadder';
+import { buttonVariants } from '@/components/ui/Button';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
 import { getSnapshot } from '@/lib/data';
-import { counters, latestGame, newestFirst, snapshotNow, trackSummaries } from '@/lib/derive';
-import { formatInt, formatSpan } from '@/lib/format';
+import {
+  counters,
+  frontier,
+  latestGame,
+  mentions,
+  newestFirst,
+  snapshotNow,
+  trackSummaries,
+} from '@/lib/derive';
+import { formatDay, formatInt } from '@/lib/format';
 import { SERIES, SHORT_NAME } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
 
@@ -29,23 +38,28 @@ const raceSeries = (s: Snapshot): RaceSeries[] =>
     id: t.id,
     name: SHORT_NAME[t.id],
     slot: t.colorSlot,
-    finishElo: t.finishElo,
-    finished: t.finished,
     points: s.elo
       .filter((e) => e.track_id === t.id)
       .sort((a, b) => a.at.localeCompare(b.at))
       .map((e) => ({ t: Date.parse(e.at), elo: e.elo, version: e.engine_version })),
   }));
 
-type StatProps = {
+/** pequalnp-style verdict line: what state the run is in, in one sentence. */
+const verdict = (s: Snapshot, working: number) => {
+  if (working > 0) return 'open-ended, being climbed now.';
+  if (s.tasks.some((t) => t.status === 'open')) return 'open-ended, next experiments queued.';
+  return 'open-ended, waiting for the strategy seat.';
+};
+
+type CounterProps = {
   label: string;
   value: string;
 };
 
-const Stat = ({ label, value }: StatProps) => (
-  <div className="flex items-baseline gap-1.5">
-    <dd className="font-mono text-[13px] tabular text-fg">{value}</dd>
-    <dt className="text-xs text-fg-3">{label}</dt>
+const Counter = ({ label, value }: CounterProps) => (
+  <div className="min-w-0 bg-panel px-4 py-3">
+    <dd className="font-mono text-xl font-medium tabular tracking-tight text-fg">{value}</dd>
+    <dt className="mt-0.5 text-xs text-fg-3">{label}</dt>
   </div>
 );
 
@@ -59,6 +73,7 @@ const Home = async () => {
   >;
   const seats = Object.fromEntries(s.agents.map((a) => [a.id, a.seat]));
   const records = newestFirst(s.records);
+  const call = records.find((r) => r.kind === 'strategy') ?? null;
   const game = latestGame(s);
   const gameMatch = game ? s.matches.find((m) => m.id === game.match_id) : null;
   const gameTrack = game ? s.tracks.find((t) => t.id === game.track_id) : null;
@@ -67,47 +82,43 @@ const Home = async () => {
   const second = game?.engine_first ? (gameMatch?.opponent ?? 'Opponent') : engineLabel;
 
   return (
-    <main className="mx-auto w-full max-w-[90rem] px-4 pb-16 pt-6 sm:px-6">
-      <div className="flex flex-col gap-4 pb-6 lg:flex-row lg:items-end lg:justify-between">
-        <div className="max-w-2xl">
-          <Typography variant="pageTitle">
-            Four engines, built from nothing, ranked only by games.
-          </Typography>
-          <Typography variant="lede" className="mt-1.5">
-            A swarm of coding agents is writing chess, Go, Othello and Hex engines from an empty
-            file. Every version earns its rating over the board against Stockfish, GNU Go and Edax.
-          </Typography>
+    <main className="mx-auto w-full max-w-[90rem] px-4 pb-16 pt-8 sm:px-6">
+      <section aria-labelledby="hero-title" className="max-w-3xl">
+        <Typography variant="pageTitle" id="hero-title" className="sm:text-4xl">
+          Four engines, built from nothing, ranked only by games.
+        </Typography>
+        <Typography variant="lede" className="mt-2">
+          A swarm of coding agents is writing chess, Go, Othello and Hex engines from an empty file.
+          Every version earns its rating over the board against Stockfish, GNU Go and Edax, and then
+          against itself. There is no finish line.
+        </Typography>
+        <p className="mt-3 text-[15px] text-fg">
+          <span className="text-fg-3">Verdict:</span> {verdict(s, c.working)}
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Link href="#record" className={buttonVariants({ variant: 'primary' })}>
+            Watch it live
+          </Link>
+          <Link href="/how-it-works" className={buttonVariants({ variant: 'secondary' })}>
+            How it works
+          </Link>
         </div>
-        <dl className="flex flex-wrap gap-x-4 gap-y-1.5 lg:max-w-xl lg:justify-end">
-          <Stat label="on the clock" value={formatSpan(s.run.started_at, now)} />
-          <Stat label="games played" value={formatInt(c.games)} />
-          <Stat label="versions shipped" value={formatInt(c.landed)} />
-          <Stat label="rungs cleared" value={`${c.rungs}/${c.rungsTotal}`} />
-          <Stat label="ideas buried" value={formatInt(c.dead)} />
-          <Stat label="agents at work" value={formatInt(c.working)} />
-        </dl>
-      </div>
+      </section>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_23rem]">
+      <dl className="mt-8 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-3 lg:grid-cols-6">
+        <Counter label="agent sessions so far" value={formatInt(c.sessions)} />
+        <Counter label="agents working now" value={formatInt(c.working)} />
+        <Counter label="games played" value={formatInt(c.games)} />
+        <Counter label="versions shipped" value={formatInt(c.landed)} />
+        <Counter label="ideas buried" value={formatInt(c.dead)} />
+        <Counter label="started" value={formatDay(s.run.started_at)} />
+      </dl>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_23rem]">
         <Panel
           id="race"
           title="The race"
-          actions={
-            <ul className="flex flex-wrap items-center gap-3" aria-label="Legend">
-              {tracks.map((t) => (
-                <li key={t.id} className="flex items-center gap-1.5 text-xs text-fg-2">
-                  <span className={cn('size-2 rounded-full', SERIES[t.colorSlot].bg)} />
-                  {t.name}
-                </li>
-              ))}
-              <li className="flex items-center gap-1.5 text-xs text-fg-3">
-                <svg width="16" height="2" aria-hidden="true">
-                  <line x1="0" x2="16" y1="1" y2="1" stroke="var(--fg-3)" strokeDasharray="4 3" />
-                </svg>
-                finish line
-              </li>
-            </ul>
-          }
+          actions={<MoreLink href="/engines">Open any engine</MoreLink>}
         >
           <div className="px-2 pt-3 sm:px-3">
             <RaceChart
@@ -118,6 +129,9 @@ const Home = async () => {
           </div>
           <div className="border-t border-line">
             <TrackLadder tracks={tracks} />
+          </div>
+          <div className="border-t border-line px-4 py-2.5">
+            <LadderLegend />
           </div>
         </Panel>
 
@@ -166,21 +180,26 @@ const Home = async () => {
             </div>
           ) : (
             <Typography variant="small" className="px-4 py-8">
-              No games played yet.
+              No games played yet. The first match starts when an agent submits an engine.
             </Typography>
           )}
         </Panel>
       </div>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_23rem]">
-        <Panel id="board" title="Board">
-          <BoardFeed records={records} slots={slots} seats={seats} pageSize={20} />
+      <div className="mt-4 grid gap-4 lg:grid-cols-3">
+        <StrategyCall call={call} mentioned={call ? mentions(s, call) : []} slots={slots} />
+        <Frontier tasks={frontier(s)} seats={seats} slots={slots} />
+        <Graveyard dead={records.filter((r) => r.kind === 'idea_dead')} slots={slots} />
+      </div>
+
+      <div id="record" className="mt-4 grid scroll-mt-28 gap-4 lg:grid-cols-[minmax(0,1fr)_23rem]">
+        <Panel
+          title="Latest from the record"
+          actions={<MoreLink href="/board">The whole feed</MoreLink>}
+        >
+          <BoardFeed records={records} slots={slots} seats={seats} pageSize={12} />
         </Panel>
-        <div className="flex flex-col gap-4">
-          <StrategySeat updates={records.filter((r) => r.kind === 'strategy')} />
-          <AgentRoster agents={s.agents} slots={slots} />
-          <Graveyard dead={records.filter((r) => r.kind === 'idea_dead')} slots={slots} />
-        </div>
+        <Fleet agents={s.agents} slots={slots} />
       </div>
     </main>
   );

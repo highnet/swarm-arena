@@ -17,8 +17,6 @@ export type Track = {
   name: string;
   /** Categorical colour slot 1-4, fixed per track. */
   color_slot: number;
-  finish_label: string;
-  finish_elo: number;
   current_elo: number | null;
   current_version: string | null;
 };

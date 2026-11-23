@@ -85,8 +85,11 @@ export const runMatch = async (spec: MatchSpec) => {
   return { matchId: id, est, result, forfeits };
 };
 
-/** The rung a version should be measured against: the first one not yet cleared. */
+/**
+ * The rung a version should be measured against: the first one not yet cleared, or null once
+ * the whole ladder is cleared (the gate is then played against the current version itself).
+ */
 export const gateRung = (rungs: Rung[], currentElo: number | null) =>
-  currentElo === null ? rungs[0] : (rungs.find((r) => !r.cleared_at) ?? rungs[rungs.length - 1]);
+  currentElo === null ? rungs[0] : (rungs.find((r) => !r.cleared_at) ?? null);
 
 export const moveMs = () => MOVE_MS;

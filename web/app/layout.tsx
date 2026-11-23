@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import { Geist, Geist_Mono } from 'next/font/google';
+import { SiteFooter } from '@/components/arena/SiteFooter';
 import { SiteHeader } from '@/components/arena/SiteHeader';
 import { getSnapshot } from '@/lib/data';
 import './globals.css';
@@ -24,15 +25,10 @@ const RootLayout = async ({ children }: RootLayoutProps) => {
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full`}>
       <body className="flex min-h-full flex-col">
         <SiteHeader runId={snapshot.run.id} />
-        {children}
-        <footer className="mt-auto border-t border-line">
-          <div className="mx-auto flex max-w-[90rem] flex-wrap items-center justify-between gap-3 px-4 py-5 text-xs text-fg-3 sm:px-6">
-            <span>Swarm Arena</span>
-            <span>
-              {snapshot.run.label} · since {snapshot.run.started_at.slice(0, 10)}
-            </span>
-          </div>
-        </footer>
+        <div id="content" className="flex flex-1 flex-col">
+          {children}
+        </div>
+        <SiteFooter runLabel={snapshot.run.label} startedAt={snapshot.run.started_at} />
       </body>
     </html>
   );

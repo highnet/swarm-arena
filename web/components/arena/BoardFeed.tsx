@@ -16,8 +16,12 @@ type BoardFeedProps = {
   slots: Partial<Record<GameId, number>>;
   seats: Record<string, string>;
   pageSize?: number;
-  /** Hide the track filter (track pages are already scoped). */
+  /** Hide the track filter (engine pages are already scoped). */
   scoped?: boolean;
+  /** Text search over titles, details and seats. */
+  query?: string;
+  /** Initial record-type filter id (see KIND_FILTERS). */
+  initialKind?: string;
 };
 
 type RecordRowProps = {
@@ -76,16 +80,31 @@ const RecordRow = ({ record, fresh, slot, seat }: RecordRowProps) => {
   );
 };
 
-const BoardFeed = ({ records, slots, seats, pageSize = 30, scoped = false }: BoardFeedProps) => {
-  const [kind, setKind] = useState('all');
+const BoardFeed = ({
+  records,
+  slots,
+  seats,
+  pageSize = 30,
+  scoped = false,
+  query = '',
+  initialKind = 'all',
+}: BoardFeedProps) => {
+  const [kind, setKind] = useState(initialKind);
   const [track, setTrack] = useState<GameId | 'all'>('all');
   const [limit, setLimit] = useState(pageSize);
   // Records present on first render are history; anything after that arrived live.
   const [seen] = useState(() => new Set(records.map((r) => r.id)));
 
   const kinds = KIND_FILTERS.find((f) => f.id === kind)?.kinds ?? null;
+  const needle = query.trim().toLowerCase();
   const visible = records.filter(
-    (r) => (!kinds || kinds.includes(r.kind)) && (track === 'all' || r.track_id === track),
+    (r) =>
+      (!kinds || kinds.includes(r.kind)) &&
+      (track === 'all' || r.track_id === track) &&
+      (!needle ||
+        `${r.title} ${r.detail ?? ''} ${r.agent_id ? seats[r.agent_id] : ''}`
+          .toLowerCase()
+          .includes(needle)),
   );
   const shown = visible.slice(0, limit);
 
@@ -146,7 +165,7 @@ const BoardFeed = ({ records, slots, seats, pageSize = 30, scoped = false }: Boa
 
       {groups.map((g) => (
         <div key={g.day}>
-          <div className="sticky top-12 z-1 border-b border-line bg-panel/95 px-4 py-1.5 text-xs font-medium text-fg-3 backdrop-blur-sm">
+          <div className="z-1 lg:sticky lg:top-12 border-b border-line bg-panel/95 px-4 py-1.5 text-xs font-medium text-fg-3 backdrop-blur-sm">
             {g.day}
           </div>
           <ol className="divide-y divide-line">

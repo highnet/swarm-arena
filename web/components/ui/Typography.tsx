@@ -40,6 +40,7 @@ const DEFAULT_TAG: Record<string, string> = {
   sectionTitle: 'h2',
   lede: 'p',
   body: 'p',
+  small: 'p',
 };
 
 type TypographyProps = VariantProps<typeof typographyVariants> & {

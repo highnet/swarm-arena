@@ -24,7 +24,7 @@ export const brief = async () => {
   for (const t of ts) {
     const ladder = await rungs(t.id);
     lines.push(
-      `## ${t.name} (${t.id}): ${t.current_version ?? 'no version'} at ${t.current_elo ?? 'no rating'}; finish: ${t.finish_label}`,
+      `## ${t.name} (${t.id}): ${t.current_version ?? 'no version'} at ${t.current_elo ?? 'no rating'}`,
       `Ladder: ${ladder.map((r) => `${r.label} ${r.elo}${r.cleared_at ? ' ✓' : ''}`).join(' → ')}`,
       `Open or in progress: ${all.filter((k) => k.track_id === t.id && ['open', 'claimed'].includes(k.status)).map((k) => k.title).join('; ') || 'none'}`,
       `Shipped: ${all.filter((k) => k.track_id === t.id && k.status === 'landed').map((k) => k.title).join('; ') || 'none'}`,
@@ -33,7 +33,9 @@ export const brief = async () => {
     );
   }
   const strategy = recs.filter((r) => r.kind === 'strategy').slice(-3).map((r) => `- ${r.title}`).join('\n');
-  return `${lines.join('\n')}
+  return `Playbooks: ${TRACK_IDS.map((t) => `.claude/skills/${t}-playbook/SKILL.md`).join(', ')}
+
+${lines.join('\n')}
 Recent strategy:
 ${strategy || '- none'}
 

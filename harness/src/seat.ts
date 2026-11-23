@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync } from 'node:fs';
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 import { GAMES, randomPlayer, type Task } from '@arena/shared';
 import { agent, bumpSessions, now, post, records, rungs, setAgent, tasks, track } from './board';
@@ -80,6 +80,58 @@ export const release = async (taskId: string) => {
 
 const git = (args: string[]) => run('git', args, { cwd: ARENA_ROOT });
 
+const playbook = (trackId: string) => resolve(ARENA_ROOT, '.claude/skills', `${trackId}-playbook`, 'SKILL.md');
+
+/** The referee's one-line verdict at the end of the engine's playbook. */
+const logVerdict = (trackId: string, line: string) => {
+  const p = playbook(trackId);
+  if (existsSync(p)) appendFileSync(p, `- ${now().slice(0, 16).replace('T', ' ')} UTC · ${line}\n`);
+};
+
+/** Take back the last verdict line (a ship that could not be pushed). */
+const unlogVerdict = (trackId: string) => {
+  const p = playbook(trackId);
+  if (!existsSync(p)) return;
+  const lines = readFileSync(p, 'utf8').trimEnd().split('\n');
+  if (lines.at(-1)?.startsWith('- ')) writeFileSync(p, `${lines.slice(0, -1).join('\n')}\n`);
+};
+
+/** Commit the given paths, rebase onto the latest main and push. Retries on a race. */
+const commitAndPush = async (paths: string[], message: string) => {
+  await git(['add', '-A', ...paths.map((p) => relative(ARENA_ROOT, p))]);
+  const commit = await git(['commit', '-m', message]);
+  if (commit.code !== 0) return true; // nothing to commit
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await git(['fetch', 'origin', 'main']);
+    const rebase = await git(['rebase', '--autostash', 'origin/main']);
+    if (rebase.code !== 0) {
+      await git(['rebase', '--abort']);
+      return false;
+    }
+    if ((await git(['push', 'origin', 'HEAD:main'])).code === 0) return true;
+  }
+  return false;
+};
+
+/** Build the engine as it is on origin/main, in a separate worktree, and start it. */
+const currentVersion = async (trackId: Task['track_id'], label: string) => {
+  const dir = resolve(ARENA_HOME, 'main-build');
+  await git(['fetch', 'origin', 'main']);
+  await git(['worktree', 'remove', '--force', dir]);
+  const add = await git(['worktree', 'add', '--detach', dir, 'origin/main']);
+  if (add.code !== 0) throw new Error(`could not check out main: ${add.stderr.slice(0, 120)}`);
+  const target = resolve(ARENA_HOME, 'main-target');
+  const build = await run('cargo', ['build', '--release', '-p', crate(trackId), '--target-dir', target], {
+    cwd: resolve(dir, relative(ARENA_ROOT, ENGINES_DIR)),
+  });
+  if (build.code !== 0) throw new Error('could not build the current version from main');
+  const bin = resolve(ARENA_HOME, 'bin', `${trackId}-main`);
+  mkdirSync(resolve(ARENA_HOME, 'bin'), { recursive: true });
+  copyFileSync(resolve(target, 'release', crate(trackId)), bin);
+  await git(['worktree', 'remove', '--force', dir]);
+  return arenaEngine(label, bin, trackId, MOVE_MS);
+};
+
 /**
  * Referee a finished task: build gate, legality smoke test, gate match against the next
  * uncleared rung, then ship to main (rebase + push) or bury with the measured reason.
@@ -92,6 +144,11 @@ export const submit = async (taskId: string) => {
   const crateDir = resolve(ENGINES_DIR, task.track_id);
 
   const bury = async (why: string, matchId: string | null = null) => {
+    // The engine change is discarded; the playbook keeps the lesson.
+    await git(['checkout', '--', relative(ARENA_ROOT, crateDir)]);
+    await git(['clean', '-fdq', '--', relative(ARENA_ROOT, crateDir)]);
+    logVerdict(task.track_id, `buried · ${task.title} · ${why}`);
+    await commitAndPush([playbook(task.track_id)], `${task.track_id} playbook: lesson from “${task.title}”`);
     await db.update('tasks', { id: task.id }, { status: 'dead', closed_at: now() });
     await post('patch_rejected', { track_id: task.track_id, agent_id: 'referee', task_id: task.id, match_id: matchId, title: `Rejected: ${task.title}`, detail: why });
     await post('idea_dead', { track_id: task.track_id, agent_id: 'strategist', task_id: task.id, title: task.title, detail: why });
@@ -131,14 +188,17 @@ export const submit = async (taskId: string) => {
     const rung = gateRung(ladder, t.current_elo);
     const shipped = (await db.select<Task>('tasks', { run_id: RUN_ID, track_id: task.track_id, status: 'landed' })).length;
     const version = `v0.${shipped + 1}`;
-    const opponent = await reference(rung.opponent, task.track_id, MOVE_MS, Date.now() % 1e9);
+    // Past the top of the ladder there is no finish line: play the current version instead.
+    const opponent = rung
+      ? await reference(rung.opponent, task.track_id, MOVE_MS, Date.now() % 1e9)
+      : await currentVersion(task.track_id, t.current_version ?? 'current');
     const gate = await runMatch({
       track: task.track_id,
       candidate,
       candidateVersion: version,
       opponent,
-      opponentLabel: rung.label,
-      opponentElo: rung.elo,
+      opponentLabel: rung ? rung.label : `${t.name} ${t.current_version}`,
+      opponentElo: rung ? rung.elo : (t.current_elo ?? 0),
       pairs: GATE_PAIRS,
       purpose: 'gate',
       taskId: task.id,
@@ -152,20 +212,19 @@ export const submit = async (taskId: string) => {
       return await bury(`Rated ${Math.round(gate.est.elo)} ± ${Math.round(gate.est.error)}, not above ${Math.round(prev)}.`, gate.matchId);
     }
 
-    // Ship: commit the crate, rebase onto the latest main, push. Retry on a race.
-    await git(['add', '-A', relative(ARENA_ROOT, crateDir), relative(ARENA_ROOT, resolve(ENGINES_DIR, 'Cargo.lock'))]);
-    await git(['commit', '-m', `${task.track_id} ${version}: ${task.title}`]);
-    let pushed = false;
-    for (let attempt = 0; attempt < 3 && !pushed; attempt++) {
-      await git(['fetch', 'origin', 'main']);
-      const rebase = await git(['rebase', '--autostash', 'origin/main']);
-      if (rebase.code !== 0) {
-        await git(['rebase', '--abort']);
-        return await bury('Rated higher, but the change no longer applies on main.', gate.matchId);
-      }
-      pushed = (await git(['push', 'origin', 'HEAD:main'])).code === 0;
+    // Ship: the crate and its playbook go to main together.
+    const delta = prev === null ? 'first rated version' : `${gate.est.elo - prev >= 0 ? '+' : ''}${Math.round(gate.est.elo - prev)}`;
+    logVerdict(task.track_id, `${version} shipped · ${task.title} · rated ${Math.round(gate.est.elo)} (${delta})`);
+    const pushed = await commitAndPush(
+      [crateDir, resolve(ENGINES_DIR, 'Cargo.lock'), playbook(task.track_id)],
+      `${task.track_id} ${version}: ${task.title}`,
+    );
+    if (!pushed) {
+      // Undo the local ship commit so the burial pushes only the playbook lesson.
+      await git(['reset', '--mixed', 'HEAD~1']);
+      unlogVerdict(task.track_id);
+      return await bury('Rated higher, but the change no longer applies on main.', gate.matchId);
     }
-    if (!pushed) return await bury('Rated higher, but pushing to main failed.', gate.matchId);
 
     await db.update('tasks', { id: task.id }, { status: 'landed', closed_at: now() });
     await db.update('tracks', { run_id: RUN_ID, id: task.track_id }, { current_elo: Math.round(gate.est.elo), current_version: version });
@@ -178,8 +237,14 @@ export const submit = async (taskId: string) => {
       elo_error: Math.round(gate.est.error),
       match_id: gate.matchId,
     });
-    const delta = prev === null ? 'First rated version' : `${gate.est.elo - prev >= 0 ? '+' : ''}${Math.round(gate.est.elo - prev)} over the previous version`;
-    await post('patch_landed', { track_id: task.track_id, agent_id: seatId, task_id: task.id, match_id: gate.matchId, title: `${version} shipped: ${task.title}`, detail: `${delta}.` });
+    await post('patch_landed', {
+      track_id: task.track_id,
+      agent_id: seatId,
+      task_id: task.id,
+      match_id: gate.matchId,
+      title: `${version} shipped: ${task.title}`,
+      detail: prev === null ? 'First rated version.' : `${delta} over the previous version.`,
+    });
     for (const r of ladder) {
       if (!r.cleared_at && gate.est.elo - gate.est.error / 2 > r.elo) {
         await db.update('rungs', { id: r.id }, { cleared_at: now(), cleared_by_match: gate.matchId });
@@ -188,7 +253,6 @@ export const submit = async (taskId: string) => {
           agent_id: 'referee',
           match_id: gate.matchId,
           title: `${t.name} cleared ${r.label} (${r.elo})`,
-          detail: r.label === t.finish_label ? 'Finish line reached.' : null,
         });
       }
     }

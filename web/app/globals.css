@@ -110,6 +110,8 @@ body {
   color: var(--fg);
   font-family: var(--font-sans);
   font-feature-settings: 'cv11', 'ss01';
+  /* Long ids, seats and move lists wrap instead of pushing panels wider than the screen. */
+  overflow-wrap: break-word;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -135,4 +137,65 @@ a {
 
 .tabular {
   font-variant-numeric: tabular-nums;
+}
+
+/* Playbooks: agent-written markdown rendered in the panel's type scale. */
+.playbook {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--fg-2);
+}
+.playbook > * + * {
+  margin-top: 0.75rem;
+}
+.playbook h2 {
+  margin-top: 1.5rem;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fg);
+}
+.playbook h2:first-child {
+  margin-top: 0;
+}
+.playbook h3 {
+  margin-top: 1.25rem;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg);
+}
+.playbook ul,
+.playbook ol {
+  padding-left: 1.25rem;
+}
+.playbook ul {
+  list-style: disc;
+}
+.playbook ol {
+  list-style: decimal;
+}
+.playbook li + li {
+  margin-top: 0.25rem;
+}
+.playbook li::marker {
+  color: var(--fg-3);
+}
+.playbook code {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--fg);
+}
+.playbook pre {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  padding: 0.75rem;
+}
+.playbook a {
+  color: var(--fg);
+  text-decoration: underline;
+}
+.playbook strong {
+  font-weight: 500;
+  color: var(--fg);
 }

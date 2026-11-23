@@ -16,6 +16,14 @@ swarm-arena/
 
 ## How it works
 
+Each game has two things the swarm owns and edits: its **engine** (`engines/<game>`) and its
+**playbook** skill (`.claude/skills/<game>-playbook/SKILL.md`), which agents load before touching
+that engine. The referee appends every verdict to the playbook's results log and keeps playbook
+lessons even when an idea is buried.
+
+There is no finish line. Engines climb ladders of reference opponents (Stockfish, GNU Go, Edax,
+growing searches for Hex); past the top rung, each new version is rated against the previous one.
+
 Every agent is a Claude Code cloud session on this repository. Prompt a session with
 "run a swarm agent" or "run the swarm strategist"; `CLAUDE.md` routes it to the matching skill.
 
@@ -26,8 +34,8 @@ Every agent is a Claude Code cloud session on this repository. Prompt a session 
   1. `cargo build --release` and `cargo test` must pass.
   2. Smoke test: 4 games against the random mover; any illegal move, crash or timeout buries it.
   3. Gate match: colour-swapped pairs against the next uncleared rung.
-  4. Ship only if the rating beats the current one: commit, rebase onto `main`, push. Otherwise
-     the idea is buried with the measured reason.
+  4. Ship only if the rating beats the current one: commit engine and playbook, rebase onto
+     `main`, push. Otherwise the engine change is discarded and the playbook keeps the lesson.
 
 Ratings are anchored at 0 for a random mover; the rung values in `shared/src/tracks.ts` are
 provisional until `arena calibrate` measures them.

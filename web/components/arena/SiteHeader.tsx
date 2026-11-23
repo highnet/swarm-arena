@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { LiveIndicator } from './LiveIndicator';
+import { SearchBox } from './SearchBox';
 
 type SiteHeaderProps = {
   runId: string;
@@ -7,8 +8,10 @@ type SiteHeaderProps = {
 
 const NAV = [
   { href: '/', label: 'Race' },
-  { href: '/#board', label: 'Board' },
+  { href: '/engines', label: 'Engines' },
+  { href: '/board', label: 'Board' },
   { href: '/how-it-works', label: 'How it works' },
+  { href: '/what-this-is', label: 'What this is and is not' },
 ];
 
 const Mark = () => (
@@ -27,28 +30,52 @@ const Mark = () => (
 
 const SiteHeader = ({ runId }: SiteHeaderProps) => (
   <header className="sticky top-0 z-20 border-b border-line bg-bg/90 backdrop-blur-md">
-    <div className="mx-auto flex h-12 max-w-[90rem] items-center gap-4 px-4 sm:px-6">
+    <a
+      href="#content"
+      className="sr-only rounded-md bg-primary px-3 py-1.5 text-[13px] text-primary-fg focus:not-sr-only focus:absolute focus:left-4 focus:top-2"
+    >
+      Skip to the content
+    </a>
+    <div className="mx-auto flex h-12 max-w-[90rem] items-center gap-3 px-4 sm:px-6">
       <Link
         href="/"
-        className="flex items-center gap-2 text-sm font-semibold tracking-tight text-fg"
+        className="flex shrink-0 items-center gap-2 text-sm font-semibold tracking-tight text-fg"
       >
         <Mark />
         Swarm Arena
       </Link>
-      <nav aria-label="Main" className="ml-auto flex items-center gap-1">
+      <nav aria-label="Main" className="hidden min-w-0 items-center gap-0.5 lg:flex">
         {NAV.map((n) => (
           <Link
             key={n.href}
             href={n.href}
-            className="hidden rounded-md px-2.5 py-1.5 text-[13px] text-fg-2 transition-colors hover:bg-panel-raised hover:text-fg sm:block"
+            className="whitespace-nowrap rounded-md px-2.5 py-1.5 text-[13px] text-fg-2 transition-colors hover:bg-panel-raised hover:text-fg"
           >
             {n.label}
           </Link>
         ))}
-        <span className="mx-2 hidden h-4 w-px bg-line sm:block" />
-        <LiveIndicator runId={runId} />
       </nav>
+      <div className="ml-auto flex min-w-0 items-center gap-3">
+        <div className="hidden w-56 sm:block">
+          <SearchBox />
+        </div>
+        <LiveIndicator runId={runId} />
+      </div>
     </div>
+    <nav
+      aria-label="Sections"
+      className="flex flex-wrap gap-0.5 border-t border-line px-2 py-1 lg:hidden"
+    >
+      {NAV.map((n) => (
+        <Link
+          key={n.href}
+          href={n.href}
+          className="whitespace-nowrap rounded-md px-2.5 py-1 text-[13px] text-fg-2 hover:bg-panel-raised hover:text-fg"
+        >
+          {n.label}
+        </Link>
+      ))}
+    </nav>
   </header>
 );
 

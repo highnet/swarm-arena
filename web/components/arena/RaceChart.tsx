@@ -12,8 +12,6 @@ export type RaceSeries = {
   name: string;
   slot: number;
   points: RacePoint[];
-  finishElo: number;
-  finished: boolean;
 };
 
 type RaceChartProps = {
@@ -55,15 +53,9 @@ const RaceChart = ({ series, start, end: rawEnd, height: fullHeight = 320 }: Rac
   const right = compact ? 16 : M.right;
   const innerW = width - M.left - right;
   const innerH = height - M.top - M.bottom;
-  const yMax =
-    Math.ceil(
-      (Math.max(
-        ...series.map((s) => s.finishElo),
-        ...series.flatMap((s) => s.points.map((p) => p.elo)),
-      ) +
-        100) /
-        500,
-    ) * 500;
+  // No ceiling: the axis grows with the best rating, with headroom above it.
+  const best = Math.max(0, ...series.flatMap((s) => s.points.map((p) => p.elo)));
+  const yMax = Math.max(1000, Math.ceil((best + 250) / 500) * 500);
   const x = (t: number) => M.left + ((t - start) / (end - start)) * innerW;
   const y = (elo: number) => M.top + innerH - (Math.max(0, elo) / yMax) * innerH;
 
@@ -106,7 +98,11 @@ const RaceChart = ({ series, start, end: rawEnd, height: fullHeight = 320 }: Rac
 
   return (
     <div ref={ref} data-slot="race-chart" className="relative w-full select-none">
-      <svg width={width} height={height} className="block overflow-visible" aria-hidden="true">
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="block h-auto w-full overflow-visible"
+        aria-hidden="true"
+      >
         {Array.from({ length: yMax / 500 + 1 }, (_, i) => i * 500).map((v) => (
           <g key={v}>
             <line
@@ -140,21 +136,6 @@ const RaceChart = ({ series, start, end: rawEnd, height: fullHeight = 320 }: Rac
             <text x={x(t) + 4} y={height - 8} className="fill-fg-3 text-[11px]">
               {formatDay(new Date(t).toISOString())}
             </text>
-          </g>
-        ))}
-
-        {series.map((s) => (
-          <g key={`finish-${s.id}`}>
-            <line
-              x1={M.left}
-              x2={M.left + innerW}
-              y1={y(s.finishElo)}
-              y2={y(s.finishElo)}
-              stroke={SERIES[s.slot].stroke}
-              strokeOpacity={s.finished ? 0.35 : 0.7}
-              strokeDasharray="6 5"
-              strokeWidth={1}
-            />
           </g>
         ))}
 
@@ -238,11 +219,19 @@ const RaceChart = ({ series, start, end: rawEnd, height: fullHeight = 320 }: Rac
         />
       </svg>
 
+      {series.every((s) => s.points.length === 0) && (
+        <p className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 text-center text-[13px] text-fg-3">
+          Waiting for the first rated version.
+        </p>
+      )}
+
       {hoverT !== null && hover && (
         <div
           role="status"
           className="pointer-events-none absolute top-3 z-10 w-52 rounded-md border border-line-strong bg-panel-raised p-2.5 shadow-[0_8px_24px_rgb(0_0_0/0.45)]"
-          style={{ left: tipLeft ? x(hoverT) - 216 : x(hoverT) + 12 }}
+          style={{
+            left: Math.max(0, Math.min(width - 208, tipLeft ? x(hoverT) - 216 : x(hoverT) + 12)),
+          }}
         >
           <div className="mb-1.5 text-xs text-fg-3">
             {formatDay(new Date(hoverT).toISOString())} ·{' '}

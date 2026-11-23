@@ -12,8 +12,6 @@ const notStarted = (): Snapshot => {
       run_id: run.id,
       name: t.name,
       color_slot: t.colorSlot,
-      finish_label: t.finishLabel,
-      finish_elo: t.rungs.find((r) => r.label === t.finishLabel)!.elo,
       current_elo: null,
       current_version: null,
     })),

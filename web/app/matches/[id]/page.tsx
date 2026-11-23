@@ -35,7 +35,7 @@ const MatchContent = async ({ params }: MatchPageProps) => {
   return (
     <main className="mx-auto w-full max-w-[90rem] px-4 pb-16 pt-6 sm:px-6">
       <Link
-        href={`/tracks/${track.id}`}
+        href={`/engines/${track.id}`}
         className="inline-flex items-center gap-1 text-xs text-fg-3 hover:text-fg"
       >
         <ArrowLeft className="size-3" aria-hidden="true" />

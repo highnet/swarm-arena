@@ -25,14 +25,11 @@ export const ensureRun = async (label: string) => {
   if ((await db.select('runs', { id: RUN_ID })).length) return false;
   await db.insert('runs', { id: RUN_ID, label, started_at: now() });
   for (const t of TRACKS) {
-    const finish = t.rungs.find((r) => r.label === t.finishLabel)!;
     await db.insert('tracks', {
       id: t.id,
       run_id: RUN_ID,
       name: t.name,
       color_slot: t.colorSlot,
-      finish_label: t.finishLabel,
-      finish_elo: finish.elo,
       current_elo: null,
       current_version: null,
     });
@@ -54,7 +51,7 @@ export const ensureRun = async (label: string) => {
   await agent('referee', null, 'referee');
   await post('strategy', {
     agent_id: 'strategist',
-    title: 'Run opened. Four tracks, one rule: no number without a match.',
+    title: 'Run opened. Four engines, one rule: no rating without games.',
     detail: 'Every engine starts from an empty crate. The referee forfeits any illegal move.',
   });
   return true;
