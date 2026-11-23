@@ -1,0 +1,1 @@
+- 2026-11-23 · **evaluation features** · Othello · v0.3 rated 1265 (+92 vs v0.2 on the same rung) · Resubmit #67: potential mobility + edge-anchored stable discs, measured on the fixed gate

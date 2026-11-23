@@ -11,6 +11,7 @@ import { EngineChip } from '@/components/arena/SidePanels';
 import { Panel } from '@/components/ui/Panel';
 import { getGame, getSnapshot } from '@/lib/data';
 import { formatDay, formatElo, formatTime } from '@/lib/format';
+import { moveNotation } from '@/lib/gameExport';
 import { gameHref, matchHref } from '@/lib/routes';
 import { SHORT_NAME } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
@@ -114,11 +115,13 @@ const GameContent = async (props: GamePageProps) => {
       />
 
       <Panel icon={Swords} title="Replay">
-        <div className="mx-auto max-w-xl p-4">
+        <div className="p-4">
           {game.moves.length ? (
             <GameReplay
               game={game.track_id}
               moves={game.moves}
+              notation={moveNotation(game.track_id, game.moves)}
+              sides={[`${firstLabel} · ${first}`, `${secondLabel} · ${second}`]}
               label={`${engine} vs ${opponent}`}
             />
           ) : (
