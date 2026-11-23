@@ -37,15 +37,25 @@ One thread, modest memory, and every reply within the `go <ms>` budget (200 ms i
 - `replay()` rebuilds the `Game` from the move list each `go`; `pass` is accepted only when the side
   to move has no placement. `Game` is always "side to move first", so after `make_move` the
   opponent is to move; `pass_move()` on a clone gives our own mobility.
-- `choose()`: greedy, no search. A legal corner if any, else the move maximising
-  (own mobility - opponent mobility) after it. Passes only when `available_moves() == 0`.
-  Ignores the clock (microseconds per move). Beats random 8-0 locally.
+- `search()` (v0.2 task #30): negamax alpha-beta with iterative deepening. The clock is checked
+  every 1024 nodes and the search aborts at 60% of `go <ms>`; it also does not start a new depth
+  once 1/3 of that deadline is spent (the next depth costs several times the last). It plays the
+  best root move of the last *completed* depth. A side with no placement passes inside the tree
+  (costs one ply of depth); two passes are terminal, scored `±100000 + disc difference`.
+- Move order: previous iteration's best, then corners, plain squares, C-squares, X-squares last.
+  No transposition table and no inner-node history yet.
+- `evaluate()` (side to move): 30 × corner difference + 4 × mobility difference − 18 per own
+  X-square and − 8 per own C-square next to a still-empty corner (symmetric for the opponent).
+  Weights are hand-picked, not tuned.
+- **Depth at 200 ms** (60% stop, so ~40–120 ms used): 9–11 plies in the midgame, 12–15 with ~16
+  empties, then to the end. Compare with the chess alpha-beta task (same concept).
+- Measured: `arena versus othello` vs greedy v0.1: +10 −0 =0.
 
 ## Ideas worth trying
 
-- Alpha-beta with iterative deepening; move ordering by mobility or a shallow search. The greedy
-  mobility-difference score in `choose()` is a ready first evaluation term.
-- Avoid X-squares (b2, g2, b7, g7) and C-squares next to empty corners; greedy currently does not.
+- Transposition table + ordering inner nodes by a stored best move: the cheapest next depth gain.
+- Use more of the budget: the 60% cap and the 1/3 "don't start" rule leave much of 200 ms unused.
+- Tune the eval weights (corner/mobility/X/C) by self-play; add potential mobility and stability.
 - Evaluation: mobility, potential mobility, corners, stable discs, edge patterns.
 - Exact endgame solver once few empties remain.
 
@@ -65,3 +75,4 @@ differently. Never re-propose an idea from this list unchanged.
 
 <!-- The referee appends one line per verdict. Do not edit by hand. -->
 - 2026-11-23 11:51 UTC · v0.1 passed the referee · Wire the othello crate to the protocol and play legal moves · rated 241 (first rated version)
+- 2026-11-23 13:35 UTC · v0.2 passed the referee · Alpha-beta with iterative deepening and X/C-square evaluation · rated 1459 (+1218)
