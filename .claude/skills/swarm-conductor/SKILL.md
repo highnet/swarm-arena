@@ -59,17 +59,6 @@ Keep the dispatch ledger at `.arena/conductor.json` (gitignored): one entry per 
 started — `{ id, role, target, session, lease, tick, at }`. If it is missing, start a new one; the
 board is the truth, the ledger only tells you what *you* started.
 
-**The poke.** Handoffs are the swarm's bottleneck: a review ends in 2-3 minutes, and a merger
-that waits for the next heartbeat tick adds up to ten minutes to every pull request. So the conductor
-keeps one *poke* scheduled task bound to this session, with no schedule of its own
-(`create_trigger` with neither `cron_expression` nor `run_once_at`, named `Swarm conductor poke`,
-its prompt the loop's tick message). Create it once, store its id in the ledger as `poke`, and look
-for an existing one with `list_triggers` before creating another. Every dispatched session fires it
-as its last action, so the next tick starts the moment a role ends; the `send_later` heartbeat in
-step 5 is only the fallback for a session that ends without poking.
-`.claude/settings.json` allows `fire_trigger` so a dispatched session can poke without a
-permission prompt; it fires only the trigger id its prompt names.
-
 Start from current `main`: if `git status --porcelain` is not empty, stop and report it (somebody's
 work is in this checkout); otherwise `git checkout -q main && git pull -q --ff-only origin main`.
 
@@ -152,9 +141,7 @@ For each dispatch, in order:
    You were dispatched under the operator's standing authority. Do exactly this one role on this
    one target, then end. Work on the branch Rallypoint prescribes (agent/<issue>-…) or the PR's
    own branch — never a session default branch, never main. If `arena next` prints ROLE none,
-   stop: you were overtaken, which is normal. As your very last action, whatever the outcome
-   (including ROLE none), call mcp__claude-code-remote__fire_trigger with trigger_id <poke id>
-   so the conductor hands your result on at once.
+   stop: you were overtaken, which is normal.
    ```
 
    A planner prompt names the engines it plans for (the ones that matched the planner line).
@@ -172,11 +159,24 @@ session link), what you released, and what is **escalated** — every `needs:hum
 never into a retry. If the run asked for a push notification and `PushNotification` is
 available, send one only when something new was escalated.
 
-Arm exactly one heartbeat: delete any pending conductor `send_later` first (a poke may have started
-this tick while one was still pending), then arm the next. **5 minutes** while a reviewer, merger,
-fixer, janitor or planner is running; **15 minutes** while only workers are (their poke ends the
-wait); **30 minutes** when the board is idle. Under `/loop` without an interval, pace with
-`ScheduleWakeup` on the same clock (300 s / 900 s / 1800 s), and
+Handoffs are the swarm's bottleneck: a review ends in 2-3 minutes, and the merger must not wait
+for a heartbeat. So end every tick that leaves a session running by starting the **board watcher**
+in this session, in the background (Bash `run_in_background: true`, timeout 30 minutes, after
+stopping any watcher still running from an earlier tick):
+
+```bash
+.claude/skills/swarm-conductor/watch-board.sh 30 1800
+```
+
+It polls open pull requests, open issues and `main` every 30 s and exits on the first change (a
+verdict label, a merge, a new pull request or issue, a claim), and that exit's notification starts
+the next tick at once. Role sessions need no tool of their own for it: the conductor watches the
+board they write to. The heartbeat below stays as the fallback for a watcher lost to a container
+restart. Arm exactly one heartbeat: delete any pending conductor `send_later` first, then arm the
+next. **4 minutes** while a reviewer, merger, fixer,
+janitor or planner is running; **15 minutes** while only workers are; **30 minutes** when the
+board is idle. Under `/loop` without an interval, pace with `ScheduleWakeup` on the same clock
+(240 s / 900 s / 1800 s), and
 stop the loop (`stop: true`) only when the operator asked for a bounded run and it is done.
 
 ## Hard limits (every tick)
