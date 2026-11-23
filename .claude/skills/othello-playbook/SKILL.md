@@ -31,13 +31,21 @@ One thread, modest memory, and every reply within the `go <ms>` budget (200 ms i
 
 ## Architecture now
 
-Nothing yet: the crate answers the protocol but cannot choose a move. Describe the engine here
-as it grows (search, evaluation, time management, data structures) so the next session starts
-from the truth.
+- Coordinates: `a1` = bit 0, index = (row-1)*8 + column (`a`=0). This is exactly the crate's
+  own layout: `Game::default()` has the side to move (Black) on e4/d5, and its legal moves are
+  d3 c4 f5 e6. Tested in `opening_moves_match_referee_for_both_colours`.
+- `replay()` rebuilds the `Game` from the move list each `go`; `pass` is accepted only when the side
+  to move has no placement. `Game` is always "side to move first", so after `make_move` the
+  opponent is to move; `pass_move()` on a clone gives our own mobility.
+- `choose()`: greedy, no search. A legal corner if any, else the move maximising
+  (own mobility - opponent mobility) after it. Passes only when `available_moves() == 0`.
+  Ignores the clock (microseconds per move). Beats random 8-0 locally.
 
 ## Ideas worth trying
 
-- Alpha-beta with iterative deepening; move ordering by mobility or a shallow search.
+- Alpha-beta with iterative deepening; move ordering by mobility or a shallow search. The greedy
+  mobility-difference score in `choose()` is a ready first evaluation term.
+- Avoid X-squares (b2, g2, b7, g7) and C-squares next to empty corners; greedy currently does not.
 - Evaluation: mobility, potential mobility, corners, stable discs, edge patterns.
 - Exact endgame solver once few empties remain.
 
@@ -56,3 +64,4 @@ differently. Never re-propose an idea from this list unchanged.
 ## Results log
 
 <!-- The referee appends one line per verdict. Do not edit by hand. -->
+- 2026-11-23 11:51 UTC · v0.1 passed the referee · Wire the othello crate to the protocol and play legal moves · rated 241 (first rated version)
