@@ -1,5 +1,8 @@
 @import 'tailwindcss';
 
+/* The desktop sidebar is collapsed (set on <html> before paint, see SiteNav). */
+@custom-variant sidebar-collapsed (&:where([data-sidebar='collapsed'], [data-sidebar='collapsed'] *));
+
 /*
  * Swarm Arena tokens. One dark world: cool near-black ground, one raised panel tone,
  * hairline structure. Track hues are data identity only (validated with the dataviz
