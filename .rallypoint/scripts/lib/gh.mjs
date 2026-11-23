@@ -134,8 +134,14 @@ const gitDataWrite = (args) => {
     // push is refused by the lease instead of passing as a no-op.
     const current = remoteSha(ref);
     if (current && !isReleased(current)) throw new Error(`HTTP 422: Reference already exists: ${ref}`);
+    // A lease commit is already unique (its dispatch time and head) and carries the record that
+    // `lease.mjs` reads from the commit the ref points at, so it is pushed as itself. Wrapping it
+    // would hide those trailers and make every lease written here read as unknown.
+    const own = run("log", "-1", "--format=%B", f.sha[0]);
     const tree = run("rev-parse", `${f.sha[0]}^{tree}`);
-    const unique = run("commit-tree", tree, "-p", f.sha[0], "-m", `rallypoint: reserve ${ref} at ${new Date().toISOString()} ${process.pid}`);
+    const unique = /^Rallypoint-Lease-Role:/m.test(own)
+      ? f.sha[0]
+      : run("commit-tree", tree, "-p", f.sha[0], "-m", `rallypoint: reserve ${ref} at ${new Date().toISOString()} ${process.pid}`);
     run("push", "--quiet", `--force-with-lease=${ref}:${current}`, "origin", `${unique}:${ref}`);
     return JSON.stringify({ ref, object: { sha: unique } });
   }
