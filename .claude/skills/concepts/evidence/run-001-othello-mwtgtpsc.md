@@ -1,0 +1,1 @@
+- 2026-11-23 · **quiescence** · Othello · buried: Rated 962 ± 163, not above 1459. · Experiment: corner quiescence at the alpha-beta leaves
