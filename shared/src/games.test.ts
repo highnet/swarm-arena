@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { chess, go9, hex, othello, GAMES, performanceElo, playGame, randomPlayer, mctsPlayer, replayBoards } from './index';
-import { goScore } from './games/go9';
+import { goScore, isEye, goParse } from './games/go9';
+import { fastGoRollout, rng } from './players';
 
 test('chess: start has 20 moves, perft(2) = 400', () => {
   const s = chess.initial();
@@ -56,6 +57,39 @@ test('every game finishes between random players', async () => {
 test('mcts beats random at othello', async () => {
   const g = await playGame(othello, [mctsPlayer(100), randomPlayer(3)]);
   assert.equal(g.outcome, 1);
+});
+
+test('go: fast playouts match full-rules playouts and are fast', () => {
+  // The MCTS reference plays Go playouts on a mutable board (simple ko instead of superko).
+  // Their outcomes must agree with playouts through the full rules, or the reference's strength,
+  // and every Go rung anchored on it, would silently move.
+  const pick = (s: ReturnType<typeof go9.initial>, r: () => number) => {
+    const ms = go9.legalMoves(s).filter((m) => m !== 'pass' && !isEye(s.cells, goParse(m), s.turn));
+    return ms.length ? ms[Math.floor(r() * ms.length)] : 'pass';
+  };
+  let s = go9.initial();
+  const r0 = rng(5);
+  for (let k = 0; k < 20; k++) s = go9.play(s, pick(s, r0));
+  const slow = (r: () => number) => {
+    let t = s;
+    for (;;) {
+      const o = go9.outcome(t);
+      if (o !== null) return o;
+      if (go9.plies(t) >= go9.maxPlies) return go9.adjudicate(t);
+      t = go9.play(t, pick(t, r));
+    }
+  };
+  const n = 300;
+  const ra = rng(21);
+  const rb = rng(22);
+  let a = 0;
+  let b = 0;
+  for (let i = 0; i < n; i++) a += slow(ra);
+  const t0 = performance.now();
+  for (let i = 0; i < n; i++) b += fastGoRollout(s, go9.maxPlies, rb);
+  const fastMs = (performance.now() - t0) / n;
+  assert.ok(Math.abs(a / n - b / n) < 0.12, `win rates ${a / n} vs ${b / n}`);
+  assert.ok(fastMs < 5, `fast playout took ${fastMs.toFixed(2)} ms`);
 });
 
 test('performance elo', () => {
