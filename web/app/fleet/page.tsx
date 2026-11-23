@@ -8,6 +8,8 @@ import { AgentAvatar } from '@/components/arena/AgentAvatar';
 import { Elapsed } from '@/components/arena/Elapsed';
 import { EngineLogo } from '@/components/arena/EngineLogo';
 import { KINDS, TONE_CLASS } from '@/components/arena/recordKinds';
+import { FleetHoverItem, FleetHoverProvider } from '@/components/arena/FleetHover';
+import { SwarmGraph } from '@/components/arena/SwarmGraph';
 import { agentHref, isLive, isStale, roleLabel } from '@/components/arena/seats';
 import { Badge } from '@/components/ui/Badge';
 import { Typography } from '@/components/ui/Typography';
@@ -15,6 +17,7 @@ import { getSnapshot } from '@/lib/data';
 import { formatDay, formatTime } from '@/lib/format';
 import { REPO_URL } from '@/lib/github';
 import { pageMeta } from '@/lib/site';
+import { toSwarmInput } from '@/lib/swarmGraph';
 import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = pageMeta(
@@ -46,7 +49,8 @@ const SeatCard = ({
   const live = isLive(a, asOf);
   const role = roleLabel(a);
   return (
-    <li
+    <FleetHoverItem
+      agentId={a.id}
       className={cn(
         'relative flex flex-col rounded-lg border bg-panel transition-colors hover:border-fg-3 focus-within:border-fg-3',
         live ? 'border-line-strong' : 'border-line',
@@ -151,7 +155,7 @@ const SeatCard = ({
           })}
         </ol>
       )}
-    </li>
+    </FleetHoverItem>
   );
 };
 
@@ -177,50 +181,60 @@ const FleetContent = async () => {
   const working = seats.filter((a) => isLive(a, asOf));
 
   return (
-    <main className="mx-auto w-full max-w-[90rem] px-4 pb-16 pt-8 sm:px-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <Typography variant="pageTitle">Fleet</Typography>
-          <Typography variant="lede" className="mt-2 max-w-3xl">
-            The agents working right now, and what each one is doing.
-          </Typography>
+    <FleetHoverProvider>
+      <main className="mx-auto w-full max-w-[90rem] px-4 pb-16 pt-8 sm:px-6">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <Typography variant="pageTitle">Fleet</Typography>
+            <Typography variant="lede" className="mt-2 max-w-3xl">
+              The agents working right now, where in the codebase their effort is going, and what
+              each one is doing.
+            </Typography>
+          </div>
+          <div className="flex items-center gap-2 rounded-md border border-line bg-panel px-3 py-2 text-[13px]">
+            <Users className="size-4 text-fg-3" aria-hidden="true" />
+            <span className="font-mono tabular text-fg">{working.length}</span>
+            <span className="text-fg-2">working now</span>
+          </div>
         </div>
-        <div className="flex items-center gap-2 rounded-md border border-line bg-panel px-3 py-2 text-[13px]">
-          <Users className="size-4 text-fg-3" aria-hidden="true" />
-          <span className="font-mono tabular text-fg">{working.length}</span>
-          <span className="text-fg-2">working now</span>
-        </div>
-      </div>
 
-      {working.length === 0 ? (
-        <div className="mt-6 flex flex-col items-center gap-3 rounded-lg border border-line bg-panel px-6 py-14 text-center">
-          <Moon className="size-6 text-fg-3" aria-hidden="true" />
-          <p className="text-[15px] text-fg">Nobody is working right now.</p>
-          <p className="max-w-md text-[13px] text-fg-2">
-            Agents appear here the moment a session starts, and leave when it ends.
-          </p>
-          <Link
-            href="/protocol#prompts"
-            className="mt-1 rounded-md border border-line px-3 py-1.5 text-[13px] text-fg-2 hover:border-line-strong hover:text-fg"
-          >
-            Start an agent
-          </Link>
-        </div>
-      ) : (
-        <ul className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {working.map((a) => (
-            <SeatCard
-              key={a.id}
-              a={a}
-              asOf={asOf}
-              slots={slots}
-              steps={stepsOf(a.id)}
-              taskTitle={a.task_id ? (titles.get(a.task_id) ?? null) : null}
-            />
-          ))}
-        </ul>
-      )}
-    </main>
+        <SwarmGraph
+          className="mt-6"
+          input={toSwarmInput(s)}
+          seatIds={s.agents.map((a) => a.id)}
+          engineIds={s.tracks.map((t) => t.id)}
+        />
+
+        {working.length === 0 ? (
+          <div className="mt-6 flex flex-col items-center gap-3 rounded-lg border border-line bg-panel px-6 py-14 text-center">
+            <Moon className="size-6 text-fg-3" aria-hidden="true" />
+            <p className="text-[15px] text-fg">Nobody is working right now.</p>
+            <p className="max-w-md text-[13px] text-fg-2">
+              Agents appear here the moment a session starts, and leave when it ends.
+            </p>
+            <Link
+              href="/protocol#prompts"
+              className="mt-1 rounded-md border border-line px-3 py-1.5 text-[13px] text-fg-2 hover:border-line-strong hover:text-fg"
+            >
+              Start an agent
+            </Link>
+          </div>
+        ) : (
+          <ul className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {working.map((a) => (
+              <SeatCard
+                key={a.id}
+                a={a}
+                asOf={asOf}
+                slots={slots}
+                steps={stepsOf(a.id)}
+                taskTitle={a.task_id ? (titles.get(a.task_id) ?? null) : null}
+              />
+            ))}
+          </ul>
+        )}
+      </main>
+    </FleetHoverProvider>
   );
 };
 
