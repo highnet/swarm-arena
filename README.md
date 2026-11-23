@@ -7,7 +7,7 @@ site shows the race. Every number on it comes from a logged match.
 ```
 swarm-arena/
 ├── shared/     rules for all four games, referee, Elo, reference players, row types (TypeScript)
-├── harness/    the swarm: strategist + seats (Claude Code sessions), gate matches, board writer
+├── harness/    the `arena` CLI: task board, referee, gate matches, shipping
 ├── engines/    Rust workspace, one crate per game. Starts as protocol skeletons; the swarm fills them
 ├── supabase/   schema (migrations/) and the SAMPLE seed (seed.sql)
 ├── web/        Next.js site: the race, latest game, the board, strategy seat, seats, graveyard
@@ -16,17 +16,21 @@ swarm-arena/
 
 ## How it works
 
-1. **Strategist** (one Claude Code session, structured JSON output) reads the board and opens tasks.
-2. **Seat** claims a task, runs a Claude Code session inside that engine's crate in its own git
-   worktree. The transcript stays local; the board gets structured records only.
-3. **Build gate**: `cargo build --release` and `cargo test` must pass.
-4. **Smoke test**: 4 games against the random mover; any illegal move, crash or timeout kills the idea.
-5. **Gate match**: colour-swapped pairs against the next uncleared rung. The version lands only if
-   its measured Elo beats the current one; it is then merged and its Elo point recorded.
-   Otherwise the idea goes to the graveyard with the measured reason.
+Every agent is a Claude Code cloud session on this repository. Prompt a session with
+"run a swarm agent" or "run the swarm strategist"; `CLAUDE.md` routes it to the matching skill.
 
-Elo is arena Elo: a random mover is 0 and the rungs in `shared/src/tracks.ts` are provisional until
-`arena calibrate` measures them.
+- **Strategist** (`.claude/skills/swarm-strategist`): `arena brief` → decide → `arena plan plan.json`
+  posts the strategy call and opens at most one task per engine.
+- **Agent** (`.claude/skills/swarm-agent`): `arena next` claims a task and prints its briefing; the
+  session improves that engine's crate; `arena submit <task>` hands it to the referee:
+  1. `cargo build --release` and `cargo test` must pass.
+  2. Smoke test: 4 games against the random mover; any illegal move, crash or timeout buries it.
+  3. Gate match: colour-swapped pairs against the next uncleared rung.
+  4. Ship only if the rating beats the current one: commit, rebase onto `main`, push. Otherwise
+     the idea is buried with the measured reason.
+
+Ratings are anchored at 0 for a random mover; the rung values in `shared/src/tracks.ts` are
+provisional until `arena calibrate` measures them.
 
 ## Run it
 
@@ -56,27 +60,29 @@ subscribes to Supabase Realtime and refreshes as records arrive.
 
 ### The swarm
 
-The harness writes with the service role key, from your own machine (the subscription runs
-there). Run it on a dedicated branch or clone: landed versions are merged into the checked-out branch.
+Cloud sessions need, in their environment:
+
+- Setup script: `npm ci && ./scripts/install-references.sh` (Stockfish, GNU Go, Edax).
+- Network: the Supabase host, `github.com` for the Edax clone, package registries.
+- `SUPABASE_URL`, plus the service role key as an environment secret. Never ship that key to
+  the site.
+- Permission to push to `main`: the referee ships versions there.
+
+Start a run once, then prompt sessions (by hand or on a schedule):
 
 ```bash
-export SUPABASE_URL=https://<ref>.supabase.co
-export SUPABASE_SERVICE_ROLE_KEY=<service role key>   # never ship this to the site
-export ARENA_RUN=run-001
-
-npm run arena -- init "First run"
-npm run arena -- swarm --parallel 2 --hours 24
+npm run arena -- init "First run"     # once per run (ARENA_RUN, default run-001)
 ```
 
-Other commands: `status`, `strategist`, `seat <task-id>`, `calibrate <track>`,
-`play <track> <a> <b>` (a/b are reference ids like `mcts-2000` or paths to engine binaries).
-External references need their binaries: `stockfish` (chess rungs), `gnugo` (Go rungs). The Edax
-adapter for the Othello rungs is not written yet.
+> run the swarm strategist
+> run a swarm agent
 
+Operator commands: `status`, `calibrate <track>`, `play <track> <a> <b>` (references like
+`stockfish-3`, `gnugo-5`, `edax-6`, `mcts-2000`, or a path to an engine binary).
 Set `ARENA_STORE=file` to run everything offline against `.arena/store.json`.
 
-Knobs: `ARENA_MOVE_MS` (default 200), `ARENA_GATE_PAIRS` (20), `ARENA_SESSION_MS` (45 min),
-`CLAUDE_BIN`, `STOCKFISH_BIN`, `GNUGO_BIN`.
+Knobs: `ARENA_MOVE_MS` (default 200), `ARENA_GATE_PAIRS` (20), `STOCKFISH_BIN`, `GNUGO_BIN`,
+`EDAX_BIN`.
 
 ## Sample data
 

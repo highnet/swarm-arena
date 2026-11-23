@@ -33,8 +33,11 @@ const flag = (name: string, fallback: number) => {
   return i > 0 ? Number(process.argv[i + 1]) : fallback;
 };
 
+/** npm runs workspace scripts from harness/; resolve paths from where the caller stood. */
+const fromCaller = (p: string) => resolve(process.env.INIT_CWD ?? process.cwd(), p);
+
 const mover = async (spec: string, game: GameId, seed: number) =>
-  existsSync(spec) ? arenaEngine(spec, resolve(spec), game, MOVE_MS) : reference(spec, game, MOVE_MS, seed);
+  existsSync(fromCaller(spec)) ? arenaEngine(spec, fromCaller(spec), game, MOVE_MS) : reference(spec, game, MOVE_MS, seed);
 
 const main = async () => {
   const [cmd, ...args] = process.argv.slice(2);
@@ -66,7 +69,7 @@ const main = async () => {
       console.log(await brief());
       return;
     case 'plan': {
-      const opened = await applyPlan(JSON.parse(readFileSync(args[0], 'utf8')));
+      const opened = await applyPlan(JSON.parse(readFileSync(fromCaller(args[0]), 'utf8')));
       console.log(`Posted the strategy call and opened ${opened} task(s).`);
       return;
     }

@@ -158,7 +158,7 @@ export const submit = async (taskId: string) => {
     let pushed = false;
     for (let attempt = 0; attempt < 3 && !pushed; attempt++) {
       await git(['fetch', 'origin', 'main']);
-      const rebase = await git(['rebase', 'origin/main']);
+      const rebase = await git(['rebase', '--autostash', 'origin/main']);
       if (rebase.code !== 0) {
         await git(['rebase', '--abort']);
         return await bury('Rated higher, but the change no longer applies on main.', gate.matchId);
