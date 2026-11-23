@@ -42,7 +42,8 @@ Negamax alpha-beta with iterative deepening (`engines/chess/src/main.rs`):
   material and any repetition (game history or search path) score as a draw with contempt 50
   against the root side (it plays weaker opponents, so draws are thrown-away points).
 - Ordering: the transposition-table move first (root: the previous iteration's best, or the
-  stored move from the previous `go`), then MVV-LVA captures, promotions, quiets. No killers yet.
+  stored move from the previous `go`), then MVV-LVA captures, promotions, quiets. No killers or
+  history (tried in #87 and buried; see What failed).
 - Transposition table (`Tt`, task #63): 2^20 × 16 B = 16 MB, one slot per index, full 64-bit
   Zobrist key stored to reject collisions. Entry: key, score, compact move (from/to/promotion,
   top bit set so 0 = none), depth, generation (6 bits) + bound (exact/lower/upper). A
@@ -94,7 +95,15 @@ Negamax alpha-beta with iterative deepening (`engines/chess/src/main.rs`):
   which is most of the remaining qnode waste; checks in the first quiescence ply.
 - The 30%/60% time split is conservative; with the TT, re-searches are cheaper and the soft limit
   could rise (each new depth costs ~2.5–3× the previous with the table, ~6–7× without).
-- Killer moves, history heuristic, null-move pruning (guard pawn-only endgames), late move reductions.
+- Null-move pruning (guard pawn-only endgames), late move reductions, PVS. LMR and PVS rely on
+  good quiet ordering; killers + history (#87, buried, see What failed) are the obvious partner.
+- Counter-move table (quiet reply to the opponent's last move) and history-gravity updates
+  (penalise quiets that were searched before the cut move), once quiet ordering ships at all.
+- Opening variety for local testing: `arena versus` plays deterministic engines from the start
+  position, so 20 games are a few repeated lines. In #87, main vs main went +3 −3 =2 with Black
+  winning nearly every game, and the candidate (which reaches depth 6 at the start and opens
+  e2e4 where main opens d2d4 at depth 5) went +2 −16 =2 and +1 −16 =3 while playing identical
+  moves at fixed depth. A local verdict needs randomised opening plies before it means anything.
 - Evaluation: material, piece-square tables with a middlegame/endgame taper, mobility, passed pawns,
   king safety. Tune weights by playing, not by hand-waving.
 
@@ -120,6 +129,26 @@ what it is, why it might work, and its verdict. Never fill this from another eng
   contempt makes draw scores side-dependent (table cleared if the engine's side changes). If
   the referee buries this, check first whether the gate compared like with like.
 
+- **Killer moves + history heuristic (#87), buried: better on the ladder, 4–14–2 head to head
+  against v0.4.** Two killer slots per ply (quiet beta cut-offs, keyed 400k/399k, below every
+  capture and promotion) and a side/from/to history table (+depth² per quiet cut-off, all
+  halved once one entry passes 300k), fresh at each `go`; root and quiescence ordering untouched.
+  It did what ordering should: at fixed depth the move and score matched 8/8 at d4–d6, nodes fell
+  29% / 33% / 43% (d4 / d5 / d6), node rate was unchanged, and a d5 self-play game was
+  move-for-move identical on and off. On the clock it gains a ply only sometimes (start position
+  d6 both ways; Italian d5 → d6; Kiwipete d5 both). The referee rated it above v0.4 against
+  Stockfish 4 (40 games), but it lost to v0.4 4–14–2 over 20 games. Local `arena versus`
+  agreed (+2 −16 =2, then +1 −16 =3). Main vs main went +3 −3 =2, so the harness is not
+  biased. Why it loses head to head is not settled. Both engines are deterministic and the
+  start position is fixed, so 20 games are only a few distinct lines: the candidate opens
+  e2e4 (depth 6) where v0.4 opens d2d4 (depth 5), and in the replayed game it lost both
+  engines gave the same scores move after move (no blunder, a shared weakness). Treat the
+  head-to-head as a few repeated lines, not 20 samples.
+  Try differently: (1) re-measure with randomised opening plies before believing either
+  number; (2) if it still loses, ship it together with something that uses the better move
+  order (LMR or PVS), since the ordering alone mostly changes which depth the clock lands on;
+  (3) keep the d4–d6 node numbers above as the baseline.
+
 When an idea is buried, write what it was, the measured result and what to try
 differently. Never re-propose an idea from this list unchanged.
 
@@ -131,3 +160,4 @@ differently. Never re-propose an idea from this list unchanged.
 - 2026-11-23 16:13 UTC · v0.3 passed the referee · Quiescence search on captures and promotions (third submit, with the fixed merge-based harness) · rated 1306 (+47)
 - 2026-11-23 17:17 UTC · v0.4 passed the referee · Transposition table keyed by Zobrist hash: TT move ordering every node, bound cut-offs, mate-distance-safe scores · rated 1420 (+114)
 - 2026-11-23 17:48 UTC · v0.4 passed the referee · Transposition table keyed by Zobrist hash: TT move ordering every node, bound cut-offs, mate-distance-safe scores · rated 1376 (+70)
+- 2026-11-23 19:07 UTC · buried · Killer moves and history heuristic for quiet-move ordering · Rated higher on the ladder but lost to v0.4 head to head (4–14–2).
