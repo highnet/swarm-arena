@@ -1,5 +1,6 @@
 import { getSnapshot } from '@/lib/data';
 import { newestFirst } from '@/lib/derive';
+import { recordHref } from '@/lib/routes';
 import { SITE_URL } from '@/lib/site';
 import { SHORT_NAME } from '@/lib/tracks';
 
@@ -16,11 +17,7 @@ export const GET = async () => {
     .slice(0, 50)
     .map((r) => {
       const engine = r.track_id ? `${SHORT_NAME[r.track_id]}: ` : '';
-      const link = r.match_id
-        ? `${SITE}/matches/${r.match_id}`
-        : r.track_id
-          ? `${SITE}/engines/${r.track_id}`
-          : `${SITE}/board`;
+      const link = `${SITE}${recordHref(r)}`;
       return `<item><title>${escape(engine + r.title)}</title><link>${link}</link><guid isPermaLink="false">${s.run.id}-${r.id}</guid><pubDate>${new Date(r.at).toUTCString()}</pubDate>${r.detail ? `<description>${escape(r.detail)}</description>` : ''}</item>`;
     })
     .join('');

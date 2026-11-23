@@ -26,6 +26,7 @@ import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { getSnapshot } from '@/lib/data';
 import { REPO_URL } from '@/lib/github';
 import { formatDay, formatElo, formatTime } from '@/lib/format';
+import { recordHref } from '@/lib/routes';
 import { pageMeta } from '@/lib/site';
 import { cn } from '@/lib/utils';
 
@@ -228,9 +229,16 @@ const TaskContent = async ({ params }: TaskPageProps) => {
                           {formatTime(r.at)}
                         </time>
                       </div>
-                      <Typography variant="small" color="primary" className="mt-0.5 text-pretty">
-                        {r.title}
-                      </Typography>
+                      <Link href={recordHref(r)} className="mt-0.5 block hover:underline">
+                        <Typography
+                          variant="small"
+                          color="primary"
+                          as="span"
+                          className="text-pretty"
+                        >
+                          {r.title}
+                        </Typography>
+                      </Link>
                       {r.detail && (
                         <Typography
                           variant="meta"

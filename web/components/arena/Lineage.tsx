@@ -1,6 +1,8 @@
 import Link from 'next/link';
+import type { GameId } from '@arena/shared';
 import type { LineageNode } from '@/lib/derive';
 import { formatDay } from '@/lib/format';
+import { ideaHref, versionHref } from '@/lib/routes';
 import { VersionChip } from './TaskChips';
 import { SERIES } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
@@ -14,8 +16,13 @@ const BuriedList = ({ items }: BuriedListProps) =>
   items.length ? (
     <ul className="mt-2 space-y-1.5 border-l border-dashed border-line-strong pl-3">
       {items.map((b) => (
-        <li key={`${b.at}-${b.title}`} className="text-xs">
-          <span className="text-fg-3 line-through decoration-fg-3/60">{b.title}</span>
+        <li key={b.id} className="text-xs">
+          <Link
+            href={ideaHref(b.id)}
+            className="text-fg-3 line-through decoration-fg-3/60 hover:text-fg-2"
+          >
+            {b.title}
+          </Link>
           {b.detail && <span className="block text-fg-3">{b.detail}</span>}
         </li>
       ))}
@@ -25,11 +32,12 @@ const BuriedList = ({ items }: BuriedListProps) =>
 type LineageProps = {
   nodes: LineageNode[];
   beforeFirst: LineageNode['buried'];
+  track: GameId;
   slot: number;
 };
 
 /** Shipped versions newest first, each with the ideas that died trying to beat it. */
-const Lineage = ({ nodes, beforeFirst, slot }: LineageProps) => {
+const Lineage = ({ nodes, beforeFirst, track, slot }: LineageProps) => {
   if (!nodes.length && !beforeFirst.length) {
     return (
       <Typography variant="small" className="px-4 py-6">
@@ -56,22 +64,16 @@ const Lineage = ({ nodes, beforeFirst, slot }: LineageProps) => {
             />
           )}
           <div className="flex flex-wrap items-baseline gap-x-2">
-            <Link href={`/matches/${n.matchId}`} className="hover:opacity-80">
+            <Link href={versionHref(track, n.version)} className="hover:opacity-80">
               <VersionChip version={n.version} elo={n.elo} error={n.eloError} />
             </Link>
             <span className="text-xs text-fg-3">{formatDay(n.at)}</span>
           </div>
-          {n.taskId ? (
-            <Link href={`/tasks/${n.taskId}`} className="mt-0.5 block hover:underline">
-              <Typography variant="small" as="span" className="text-pretty">
-                {n.title}
-              </Typography>
-            </Link>
-          ) : (
-            <Typography variant="small" className="mt-0.5 text-pretty">
+          <Link href={versionHref(track, n.version)} className="mt-0.5 block hover:underline">
+            <Typography variant="small" as="span" className="text-pretty">
               {n.title}
             </Typography>
-          )}
+          </Link>
           <BuriedList items={n.buried} />
         </li>
       ))}

@@ -24,6 +24,7 @@ import { Typography } from '@/components/ui/Typography';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { getSnapshot } from '@/lib/data';
 import { formatDay, formatTime } from '@/lib/format';
+import { messageHref, recordHref } from '@/lib/routes';
 import { getRallypoint, REPO, stageOf } from '@/lib/github';
 import { pageMeta } from '@/lib/site';
 
@@ -272,7 +273,12 @@ const ProtocolData = async () => {
                     <span className="font-mono text-fg">p{versions.length - i}</span>
                     {formatDay(v.at)} {formatTime(v.at)}
                   </div>
-                  <p className="mt-0.5 text-[13px] text-fg text-pretty">{v.title}</p>
+                  <Link
+                    href={recordHref(v)}
+                    className="mt-0.5 block text-[13px] text-fg text-pretty hover:underline"
+                  >
+                    {v.title}
+                  </Link>
                   {v.detail && <p className="mt-0.5 text-xs text-fg-2 text-pretty">{v.detail}</p>}
                 </li>
               ))}
@@ -295,7 +301,12 @@ const ProtocolData = async () => {
                     </span>
                     {(!lastAt || r.at > lastAt) && <span className="text-fg-2">waiting</span>}
                   </div>
-                  <p className="mt-1 text-[13px] text-fg-2 text-pretty">{r.body}</p>
+                  <Link
+                    href={messageHref(r.id)}
+                    className="mt-1 block text-[13px] text-fg-2 text-pretty hover:text-fg"
+                  >
+                    {r.body}
+                  </Link>
                 </li>
               ))}
             </ol>
