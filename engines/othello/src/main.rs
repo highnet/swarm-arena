@@ -4,6 +4,7 @@
 
 use othello::Game;
 use std::io::{self, BufRead, Write};
+use std::time::{Duration, Instant};
 
 const CORNERS: u64 = 1 | 1 << 7 | 1 << 56 | 1 << 63;
 
@@ -36,28 +37,189 @@ fn replay(moves: &[String]) -> Option<Game> {
     Some(g)
 }
 
-/// Greedy choice: a corner if one is legal, else the move maximising
-/// (own mobility - opponent mobility) after it. Passes only with no placement.
-fn choose(moves: &[String], _budget_ms: u64) -> Option<String> {
-    let g = replay(moves)?;
-    let avail = g.available_moves();
-    if avail == 0 {
-        return Some("pass".into());
-    }
-    let pool = if avail & CORNERS != 0 { avail & CORNERS } else { avail };
-    let mut best: Option<(i32, usize)> = None;
-    for i in (0..64).filter(|i| pool >> i & 1 == 1) {
-        let next = g.make_move(i)?; // side to move is now the opponent
-        let theirs = next.available_moves().count_ones() as i32;
-        let mut back = next.clone();
-        back.pass_move();
-        let mine = back.available_moves().count_ones() as i32;
-        let score = mine - theirs;
-        if best.map_or(true, |(s, _)| score > s) {
-            best = Some((score, i));
+// X-squares (b2 g2 b7 g7) and C-squares, each paired with the corner it touches.
+const X_SQUARES: [(usize, usize); 4] = [(9, 0), (14, 7), (49, 56), (54, 63)];
+const C_SQUARES: [(usize, usize); 8] =
+    [(1, 0), (8, 0), (6, 7), (15, 7), (48, 56), (57, 56), (55, 63), (62, 63)];
+
+const CORNER_W: i32 = 30;
+const MOBILITY_W: i32 = 4;
+const X_W: i32 = 18;
+const C_W: i32 = 8;
+/// Terminal scores sit far above any heuristic score.
+const WIN: i32 = 100_000;
+const INF: i32 = 1_000_000;
+
+/// Static evaluation from the side to move's point of view. Original terms: corner ownership,
+/// mobility difference, and a penalty for X/C-squares next to a still-empty corner.
+fn evaluate(g: &Game) -> i32 {
+    let [me, opp] = g.get();
+    let empty = !(me | opp);
+    let mut s = CORNER_W * ((me & CORNERS).count_ones() as i32 - (opp & CORNERS).count_ones() as i32);
+    let mut o = g.clone();
+    o.pass_move();
+    s += MOBILITY_W * (g.available_moves().count_ones() as i32 - o.available_moves().count_ones() as i32);
+    for &(x, c) in &X_SQUARES {
+        if empty >> c & 1 == 1 {
+            s -= X_W * ((me >> x & 1) as i32 - (opp >> x & 1) as i32);
         }
     }
-    best.map(|(_, i)| square_name(i))
+    for &(sq, c) in &C_SQUARES {
+        if empty >> c & 1 == 1 {
+            s -= C_W * ((me >> sq & 1) as i32 - (opp >> sq & 1) as i32);
+        }
+    }
+    s
+}
+
+/// Final score for the side to move once neither side can place: disc difference.
+fn terminal(g: &Game) -> i32 {
+    let [me, opp] = g.get();
+    let d = me.count_ones() as i32 - opp.count_ones() as i32;
+    d.signum() * WIN + d
+}
+
+struct Search {
+    start: Instant,
+    deadline: Duration,
+    nodes: u64,
+    stopped: bool,
+}
+
+impl Search {
+    fn out_of_time(&mut self) -> bool {
+        if !self.stopped && self.nodes & 1023 == 0 && self.start.elapsed() >= self.deadline {
+            self.stopped = true;
+        }
+        self.stopped
+    }
+
+    /// Negamax alpha-beta. A side with no placement passes; two passes end the game.
+    fn negamax(&mut self, g: &Game, depth: u32, mut alpha: i32, beta: i32) -> i32 {
+        self.nodes += 1;
+        if self.out_of_time() {
+            return 0;
+        }
+        let avail = g.available_moves();
+        if avail == 0 {
+            let mut p = g.clone();
+            p.pass_move();
+            if p.available_moves() == 0 {
+                return terminal(g);
+            }
+            if depth == 0 {
+                return evaluate(g);
+            }
+            return -self.negamax(&p, depth - 1, -beta, -alpha);
+        }
+        if depth == 0 {
+            return evaluate(g);
+        }
+        let mut best = -INF;
+        for i in ordered(avail, None) {
+            let Some(next) = g.make_move(i) else { continue };
+            let v = -self.negamax(&next, depth - 1, -beta, -alpha);
+            if self.stopped {
+                return 0;
+            }
+            if v > best {
+                best = v;
+                if v > alpha {
+                    alpha = v;
+                    if alpha >= beta {
+                        break;
+                    }
+                }
+            }
+        }
+        best
+    }
+}
+
+/// Move order: the previous iteration's best move, then corners, then plain squares,
+/// then C-squares and X-squares last.
+fn ordered(avail: u64, first: Option<usize>) -> Vec<usize> {
+    let mut xs = 0u64;
+    let mut cs = 0u64;
+    for &(x, _) in &X_SQUARES {
+        xs |= 1 << x;
+    }
+    for &(c, _) in &C_SQUARES {
+        cs |= 1 << c;
+    }
+    let mut out = Vec::with_capacity(avail.count_ones() as usize);
+    if let Some(f) = first.filter(|&f| avail >> f & 1 == 1) {
+        out.push(f);
+    }
+    for mask in [CORNERS, !(CORNERS | xs | cs), cs, xs] {
+        let mut m = avail & mask;
+        while m != 0 {
+            let i = m.trailing_zeros() as usize;
+            m &= m - 1;
+            if Some(i) != first {
+                out.push(i);
+            }
+        }
+    }
+    out
+}
+
+/// Iterative-deepening alpha-beta. Stops on a clock check at ~60% of the budget and plays
+/// the best move of the last completed depth. Returns (move, depth completed).
+fn search(g: &Game, budget_ms: u64) -> (usize, u32) {
+    search_limited(g, u32::MAX, Duration::from_millis(budget_ms * 6 / 10))
+}
+
+/// Iterative deepening up to `max_depth` plies or until `deadline` passes, whichever is first.
+fn search_limited(g: &Game, max_depth: u32, deadline: Duration) -> (usize, u32) {
+    let avail = g.available_moves();
+    let order = ordered(avail, None);
+    let mut best = order[0];
+    if order.len() == 1 {
+        return (best, 0);
+    }
+    let mut s = Search {
+        start: Instant::now(),
+        deadline,
+        nodes: 0,
+        stopped: false,
+    };
+    let empties = (!(g.get()[0] | g.get()[1])).count_ones();
+    let mut done = 0;
+    for depth in 1..=empties.min(max_depth) {
+        let mut alpha = -INF;
+        let mut iter_best = None;
+        for i in ordered(avail, Some(best)) {
+            let Some(next) = g.make_move(i) else { continue };
+            let v = -s.negamax(&next, depth - 1, -INF, -alpha);
+            if s.stopped {
+                break;
+            }
+            if v > alpha || iter_best.is_none() {
+                alpha = v;
+                iter_best = Some(i);
+            }
+        }
+        if s.stopped {
+            break;
+        }
+        best = iter_best.unwrap_or(best);
+        done = depth;
+        // A deeper iteration costs several times this one: do not start what cannot finish.
+        if s.start.elapsed() * 3 >= s.deadline {
+            break;
+        }
+    }
+    (best, done)
+}
+
+/// Picks a move for the side to move. Passes only with no placement.
+fn choose(moves: &[String], budget_ms: u64) -> Option<String> {
+    let g = replay(moves)?;
+    if g.available_moves() == 0 {
+        return Some("pass".into());
+    }
+    Some(square_name(search(&g, budget_ms).0))
 }
 
 /// Handles one protocol line, returning the reply to print (if any) and whether to quit.
@@ -156,12 +318,12 @@ mod tests {
                     if o.available_moves() == 0 {
                         break;
                     }
-                    assert_eq!(choose(&moves, 50).unwrap(), "pass");
+                    assert_eq!(choose(&moves, 0).unwrap(), "pass");
                     found += 1;
                     moves.push("pass".into());
                     continue;
                 }
-                assert_ne!(choose(&moves, 50).unwrap(), "pass");
+                assert_ne!(choose(&moves, 0).unwrap(), "pass");
                 seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
                 let k = (seed >> 33) as u32 % avail.count_ones();
                 let i = (0..64).filter(|i| avail >> i & 1 == 1).nth(k as usize).unwrap();
@@ -188,20 +350,113 @@ mod tests {
     }
 
     #[test]
-    fn prefers_corners() {
-        // Any position where a corner is legal must return a corner.
+    fn takes_a_free_corner_over_an_x_square() {
+        // In the midgame (20+ empties), wherever a corner is legal and so is the X-square
+        // touching that same corner, a fixed-depth search (no clock in play) must not choose
+        // that X-square: it would hand the corner away. Endgames are left out on purpose:
+        // there the disc count decides and an X-square can be the right move. Positions come
+        // from seeded pseudo-random games, so every run checks the same positions.
+        let mut checked = 0;
+        for game in 0..40u64 {
+            let mut seed = 0x9e37_79b9_7f4a_7c15 ^ game;
+            let mut moves: Vec<String> = Vec::new();
+            loop {
+                let g = replay(&moves).unwrap();
+                let avail = g.available_moves();
+                let mut o = g.clone();
+                o.pass_move();
+                if avail == 0 {
+                    if o.available_moves() == 0 {
+                        break;
+                    }
+                    moves.push("pass".into());
+                    continue;
+                }
+                let empties = (!(g.get()[0] | g.get()[1])).count_ones();
+                for &(x, corner) in &X_SQUARES {
+                    if empties >= 20 && avail >> corner & 1 == 1 && avail >> x & 1 == 1 {
+                        let (m, depth) = search_limited(&g, 3, Duration::from_secs(60));
+                        assert_eq!(depth, 3, "search did not complete depth 3");
+                        assert_ne!(m, x, "played {} with its corner {} legal: {moves:?}", square_name(x), square_name(corner));
+                        checked += 1;
+                    }
+                }
+                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                let k = (seed >> 33) as u32 % avail.count_ones();
+                let i = (0..64).filter(|i| avail >> i & 1 == 1).nth(k as usize).unwrap();
+                moves.push(square_name(i));
+            }
+        }
+        assert!(checked >= 5, "only {checked} midgame positions with a legal corner and its X-square");
+    }
+
+    #[test]
+    fn search_handles_passes_and_terminal_positions() {
+        // Black to move with no placement while White still has one: the search passes
+        // inside the tree instead of treating it as the end.
+        // Row 1: W B . . . . . . -> Black cannot move (no line ends in black), White plays c1.
+        let g = Game::new(1 << 1, 1 << 0).unwrap(); // mover = Black on b1, opponent White on a1
+        assert_eq!(g.available_moves(), 0);
+        let mut p = g.clone();
+        p.pass_move();
+        assert_ne!(p.available_moves(), 0);
+        let mut s = Search { start: Instant::now(), deadline: Duration::from_secs(5), nodes: 0, stopped: false };
+        // White plays c1 and wins 3-0: from Black's view the game is lost.
+        assert!(s.negamax(&g, 4, -INF, INF) <= -WIN);
+        // Neither side can move: scored by disc difference.
+        let end = Game::new(0b111, 0).unwrap();
+        assert_eq!(s.negamax(&end, 3, -INF, INF), WIN + 3);
+    }
+
+    #[test]
+    fn never_exceeds_the_budget() {
         let mut moves = Vec::new();
-        for _ in 0..130 {
-            let g = replay(&moves).unwrap();
-            if g.available_moves() & CORNERS != 0 {
-                let c = parse_square(&choose(&moves, 50).unwrap()).unwrap();
-                assert!(CORNERS >> c & 1 == 1);
+        let mut seed: u64 = 99;
+        for ply in 0..60 {
+            let Some(g) = replay(&moves) else { break };
+            let avail = g.available_moves();
+            let mut o = g.clone();
+            o.pass_move();
+            if avail == 0 && o.available_moves() == 0 {
+                break;
             }
-            match choose(&moves, 50) {
-                Some(m) => moves.push(m),
-                None => break,
+            if ply % 6 == 0 {
+                let t = Instant::now();
+                let (reply, _) = handle("go 200", &mut moves.clone());
+                assert!(reply.unwrap().starts_with("bestmove "));
+                assert!(t.elapsed() < Duration::from_millis(200), "ply {ply}: {:?}", t.elapsed());
             }
-            if replay(&moves).map_or(true, |g| { let mut o = g.clone(); o.pass_move(); g.available_moves() == 0 && o.available_moves() == 0 }) { break; }
+            if avail == 0 {
+                moves.push("pass".into());
+                continue;
+            }
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let k = (seed >> 33) as u32 % avail.count_ones();
+            let i = (0..64).filter(|i| avail >> i & 1 == 1).nth(k as usize).unwrap();
+            moves.push(square_name(i));
         }
     }
+
+    #[test]
+    fn legal_moves_for_both_colours_under_search() {
+        // Self-play with the real search: every move, Black's and White's, replays legally.
+        let mut moves = Vec::new();
+        let mut colours = [0, 0];
+        for ply in 0..130 {
+            let g = replay(&moves).unwrap();
+            let mut o = g.clone();
+            o.pass_move();
+            if g.available_moves() == 0 && o.available_moves() == 0 {
+                break;
+            }
+            let m = choose(&moves, 30).unwrap();
+            if m != "pass" {
+                colours[ply % 2] += 1;
+            }
+            moves.push(m);
+            assert!(replay(&moves).is_some());
+        }
+        assert!(colours[0] > 5 && colours[1] > 5);
+    }
 }
+
