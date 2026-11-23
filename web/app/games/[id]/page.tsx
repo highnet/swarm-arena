@@ -9,6 +9,7 @@ import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { GameReplay } from '@/components/arena/GameReplay';
 import { EngineChip } from '@/components/arena/SidePanels';
 import { Panel } from '@/components/ui/Panel';
+import { NextSteps, engineSteps } from '@/components/arena/NextSteps';
 import { getGame, getSnapshot } from '@/lib/data';
 import { formatDay, formatElo, formatTime } from '@/lib/format';
 import { moveNotation } from '@/lib/gameExport';
@@ -158,6 +159,7 @@ const GameContent = async (props: GamePageProps) => {
           </div>
         )}
       </nav>
+      <NextSteps links={[...engineSteps(game.track_id), 'versions']} />
     </DetailShell>
   );
 };

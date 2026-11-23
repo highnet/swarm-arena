@@ -14,6 +14,7 @@ import { agentHref, isLive, isStale, roleLabel } from '@/components/arena/seats'
 import { Badge } from '@/components/ui/Badge';
 import { Typography } from '@/components/ui/Typography';
 import { PageSkeleton } from '@/components/arena/PageSkeleton';
+import { NextSteps } from '@/components/arena/NextSteps';
 import { getSnapshot } from '@/lib/data';
 import { formatDay, formatTime } from '@/lib/format';
 import { recordHref } from '@/lib/routes';
@@ -195,7 +196,15 @@ const FleetContent = async () => {
             <Typography variant="pageTitle">Fleet</Typography>
             <Typography variant="lede" className="mt-2 max-w-3xl">
               The agents working right now, where in the codebase their effort is going, and what
-              each one is doing.
+              each one is doing. Past work is in{' '}
+              <Link href="/sessions" className="text-fg hover:underline">
+                sessions
+              </Link>
+              ; open tasks are on{' '}
+              <Link href="/rallypoint" className="text-fg hover:underline">
+                Rallypoint
+              </Link>
+              .
             </Typography>
           </div>
           <div className="flex items-center gap-2 rounded-md border border-line bg-panel px-3 py-2 text-[13px]">
@@ -241,6 +250,7 @@ const FleetContent = async () => {
             ))}
           </ul>
         )}
+        <NextSteps links={['sessions', 'rallypoint', 'messages', 'protocol']} />
       </main>
     </FleetHoverProvider>
   );

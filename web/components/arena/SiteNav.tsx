@@ -4,70 +4,17 @@ import { Suspense, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import {
-  Activity,
-  BookOpen,
-  Bot,
-  Compass,
-  Cpu,
-  GitMerge,
-  GitPullRequest,
-  Grid3x3,
-  Menu,
-  MessagesSquare,
-  Newspaper,
-  PanelLeftClose,
-  PanelLeftOpen,
-  ScrollText,
-  Skull,
-  Swords,
-  Users,
-  Workflow,
-  X,
-  type LucideIcon,
-} from 'lucide-react';
+import { Menu, PanelLeftClose, PanelLeftOpen, X } from 'lucide-react';
 import type { GameId } from '@arena/shared';
 import { Button } from '@/components/ui/Button';
+import { PAGE_GROUPS, PAGES } from '@/lib/pages';
 import { SHORT_NAME, TRACK_ORDER } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
 import { EngineLogo } from './EngineLogo';
 import { SearchBox } from './SearchBox';
 
-type NavItem = { href: string; label: string; icon: LucideIcon };
-
 /** Every top-level page on the site, grouped. */
-const GROUPS: { title: string; items: NavItem[] }[] = [
-  {
-    title: 'Results',
-    items: [
-      { href: '/', label: 'Progress', icon: Activity },
-      { href: '/news', label: 'News', icon: Newspaper },
-      { href: '/engines', label: 'Engines', icon: Cpu },
-      { href: '/games', label: 'Games', icon: Swords },
-      { href: '/versions', label: 'Versions', icon: GitMerge },
-      { href: '/graveyard', label: 'Ideas buried', icon: Skull },
-    ],
-  },
-  {
-    title: 'Swarm',
-    items: [
-      { href: '/fleet', label: 'Fleet', icon: Users },
-      { href: '/sessions', label: 'Sessions', icon: Bot },
-      { href: '/rallypoint', label: 'Rallypoint', icon: GitPullRequest },
-      { href: '/board', label: 'Board', icon: ScrollText },
-      { href: '/messages', label: 'Messages', icon: MessagesSquare },
-    ],
-  },
-  {
-    title: 'Learn',
-    items: [
-      { href: '/how-it-works', label: 'How it works', icon: Compass },
-      { href: '/protocol', label: 'Protocol', icon: Workflow },
-      { href: '/concepts', label: 'Concepts', icon: Grid3x3 },
-      { href: '/skills', label: 'Skills', icon: BookOpen },
-    ],
-  },
-];
+const GROUPS = PAGE_GROUPS.map((g) => ({ title: g.title, items: g.pages.map((k) => PAGES[k]) }));
 
 const STORAGE_KEY = 'sidebar';
 

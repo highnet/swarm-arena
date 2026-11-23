@@ -11,6 +11,7 @@ import { EngineChip } from '@/components/arena/SidePanels';
 import { agentHref } from '@/components/arena/seats';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
+import { NextSteps, engineSteps } from '@/components/arena/NextSteps';
 import { getSnapshot } from '@/lib/data';
 import { formatDay, formatTime } from '@/lib/format';
 import { recordHref, taskHref } from '@/lib/routes';
@@ -127,6 +128,13 @@ const RecordContent = async (props: RecordPageProps) => {
       >
         <RecordList records={related} slots={slots} current={record.id} />
       </Panel>
+      <NextSteps
+        links={
+          record.track_id
+            ? [...engineSteps(record.track_id), 'board']
+            : ['board', 'versions', 'graveyard', 'rallypoint']
+        }
+      />
     </DetailShell>
   );
 };

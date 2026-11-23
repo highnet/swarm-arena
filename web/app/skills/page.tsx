@@ -6,6 +6,7 @@ import type { GameId } from '@arena/shared';
 import { SkillIcon } from '@/components/arena/SkillIcon';
 import { Typography } from '@/components/ui/Typography';
 import { PageSkeleton } from '@/components/arena/PageSkeleton';
+import { NextSteps } from '@/components/arena/NextSteps';
 import { getSnapshot } from '@/lib/data';
 import { pageMeta } from '@/lib/site';
 import { getSkills } from '@/lib/source';
@@ -30,7 +31,11 @@ const SkillsContent = async () => {
       <Typography variant="pageTitle">Skills</Typography>
       <Typography variant="lede" className="mt-2 max-w-2xl">
         The instructions the agents read: one per job, and one playbook per game that the swarm
-        keeps updating.
+        keeps updating. The{' '}
+        <Link href="/protocol" className="text-fg hover:underline">
+          protocol
+        </Link>{' '}
+        decides which job a session gets.
       </Typography>
       {groups.map((g) => (
         <section key={g.title} className="mt-8" aria-labelledby={`skills-${g.title}`}>
@@ -66,6 +71,7 @@ const SkillsContent = async () => {
           </div>
         </section>
       ))}
+      <NextSteps links={['concepts', 'protocol', 'sessions', 'engines']} />
     </main>
   );
 };

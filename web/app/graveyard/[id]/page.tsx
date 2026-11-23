@@ -10,6 +10,7 @@ import { EngineChip } from '@/components/arena/SidePanels';
 import { VersionChip } from '@/components/arena/TaskChips';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
+import { NextSteps, engineSteps } from '@/components/arena/NextSteps';
 import { getSnapshot } from '@/lib/data';
 import { lineage } from '@/lib/derive';
 import { formatDay, formatTime } from '@/lib/format';
@@ -128,6 +129,13 @@ const IdeaContent = async (props: IdeaPageProps) => {
           )}
         </div>
       </div>
+      <NextSteps
+        links={
+          record.track_id
+            ? [...engineSteps(record.track_id), 'graveyard']
+            : ['graveyard', 'concepts', 'versions', 'board']
+        }
+      />
     </DetailShell>
   );
 };

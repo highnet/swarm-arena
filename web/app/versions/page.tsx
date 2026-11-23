@@ -8,6 +8,7 @@ import { agentHref } from '@/components/arena/seats';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
 import { PageSkeleton } from '@/components/arena/PageSkeleton';
+import { NextSteps } from '@/components/arena/NextSteps';
 import { getSnapshot } from '@/lib/data';
 import { newestFirst } from '@/lib/derive';
 import { formatDay, formatElo, formatTime } from '@/lib/format';
@@ -33,7 +34,15 @@ const VersionsContent = async () => {
       <Typography variant="pageTitle">Versions shipped</Typography>
       <Typography variant="lede" className="mt-2 max-w-2xl">
         A version ships only when it beats its gate opponent and the version before it. These are
-        the ones that did.
+        the ones that did; the ones that didn&apos;t are{' '}
+        <Link href="/graveyard" className="text-fg hover:underline">
+          buried
+        </Link>
+        .{' '}
+        <Link href="/how-it-works#loop" className="text-fg hover:underline">
+          How a version ships
+        </Link>
+        .
       </Typography>
       <Panel className="mt-6" icon={GitMerge} title={`${landed.length} versions`}>
         {landed.length === 0 ? (
@@ -96,6 +105,7 @@ const VersionsContent = async () => {
           </ol>
         )}
       </Panel>
+      <NextSteps links={['graveyard', 'games', 'engines', 'board']} />
     </main>
   );
 };

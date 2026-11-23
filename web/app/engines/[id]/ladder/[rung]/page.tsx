@@ -9,6 +9,7 @@ import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { EngineChip } from '@/components/arena/SidePanels';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
+import { NextSteps, engineSteps } from '@/components/arena/NextSteps';
 import { getSnapshot } from '@/lib/data';
 import { formatDay, formatElo, formatTime } from '@/lib/format';
 import { matchHref, rungHref } from '@/lib/routes';
@@ -153,6 +154,7 @@ const RungContent = async (props: RungPageProps) => {
           </ol>
         )}
       </Panel>
+      <NextSteps links={[...engineSteps(rung.track_id), 'versions']} />
     </DetailShell>
   );
 };

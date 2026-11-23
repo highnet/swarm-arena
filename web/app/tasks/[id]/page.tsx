@@ -22,6 +22,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
 import { PageSkeleton } from '@/components/arena/PageSkeleton';
+import { NextSteps } from '@/components/arena/NextSteps';
 import { getSnapshot } from '@/lib/data';
 import { REPO_URL } from '@/lib/github';
 import { formatDay, formatElo, formatTime } from '@/lib/format';
@@ -317,6 +318,7 @@ const TaskContent = async ({ params }: TaskPageProps) => {
           )}
         </div>
       </div>
+      <NextSteps links={['rallypoint', 'board', 'fleet', 'versions']} />
     </main>
   );
 };

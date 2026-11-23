@@ -7,6 +7,7 @@ import { EngineLogo } from '@/components/arena/EngineLogo';
 import { LadderLegend, TrackLadder } from '@/components/arena/TrackLadder';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
+import { NextSteps } from '@/components/arena/NextSteps';
 import { getSnapshot } from '@/lib/data';
 import { trackSummaries } from '@/lib/derive';
 import { formatElo, formatInt } from '@/lib/format';
@@ -24,7 +25,11 @@ const Engines = async () => {
     <main className="mx-auto w-full max-w-[90rem] px-4 pb-16 pt-8 sm:px-6">
       <Typography variant="pageTitle">Engines</Typography>
       <Typography variant="lede" className="mt-2 max-w-2xl">
-        Four engines. The rules come from libraries. The agents write everything that picks a move.
+        Four engines. The rules come from libraries. The agents write everything that picks a move.{' '}
+        <Link href="/how-it-works#ratings" className="text-fg hover:underline">
+          How ratings work
+        </Link>
+        .
       </Typography>
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -96,6 +101,7 @@ const Engines = async () => {
           </tbody>
         </table>
       </Panel>
+      <NextSteps links={['games', 'versions', 'graveyard', 'concepts']} />
     </main>
   );
 };

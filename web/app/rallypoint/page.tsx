@@ -19,6 +19,7 @@ import { TaskTypeChip } from '@/components/arena/TaskChips';
 import { Badge } from '@/components/ui/Badge';
 import { Typography } from '@/components/ui/Typography';
 import { PageSkeleton } from '@/components/arena/PageSkeleton';
+import { NextSteps } from '@/components/arena/NextSteps';
 import { getSnapshot } from '@/lib/data';
 import { formatDay, formatTime } from '@/lib/format';
 import { getRallypoint, REPO_URL, STAGES, stageOf, type RpItem, type RpStage } from '@/lib/github';
@@ -214,6 +215,7 @@ const RallypointContent = async () => {
           How the protocol works
         </Link>
       </p>
+      <NextSteps links={['fleet', 'protocol', 'board', 'messages']} />
     </main>
   );
 };

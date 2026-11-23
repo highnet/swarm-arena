@@ -10,6 +10,7 @@ import { EngineChip } from '@/components/arena/SidePanels';
 import { agentHref } from '@/components/arena/seats';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
+import { NextSteps, engineSteps } from '@/components/arena/NextSteps';
 import { getSnapshot } from '@/lib/data';
 import { lineage } from '@/lib/derive';
 import { formatDay, formatTime } from '@/lib/format';
@@ -175,6 +176,7 @@ const VersionContent = async (props: VersionPageProps) => {
           )}
         </Panel>
       </div>
+      <NextSteps links={[...engineSteps(track.id), 'graveyard']} />
     </DetailShell>
   );
 };
