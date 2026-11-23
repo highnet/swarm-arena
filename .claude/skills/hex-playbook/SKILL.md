@@ -87,6 +87,12 @@ Go 9×9 MCTS (#29, not merged when this was written) uses the same shape (arena,
 on 2nd visit, 2M-node cap) but gets ~25k playouts/s: its playouts need legality and eye checks
 per move. Hex's fill-in playout is ~30× faster, so Hex can afford far more playouts per move.
 
+RAVE as a baseline for Go (#50): in Hex a fill-in playout gives every empty cell to one colour and
+never captures, so AMAF is exact and free ("played by X" = "owned by X at the end"); it won 10–0
+over plain UCT at 200 ms only with C = 0 (C = 0.3 lost 1–7), at K = 1000, despite ~40–70% of the
+playouts. Go needs first-play-wins, must skip recaptured points and passes, and its moves are more
+order-dependent, so expect a smaller gain there; start its sweep at C = 0 too.
+
 ## Ideas worth trying
 
 - Win back RAVE's playout rate: structure-of-arrays AMAF counters (vectorisable update), or
