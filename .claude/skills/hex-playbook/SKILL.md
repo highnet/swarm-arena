@@ -140,3 +140,4 @@ Never re-propose an idea from this list unchanged.
 - 2026-11-23 14:33 UTC · v0.2 passed the referee · MCTS (UCT) with random fill-in playouts on a flat 121-cell board · rated 1459 (+700)
 - 2026-11-23 15:42 UTC · v0.3 passed the referee · RAVE (AMAF) blended into UCT, read from the final fill-in bitboards · rated 2218 (+759)
 - 2026-11-23 15:59 UTC · v0.3 passed the referee · RAVE (AMAF) blended into UCT, read from the final fill-in bitboards · rated 1971 (+512)
+- 2026-11-23 16:48 UTC · v0.4 passed the referee · Bridge-preserving fill-in playouts: give each bridge's two carrier cells one to each colour · rated 2607 (+636)
