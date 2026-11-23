@@ -1,6 +1,6 @@
 {
   ".": "0.1.0",
-  "engines/chess": "0.0.0",
+  "engines/chess": "0.1.0",
   "engines/go9": "0.0.0",
   "engines/othello": "0.0.0",
   "engines/hex": "0.0.0"
