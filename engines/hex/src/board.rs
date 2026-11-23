@@ -111,11 +111,6 @@ pub fn playout(black: u128, white: u128, black_to_move: bool, rng: &mut Rng) -> 
 /// cells are both empty gives one carrier cell to each colour, so no playout cuts a bridge.
 pub const BRIDGE_PAIRING: bool = true;
 
-/// Edge-template pairing (#73): a stone one row (column) from one of its own edges, with both
-/// cells between it and that edge empty, also gives one of those cells to each colour, in the
-/// same random pass as the bridges. Only applies when [`BRIDGE_PAIRING`] is on.
-pub const EDGE_PAIRING: bool = true;
-
 /// The fill-in of [`playout`] without the connection check: returns Black's final board
 /// (White owns every other cell). The search reads AMAF statistics from it.
 #[inline]
@@ -156,29 +151,10 @@ const BRIDGE_DIRS: [(i32, i32, i32, u128); 3] = [
     (9, -1, 10, ALL & !LEFT & !col_mask(1)),
 ];
 
-/// Longest pair list: at most 3 bridges per stone (363) plus 40 edge templates.
-const MAX_PAIRS: usize = 404;
-
-/// The second-row edge templates: offsets of the two edge cells from the stone, and the origin
-/// cells (the row or column next to the edge, minus the corner cell that has only one edge
-/// neighbour). Black owns top and bottom, White left and right.
-const BLACK_EDGES: [(i32, i32, u128); 2] = [
-    // (1, c) to the top through (0, c) and (0, c+1).
-    (-11, -10, row_mask(1) & !RIGHT),
-    // (9, c) to the bottom through (10, c−1) and (10, c).
-    (10, 11, row_mask(W - 2) & !LEFT),
-];
-const WHITE_EDGES: [(i32, i32, u128); 2] = [
-    // (r, 1) to the left through (r, 0) and (r+1, 0).
-    (-1, 10, col_mask(1) & !BOTTOM),
-    // (r, 9) to the right through (r−1, 10) and (r, 10).
-    (-10, 1, col_mask(W - 2) & !TOP),
-];
-
 /// Every bridge of either colour whose carrier is empty, as its two carrier cells.
-/// Returns how many it wrote (at most 3 per stone, so 363).
+/// Returns how many it wrote (at most 3 per stone, so 363 fits).
 #[inline]
-fn bridges(black: u128, white: u128, out: &mut [(u8, u8); MAX_PAIRS]) -> usize {
+fn bridges(black: u128, white: u128, out: &mut [(u8, u8); 364]) -> usize {
     let empty = ALL & !(black | white);
     let mut n = 0;
     for stones in [black, white] {
@@ -195,42 +171,13 @@ fn bridges(black: u128, white: u128, out: &mut [(u8, u8); MAX_PAIRS]) -> usize {
     n
 }
 
-/// Every second-row edge template of either colour (own edges only) with both edge cells
-/// empty, appended to `out` from index `n` as its two edge cells. Returns the new length
-/// (at most 10 per edge, so 40 more).
-#[inline]
-fn edge_templates(
-    black: u128,
-    white: u128,
-    out: &mut [(u8, u8); MAX_PAIRS],
-    mut n: usize,
-) -> usize {
-    let empty = ALL & !(black | white);
-    for (stones, edges) in [(black, BLACK_EDGES), (white, WHITE_EDGES)] {
-        for (ca, cb, mask) in edges {
-            let mut origins = stones & mask & back(empty, ca) & back(empty, cb);
-            while origins != 0 {
-                let a = origins.trailing_zeros() as i32;
-                out[n] = ((a + ca) as u8, (a + cb) as u8);
-                n += 1;
-                origins &= origins - 1;
-            }
-        }
-    }
-    n
-}
-
-/// Bridge-preserving fill-in: visit the bridges with an empty carrier (and, with
-/// [`EDGE_PAIRING`], the edge templates with both edge cells empty) in one random order; each one
+/// Bridge-preserving fill-in: visit the bridges with an empty carrier in random order; each one
 /// whose two carrier cells are both still unassigned gives one (chosen at random) to each
 /// colour. The remaining empty cells are split as in [`fill_uniform`], minus one cell per pair
 /// for each side, so the side to move still gets ⌈k/2⌉ of all k empty cells.
 pub fn fill_bridges(black: u128, white: u128, black_to_move: bool, rng: &mut Rng) -> u128 {
-    let mut list = [(0u8, 0u8); MAX_PAIRS];
-    let mut n = bridges(black, white, &mut list);
-    if EDGE_PAIRING {
-        n = edge_templates(black, white, &mut list, n);
-    }
+    let mut list = [(0u8, 0u8); 364];
+    let n = bridges(black, white, &mut list);
     let mut taken = 0u128;
     let mut black_gets = 0u128;
     for i in 0..n {
@@ -377,13 +324,10 @@ mod tests {
         for (dr, dc) in [(-2, 1), (-1, 2), (1, 1), (2, -1), (1, -2), (-1, -1)] {
             let other = ((5 + dr) * 11 + 5 + dc) as u32;
             let black = 1u128 << centre | 1u128 << other;
-            let mut out = [(0u8, 0u8); MAX_PAIRS];
+            let mut out = [(0u8, 0u8); 364];
             assert_eq!(bridges(black, 0, &mut out), 1, "offset ({dr}, {dc})");
             let carrier = 1u128 << out[0].0 | 1u128 << out[0].1;
-            assert_eq!(
-                carrier,
-                grow(1u128 << centre) & grow(1u128 << other) & !black
-            );
+            assert_eq!(carrier, grow(1u128 << centre) & grow(1u128 << other) & !black);
             assert_eq!(bridges(0, black, &mut out), 1, "White, offset ({dr}, {dc})");
         }
         // Brute force over every pair of cells: a bridge is two non-adjacent cells with exactly
@@ -394,13 +338,13 @@ mod tests {
                 let common = grow(1u128 << a) & grow(1u128 << b) & !stones;
                 let adjacent = grow(1u128 << a) >> b & 1 == 1;
                 let want = usize::from(!adjacent && common.count_ones() == 2);
-                let mut out = [(0u8, 0u8); MAX_PAIRS];
+                let mut out = [(0u8, 0u8); 364];
                 assert_eq!(bridges(stones, 0, &mut out), want, "cells {a} and {b}");
             }
         }
         // An occupied carrier cell disables the bridge.
         let black = 1u128 << centre | 1u128 << (centre + 12);
-        let mut out = [(0u8, 0u8); MAX_PAIRS];
+        let mut out = [(0u8, 0u8); 364];
         assert_eq!(bridges(black, 1u128 << (centre + 1), &mut out), 0);
     }
 
@@ -421,133 +365,5 @@ mod tests {
         }
         // The uniform fill does cut it sometimes (about a quarter of the time).
         assert!(cut > 500, "{cut}");
-    }
-
-    /// The edge templates `edge_templates` should find for a lone stone, from `hexgame`'s own
-    /// neighbour set: for each of the colour's edges, a stone off that edge whose neighbours
-    /// include exactly two cells of the edge line.
-    fn library_templates(cell: u32, black: bool) -> Vec<(u32, u32)> {
-        use hexgame::{Board, Coords, CoordsOrEdge};
-        let board = Board::new(11);
-        let (r, c) = ((cell / 11) as u8, (cell % 11) as u8);
-        let on_line = |x: Coords, line: usize| match line {
-            0 => x.row == 0,
-            1 => x.row == 10,
-            2 => x.column == 0,
-            _ => x.column == 10,
-        };
-        let lines: [usize; 2] = if black { [0, 1] } else { [2, 3] };
-        let mut want = Vec::new();
-        for line in lines {
-            if on_line(Coords::new(r, c), line) {
-                continue;
-            }
-            let mut cells: Vec<u32> = board
-                .get_neighbors(Coords::new(r, c))
-                .filter_map(|n| match n {
-                    CoordsOrEdge::Coords(x) if on_line(x, line) => {
-                        Some(x.row as u32 * 11 + x.column as u32)
-                    }
-                    _ => None,
-                })
-                .collect();
-            cells.sort();
-            if cells.len() == 2 {
-                want.push((cells[0], cells[1]));
-            }
-        }
-        want.sort();
-        want
-    }
-
-    fn found_templates(black: u128, white: u128) -> Vec<(u32, u32)> {
-        let mut out = [(0u8, 0u8); MAX_PAIRS];
-        let n = edge_templates(black, white, &mut out, 0);
-        let mut got: Vec<(u32, u32)> = out[..n]
-            .iter()
-            .map(|&(a, b)| (a.min(b) as u32, a.max(b) as u32))
-            .collect();
-        got.sort();
-        got
-    }
-
-    #[test]
-    fn edge_templates_match_the_library_on_every_cell() {
-        // Every cell, either colour, alone on the board: the templates found (carrier cells
-        // included) are exactly those hexgame's neighbours give for that colour's own edges.
-        // This covers all four edges, the wrong colour (a Black stone on column 1 or a White
-        // one on row 1 is no template for its owner) and the corners (no wrap).
-        for cell in 0..CELLS as u32 {
-            let stone = 1u128 << cell;
-            assert_eq!(
-                found_templates(stone, 0),
-                library_templates(cell, true),
-                "Black {cell}"
-            );
-            assert_eq!(
-                found_templates(0, stone),
-                library_templates(cell, false),
-                "White {cell}"
-            );
-        }
-        // Spot checks, one per edge: Black f2 to the top, Black f10 to the bottom, White b6 to
-        // the left, White j6 to the right (index = row * 11 + column).
-        assert_eq!(found_templates(1 << 16, 0), vec![(5, 6)]);
-        assert_eq!(found_templates(1 << 104, 0), vec![(114, 115)]);
-        assert_eq!(found_templates(0, 1 << 56), vec![(55, 66)]);
-        assert_eq!(found_templates(0, 1 << 64), vec![(54, 65)]);
-        // The corner cells of the second row have one edge neighbour: no template.
-        assert!(found_templates(1 << 21, 0).is_empty(), "Black k2");
-        assert!(found_templates(1 << 99, 0).is_empty(), "Black a10");
-        assert!(found_templates(0, 1 << 111).is_empty(), "White b11");
-        assert!(found_templates(0, 1 << 9).is_empty(), "White j1");
-    }
-
-    #[test]
-    fn an_occupied_edge_cell_disables_the_template() {
-        let stone = 1u128 << 16; // Black f2; edge cells f1 (5) and g1 (6).
-        assert!(found_templates(stone, 1 << 5).is_empty());
-        assert!(found_templates(stone | 1 << 6, 0).is_empty());
-        // Both colours at once, each with its own template.
-        assert_eq!(found_templates(stone, 1 << 56), vec![(5, 6), (55, 66)]);
-    }
-
-    #[test]
-    fn every_fill_keeps_an_edge_template_connected() {
-        // One stone per edge, with nothing else touching its edge cells, the other colour to
-        // move: the stone reaches its edge in every playout. The uniform fill sometimes cuts it.
-        let cases: [(u32, bool, u128); 4] = [
-            (16, true, TOP),
-            (104, true, BOTTOM),
-            (56, false, LEFT),
-            (64, false, RIGHT),
-        ];
-        for (cell, black, edge) in cases {
-            let stone = 1u128 << cell;
-            // A few opposing stones away from the template.
-            let other = 1u128 << 60 | 1u128 << 38 | 1u128 << 82;
-            let (b, w) = if black {
-                (stone, other)
-            } else {
-                (other, stone)
-            };
-            let mut rng = Rng::new(cell as u64);
-            let mut cut = 0;
-            for _ in 0..5000 {
-                let fb = fill_bridges(b, w, !black, &mut rng);
-                let mine = if black { fb } else { ALL & !fb };
-                assert_ne!(
-                    reach(mine, stone) & edge,
-                    0,
-                    "cell {cell}: the template must hold"
-                );
-                let fu = fill_uniform(b, w, !black, &mut rng);
-                let mine = if black { fu } else { ALL & !fu };
-                if reach(mine, stone) & edge == 0 {
-                    cut += 1;
-                }
-            }
-            assert!(cut > 100, "cell {cell}: {cut}");
-        }
     }
 }
