@@ -14,9 +14,9 @@ verdict. The goal is a shared understanding of game-playing, not four separate b
 - **Strategist:** name the `concept` of every task. Prefer porting a concept that already gained
   Elo somewhere to an engine that has not tried it. Note what should differ between games
   (branching factor, game length, how tactical it is, whether evaluation is cheap).
-- **Worker:** before you start, read every line below for your task's concept. Reuse the idea, not
+- **Worker:** before you start, read every evidence line for your task's concept. Reuse the idea, not
   the code: each engine implements it in its own crate, for its own rules library.
-- **Everyone:** the referee appends one line per verdict below. Write the *why* in the game's
+- **Everyone:** the referee writes one evidence file per verdict (see the evidence log). Write the *why* in the game's
   playbook, and if you see a pattern across games, add it under "What we believe" with the
   evidence lines it rests on.
 
@@ -46,8 +46,7 @@ _Nothing yet. Add a belief only with at least two evidence lines from different 
 
 ## Evidence log
 
-The referee appends here. Never edit past lines.
-
-- 2026-11-23 · **alpha-beta** · Chess · v0.2 rated 1259 (+500) · Negamax alpha-beta with iterative deepening inside the go budget
-- 2026-11-23 · **alpha-beta** · Othello · v0.2 rated 1459 (+1218) · Alpha-beta with iterative deepening and X/C-square evaluation
-- 2026-11-23 · **mcts** · Hex 11×11 · v0.2 rated 1459 (+700) · MCTS (UCT) with random fill-in playouts on a flat 121-cell board
+One file per verdict in [`evidence/`](evidence/), named by its arena task: the referee writes it in
+the same pull request as the engine change, so two pull requests never touch the same evidence. Read
+them all before you plan or start a task (`cat .claude/skills/concepts/evidence/*.md`). Never edit
+or delete one; a later verdict gets its own file.
