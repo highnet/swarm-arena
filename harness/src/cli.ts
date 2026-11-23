@@ -1,38 +1,36 @@
 #!/usr/bin/env tsx
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { performanceElo, playMatch, GAMES, type GameId, type Task } from '@arena/shared';
-import { agent, ensureRun, records, rungs, setAgent, tasks, tracks } from './board';
+import { performanceElo, playMatch, GAMES, type GameId } from '@arena/shared';
+import { ensureRun, records, rungs, tasks, tracks } from './board';
 import { ARENA_HOME, log, MOVE_MS, RUN_ID } from './config';
 import { arenaEngine } from './engine';
 import { reference } from './references';
-import { runTask } from './seat';
+import { claimNext, release, submit } from './seat';
 import { getStore } from './store';
-import { strategize } from './strategist';
+import { applyPlan, brief } from './strategist';
 
 const USAGE = `arena <command>
 
-  init [label]                  create the run, tracks and ladders (ARENA_RUN, default run-001)
-  status                        print tracks, open tasks and the last records
-  strategist                    one strategist session: strategy update + new tasks
-  seat <task-id>                run one task end to end (session, build, gate, land or bury)
-  swarm [--parallel N] [--hours H]
-                                loop: strategist when idle, one seat per track, up to N at once
-  calibrate <track> [--pairs N] measure each rung against the one below and print Elo
+Agent sessions (run inside a Claude Code session on this repo):
+  next [track]                  claim the next task and print its briefing
+  submit <task-id>              build, smoke test, gate match; ship to main or bury
+  release <task-id>             put a claimed task back on the board
+  brief                         strategist: print the board and the plan format
+  plan <plan.json>              strategist: post the strategy call and open tasks
+
+Operator:
+  init [label]                  create the run, engines and ladders (ARENA_RUN, default run-001)
+  status                        engines, open tasks, last records
+  calibrate <track> [--pairs N] rate each rung against the one below
   play <track> <a> <b> [--pairs N]
-                                play references or engine binaries against each other
+                                play references (e.g. stockfish-3, mcts-2000) or engine binaries
 
 Store: Supabase when SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set, else ${ARENA_HOME}/store.json.`;
 
 const flag = (name: string, fallback: number) => {
   const i = process.argv.indexOf(`--${name}`);
   return i > 0 ? Number(process.argv[i + 1]) : fallback;
-};
-
-const seatFor = async (task: Task) => {
-  const opened = (await records()).find((r) => r.task_id === task.id && r.kind === 'task_opened');
-  const seat = String((opened?.data as { seat?: string })?.seat ?? `${task.track_id}/builder`);
-  return { seat, id: await agent(seat, task.track_id, 'builder') };
 };
 
 const mover = async (spec: string, game: GameId, seed: number) =>
@@ -52,36 +50,24 @@ const main = async () => {
       for (const r of (await records()).slice(-10)) log(`${r.kind.padEnd(14)} ${r.title}`);
       return;
     }
-    case 'strategist':
-      return strategize();
-    case 'seat': {
-      const task = (await tasks()).find((t) => t.id === args[0]);
-      if (!task) throw new Error(`no task ${args[0]}`);
-      const { seat, id } = await seatFor(task);
-      return runTask(task, id, seat);
+    case 'next': {
+      const text = await claimNext(args[0]);
+      console.log(text ?? 'No open task. Ask the strategist for more work: npm run arena -- brief');
+      return;
     }
-    case 'swarm': {
-      const parallel = flag('parallel', 2);
-      const deadline = Date.now() + flag('hours', 24) * 3600_000;
-      const active = new Map<GameId, Promise<void>>();
-      log(`swarm: up to ${parallel} seats until ${new Date(deadline).toISOString()}`);
-      while (Date.now() < deadline) {
-        const open = (await tasks()).filter((t) => t.status === 'open' && !active.has(t.track_id));
-        if (!open.length && active.size < parallel) {
-          await strategize().catch((e) => log(`strategist: ${e}`));
-        }
-        for (const task of (await tasks()).filter((t) => t.status === 'open')) {
-          if (active.size >= parallel || active.has(task.track_id)) continue;
-          const { seat, id } = await seatFor(task);
-          const p = runTask(task, id, seat)
-            .catch((e) => log(`seat ${seat}: ${e}`))
-            .finally(() => active.delete(task.track_id));
-          active.set(task.track_id, p);
-        }
-        await setAgent('referee', { status: active.size ? 'working' : 'idle' });
-        await new Promise((r) => setTimeout(r, 30_000));
-      }
-      await Promise.all(active.values());
+    case 'submit': {
+      const result = await submit(args[0]);
+      console.log(result.shipped ? `Shipped ${result.version}, rated ${result.elo}.` : `Buried: ${result.why}`);
+      return;
+    }
+    case 'release':
+      return release(args[0]);
+    case 'brief':
+      console.log(await brief());
+      return;
+    case 'plan': {
+      const opened = await applyPlan(JSON.parse(readFileSync(args[0], 'utf8')));
+      console.log(`Posted the strategy call and opened ${opened} task(s).`);
       return;
     }
     case 'calibrate': {
