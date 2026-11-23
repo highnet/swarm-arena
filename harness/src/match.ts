@@ -70,6 +70,7 @@ export const runMatch = async (spec: MatchSpec) => {
     });
   }
   const forfeits: string[] = [];
+  const tally = { w: 0, l: 0, d: 0 };
   const result = await playMatch(
     GAMES[spec.track],
     spec.candidate,
@@ -80,6 +81,11 @@ export const runMatch = async (spec: MatchSpec) => {
       openingSeed: spec.openingSeed,
       onGame: async (g, i) => {
         const engineFirst = i % 2 === 0;
+        const s = engineFirst ? g.outcome : 1 - g.outcome;
+        tally[s === 1 ? "w" : s === 0 ? "l" : "d"]++;
+        log(
+          `  game ${i + 1}/${spec.pairs * 2}: ${s === 1 ? "win" : s === 0 ? "loss" : "draw"} (${g.termination}, ${g.moves.length} plies) · ${spec.candidateVersion} ${tally.w}–${tally.l}–${tally.d} vs ${spec.opponentLabel}`,
+        );
         if (g.offender !== null && (g.offender === 0) === engineFirst) {
           forfeits.push(
             `${g.termination}${g.detail ? ` (${g.detail.slice(0, 40)})` : ""}`,
