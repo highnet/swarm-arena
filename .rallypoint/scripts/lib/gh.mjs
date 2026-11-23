@@ -70,7 +70,22 @@ export const ensureGh = () => {
 };
 
 /** @param {string[]} args */
+// Claude Code cloud sessions block GitHub GraphQL, which every high-level `gh`
+// subcommand uses, so there the REST transport in `api.mjs` stands in for `gh`.
+// `RALLYPOINT_TRANSPORT=rest|gh` forces either.
+const useRest = () =>
+  process.env.RALLYPOINT_TRANSPORT === "rest" ||
+  (process.env.RALLYPOINT_TRANSPORT !== "gh" && process.env.CLAUDE_CODE_REMOTE === "true");
+
+/** @type {((...args: string[]) => string) | null} */
+let restTransport = null;
+
 export const gh = (...args) => {
+  if (useRest()) {
+    if (args[0] === "--version") return "gh (rallypoint REST transport)";
+    restTransport ??= restOnly();
+    return restTransport(...args);
+  }
   ensureGh();
 
   const { command, prefixArgs } = ghCommand();
@@ -117,7 +132,18 @@ const hasGh = () => {
  * @returns {(...args: string[]) => string}
  */
 export const resolveTransport = ({ remote } = {}) => {
+  if (useRest()) return restOnly({ remote });
   if (hasGh()) return gh;
+  return restOnly({ remote });
+};
+
+/**
+ * The REST transport for this checkout's repository.
+ *
+ * @param {{ remote?: string }} [input]
+ * @returns {(...args: string[]) => string}
+ */
+const restOnly = ({ remote } = {}) => {
 
   const repository = repositoryFrom({
     remote:

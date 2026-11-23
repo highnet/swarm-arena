@@ -218,6 +218,21 @@ export const createTransport = ({ request, repository }) => {
     const [group, command, ...rest] = args;
     const base = `/repos/${repository}`;
 
+    // `gh pr view <branch>` accepts a branch name; REST wants the number.
+    /** @param {string} ref */
+    const pullNumber = (ref) => {
+      if (/^\d+$/.test(String(ref))) return String(ref);
+      const owner = repository.split("/")[0];
+      const found = /** @type {{ number: number }[]} */ (
+        send({
+          method: "GET",
+          path: `${base}/pulls?state=all&per_page=5&head=${encodeURIComponent(`${owner}:${ref}`)}`,
+        })
+      );
+      if (!found.length) throw new Error(`no pull request found for branch "${ref}"`);
+      return String(found[0].number);
+    };
+
     // gh repo view --json nameWithOwner[,defaultBranchRef]
     if (group === "repo" && command === "view") {
       const repo = /** @type {{ full_name: string, default_branch: string }} */ (
@@ -346,7 +361,7 @@ export const createTransport = ({ request, repository }) => {
     if (group === "pr" && command === "view") {
       const pull =
         /** @type {{ number: number, body: string | null, labels: unknown[], head: { sha: string, ref: string }, base?: { ref: string }, user: { login: string, type: string } | null }} */ (
-          send({ method: "GET", path: `${base}/pulls/${rest[0]}` })
+          send({ method: "GET", path: `${base}/pulls/${pullNumber(rest[0])}` })
         );
 
       return JSON.stringify(
@@ -361,6 +376,7 @@ export const createTransport = ({ request, repository }) => {
             //: a `promotion/*` head is a promotion only when it
             // targets the promotion branch.
             baseRefName: pull.base?.ref ?? null,
+            ...pullExtras(pull),
             // `gh pr view --json author` reports `{ login, is_bot, ... }` with
             // the `[bot]` suffix stripped; REST reports
             // `user: { login: "dependabot[bot]", type: "Bot" }`. Only `login`
@@ -422,6 +438,115 @@ export const createTransport = ({ request, repository }) => {
       return "";
     }
 
+    // gh issue create --title T --body B [--label L]… → prints the issue URL, like gh.
+    if (group === "issue" && command === "create") {
+      const created = /** @type {{ html_url: string }} */ (
+        send({
+          method: "POST",
+          path: `${base}/issues`,
+          body: {
+            title: value(args, "--title"),
+            body: value(args, "--body") ?? "",
+            labels: values(args, "--label"),
+          },
+        })
+      );
+      return created.html_url;
+    }
+
+    // gh pr list [--state open|closed|merged|all] [--label L] [--head B] [--limit N] --json …
+    if (group === "pr" && command === "list") {
+      const wanted = value(args, "--state") ?? "open";
+      const query = new URLSearchParams({
+        state: wanted === "merged" ? "closed" : wanted,
+        per_page: value(args, "--limit") ?? "30",
+      });
+      const head = value(args, "--head");
+      if (head) query.set("head", `${repository.split("/")[0]}:${head}`);
+      const labels = values(args, "--label");
+      const pulls = /** @type {Record<string, any>[]} */ (
+        send({ method: "GET", path: `${base}/pulls?${query}` })
+      )
+        .filter((p) => wanted !== "merged" || p.merged_at)
+        .filter((p) =>
+          labels.every((l) => (p.labels ?? []).some((x) => x.name === l)),
+        );
+      return JSON.stringify(
+        pulls.map((p) =>
+          pick(
+            {
+              number: p.number,
+              title: p.title,
+              body: p.body,
+              labels: p.labels,
+              headRefName: p.head.ref,
+              headRefOid: p.head.sha,
+              baseRefName: p.base?.ref ?? null,
+              author: p.user ? { login: p.user.login, is_bot: p.user.type === "Bot" } : null,
+              ...pullExtras(p),
+            },
+            value(args, "--json"),
+            args,
+          ),
+        ),
+      );
+    }
+
+    // gh pr create --title T --body B --base X --head Y [--label L]… [--draft] → prints the URL.
+    if (group === "pr" && command === "create") {
+      const created = /** @type {{ number: number, html_url: string }} */ (
+        send({
+          method: "POST",
+          path: `${base}/pulls`,
+          body: {
+            title: value(args, "--title"),
+            body: value(args, "--body") ?? "",
+            base: value(args, "--base"),
+            head: value(args, "--head"),
+            draft: args.includes("--draft"),
+          },
+        })
+      );
+      const labels = values(args, "--label");
+      if (labels.length > 0) {
+        send({
+          method: "POST",
+          path: `${base}/issues/${created.number}/labels`,
+          body: { labels },
+        });
+      }
+      return created.html_url;
+    }
+
+    // gh pr merge <n> --squash|--merge|--rebase [--subject S] [--body B]
+    //                 [--match-head-commit SHA] [--delete-branch]
+    if (group === "pr" && command === "merge") {
+      const number = pullNumber(rest[0]);
+      const method = args.includes("--squash")
+        ? "squash"
+        : args.includes("--rebase")
+          ? "rebase"
+          : "merge";
+      const body = {
+        merge_method: method,
+        ...(value(args, "--subject") ? { commit_title: value(args, "--subject") } : {}),
+        ...(value(args, "--body") !== undefined ? { commit_message: value(args, "--body") } : {}),
+        ...(value(args, "--match-head-commit") ? { sha: value(args, "--match-head-commit") } : {}),
+      };
+      const pull = /** @type {{ head: { ref: string } }} */ (
+        send({ method: "GET", path: `${base}/pulls/${number}` })
+      );
+      send({ method: "PUT", path: `${base}/pulls/${number}/merge`, body });
+      if (args.includes("--delete-branch")) {
+        try {
+          send({ method: "DELETE", path: `${base}/git/refs/heads/${pull.head.ref}` });
+        } catch {
+          // Already gone, or protected: the merge itself is what matters.
+        }
+      }
+      return "";
+    }
+
     // gh api [--method M] [--paginate] [--slurp] <path> [-f k=v]…
     if (group === "api") {
       const method = value(args, "--method") ?? "GET";
@@ -477,6 +602,27 @@ export const createTransport = ({ request, repository }) => {
  * @param {Record<string, unknown>} issue
  * @returns {Record<string, unknown>}
  */
+
+/**
+ * Fields `gh pr view/list --json` reports that REST spells differently.
+ *
+ * @param {Record<string, any>} pull
+ */
+const pullExtras = (pull) => ({
+  title: pull.title,
+  url: pull.html_url,
+  isDraft: Boolean(pull.draft),
+  state: pull.merged_at ? "MERGED" : String(pull.state ?? "").toUpperCase(),
+  mergedAt: pull.merged_at ?? null,
+  createdAt: pull.created_at,
+  updatedAt: pull.updated_at,
+  mergeCommit: pull.merge_commit_sha && pull.merged_at ? { oid: pull.merge_commit_sha } : null,
+  // gh resolves these from GitHub's own linking; the body's keywords are what links them.
+  closingIssuesReferences: [
+    ...String(pull.body ?? "").matchAll(/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)/gi),
+  ].map((m) => ({ number: Number(m[1]) })),
+});
+
 const issueFields = (issue) => ({
   number: issue.number,
   title: issue.title,
