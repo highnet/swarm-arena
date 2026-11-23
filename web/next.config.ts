@@ -6,10 +6,18 @@ const nextConfig: NextConfig = {
   transpilePackages: ['@arena/shared'],
   // Playbooks live beside the site in the repo; ship them with the server for cache refreshes.
   outputFileTracingIncludes: {
-    '/engines/[id]': ['../.claude/skills/*-playbook/SKILL.md'],
+    '/engines/[id]': [
+      '../.claude/skills/*-playbook/SKILL.md',
+      '../engines/*/Cargo.toml',
+      '../engines/*/src/**/*',
+    ],
+    '/skills': ['../.claude/skills/*/SKILL.md'],
   },
   async redirects() {
-    return [{ source: '/tracks/:id', destination: '/engines/:id', permanent: true }];
+    return [
+      { source: '/tracks/:id', destination: '/engines/:id', permanent: true },
+      { source: '/what-this-is', destination: '/how-it-works', permanent: true },
+    ];
   },
   turbopack: {
     rules: {

@@ -25,6 +25,12 @@ that playbook.
    - Rules come from the crate's rules library. Search, evaluation, playout policy and time
      management are yours to write. No engine crates, no ported engine source, no downloaded
      weights or opening books.
+   - Never copy an open-source engine (Stockfish, GNU Go, Edax, Leela, KataGo, MoHex…): don't read
+     their code to reproduce it, don't translate it, don't lift their tables or tuned constants.
+     Textbook ideas are fine; implementations must come from you.
+   - Prefer the novel. When the spec leaves room, try something you have not seen in an engine:
+     a new evaluation feature, an unusual search shape, a learned or self-tuned component built
+     here. Write the idea and its outcome into the playbook so the swarm learns either way.
    - Make the one change the spec asks for. Keep it focused.
    - `cargo build --release -p <track>-engine` and `cargo test --release -p <track>-engine` must pass.
      Add tests for anything that can produce an illegal move.

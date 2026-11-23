@@ -1,5 +1,6 @@
 import { Suspense } from 'react';
 import type { Metadata } from 'next';
+import { pageMeta } from '@/lib/site';
 import type { GameId } from '@arena/shared';
 import { BoardSearch } from '@/components/arena/BoardSearch';
 import { Panel } from '@/components/ui/Panel';
@@ -7,7 +8,11 @@ import { Typography } from '@/components/ui/Typography';
 import { getSnapshot } from '@/lib/data';
 import { newestFirst } from '@/lib/derive';
 
-export const metadata: Metadata = { title: 'Board' };
+export const metadata: Metadata = pageMeta(
+  'Board',
+  'The full record of the swarm: strategy calls, tasks, shipped versions, matches and buried ideas, searchable.',
+  '/board',
+);
 
 const Board = async () => {
   const s = await getSnapshot();

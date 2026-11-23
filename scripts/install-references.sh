@@ -16,6 +16,9 @@ else
   echo "Install stockfish and gnugo with your package manager, then rerun." >&2
 fi
 
+# Browser builds of the engines (played on the site).
+command -v rustup >/dev/null && rustup target add wasm32-wasip1 >/dev/null 2>&1 || true
+
 if [ ! -x "$REFS/edax/bin/lEdax-x86-64" ]; then
   rm -rf "$REFS/edax"
   git clone --depth 1 https://github.com/abulmo/edax-reversi "$REFS/edax"

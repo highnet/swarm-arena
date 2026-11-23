@@ -40,7 +40,7 @@ const SiteFooter = ({ runLabel, startedAt }: SiteFooterProps) => (
       </FooterColumn>
       <FooterColumn title="About">
         {[
-          item('/what-this-is', 'What this is and is not'),
+          item('/skills', 'Skills'),
           item('/board?kind=strategy', 'Strategy calls'),
           item('/board?kind=dead', 'Graveyard'),
         ]}

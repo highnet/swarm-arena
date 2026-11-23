@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { pageMeta } from '@/lib/site';
 import Link from 'next/link';
 import { LadderLegend, TrackLadder } from '@/components/arena/TrackLadder';
 import { Panel } from '@/components/ui/Panel';
@@ -9,7 +10,11 @@ import { formatElo, formatInt } from '@/lib/format';
 import { SERIES } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
 
-export const metadata: Metadata = { title: 'Engines' };
+export const metadata: Metadata = pageMeta(
+  'Engines',
+  'Chess, Go 9×9, Othello and Hex engines written from empty files by a swarm of coding agents: ratings, ladders, versions and code.',
+  '/engines',
+);
 
 const Engines = async () => {
   const s = await getSnapshot();
@@ -40,6 +45,7 @@ const Engines = async () => {
               <th className="px-4 py-2 text-right font-medium">Games</th>
               <th className="px-4 py-2 text-right font-medium">Shipped</th>
               <th className="px-4 py-2 text-right font-medium">Buried</th>
+              <th className="px-4 py-2 text-right font-medium">Play</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
@@ -69,6 +75,11 @@ const Engines = async () => {
                 </td>
                 <td className="px-4 py-2.5 text-right font-mono tabular text-fg-2">
                   {s.records.filter((r) => r.track_id === t.id && r.kind === 'idea_dead').length}
+                </td>
+                <td className="px-4 py-2.5 text-right">
+                  <Link href={`/engines/${t.id}/play`} className="text-xs text-fg-2 hover:text-fg">
+                    Play
+                  </Link>
                 </td>
               </tr>
             ))}

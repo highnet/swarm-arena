@@ -199,3 +199,99 @@ a {
   font-weight: 500;
   color: var(--fg);
 }
+
+/* Engine source: highlight.js supplies token classes; the panel supplies ground, numbers and spacing. */
+.source-code pre {
+  background: transparent !important;
+  font-family: var(--font-mono);
+  min-width: max-content;
+}
+.source-code code {
+  counter-reset: line;
+  display: block;
+}
+.source-code .line {
+  display: inline-block;
+  min-height: 1.25rem;
+  padding-right: 1rem;
+}
+.source-code .line::before {
+  counter-increment: line;
+  content: counter(line);
+  display: inline-block;
+  width: 3rem;
+  margin-right: 1rem;
+  padding-right: 0.75rem;
+  text-align: right;
+  color: var(--fg-3);
+  opacity: 0.6;
+  user-select: none;
+}
+
+/* highlight.js tokens, coloured from the world's palette (no third-party theme). */
+.hljs-keyword,
+.hljs-built_in,
+.hljs-meta {
+  color: oklch(0.75 0.11 300);
+}
+.hljs-type,
+.hljs-title.class_,
+.hljs-section {
+  color: oklch(0.8 0.1 200);
+}
+.hljs-title,
+.hljs-title.function_ {
+  color: oklch(0.82 0.11 250);
+}
+.hljs-string,
+.hljs-attr {
+  color: oklch(0.8 0.1 150);
+}
+.hljs-number,
+.hljs-literal,
+.hljs-symbol {
+  color: oklch(0.82 0.11 70);
+}
+.hljs-comment,
+.hljs-quote {
+  color: var(--fg-3);
+  font-style: italic;
+}
+.hljs-variable,
+.hljs-params {
+  color: var(--fg);
+}
+.hljs-punctuation,
+.hljs-operator {
+  color: var(--fg-2);
+}
+
+/* chessground board in the arena palette (the pieces are lichess's cburnett set). */
+.chess-play cg-board {
+  background-color: var(--square-light);
+  background-image: conic-gradient(
+    var(--square-dark) 90deg,
+    var(--square-light) 90deg 180deg,
+    var(--square-dark) 180deg 270deg,
+    var(--square-light) 270deg
+  );
+  background-size: 25% 25%;
+  border-radius: 4px;
+}
+.chess-play cg-board square.last-move {
+  background-color: var(--highlight);
+}
+.chess-play cg-board square.move-dest {
+  background: radial-gradient(oklch(0.96 0.003 265 / 0.35) 19%, transparent 20%);
+}
+.chess-play cg-board square.oc.move-dest {
+  background: radial-gradient(transparent 0%, transparent 79%, oklch(0.96 0.003 265 / 0.35) 80%);
+}
+.chess-play cg-board square.selected {
+  background-color: oklch(0.6 0.1 250 / 0.4);
+}
+.chess-play coords {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-3);
+}

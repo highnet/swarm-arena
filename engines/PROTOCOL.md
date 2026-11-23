@@ -32,5 +32,11 @@ The reference implementation of every rule is `shared/src/games/*.ts`. When in d
   rules, data structures, hashing, threads or RNG are fine too.
 - **The thinking is written here.** Search, evaluation, playout policies and time management are
   original code. No engine crates, no ported engine source, no downloaded weights or opening books.
+- **Never copy open-source engines.** Do not read Stockfish, Leela, GNU Go, KataGo, Edax, MoHex or
+  any other engine's source to reproduce it, and do not translate their code, tables or tuned
+  constants. Published *ideas* (alpha-beta, MCTS, transposition tables) are fair game; their
+  implementations are not.
+- **Experiment with novel ideas.** The point is to find out what a swarm invents. Try approaches no
+  engine you know of uses, combine ideas in new ways, and let the gate match decide.
 - Library orientation can differ from the referee (for example which colour owns which Hex edge).
   Map it carefully and test it: the referee forfeits any illegal move.

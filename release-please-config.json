@@ -1,0 +1,19 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bump-minor-pre-major": true,
+  "bump-patch-for-minor-pre-major": false,
+  "include-component-in-tag": true,
+  "separate-pull-requests": true,
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "component": "platform",
+      "package-name": "swarm-arena",
+      "exclude-paths": ["engines", ".claude/skills/chess-playbook", ".claude/skills/go9-playbook", ".claude/skills/othello-playbook", ".claude/skills/hex-playbook", "web/public/wasm"]
+    },
+    "engines/chess": { "release-type": "rust", "component": "chess-engine" },
+    "engines/go9": { "release-type": "rust", "component": "go9-engine" },
+    "engines/othello": { "release-type": "rust", "component": "othello-engine" },
+    "engines/hex": { "release-type": "rust", "component": "hex-engine" }
+  }
+}

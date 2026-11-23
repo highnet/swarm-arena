@@ -10,8 +10,8 @@ const NAV = [
   { href: '/', label: 'Race' },
   { href: '/engines', label: 'Engines' },
   { href: '/board', label: 'Board' },
+  { href: '/skills', label: 'Skills' },
   { href: '/how-it-works', label: 'How it works' },
-  { href: '/what-this-is', label: 'What this is and is not' },
 ];
 
 const Mark = () => (

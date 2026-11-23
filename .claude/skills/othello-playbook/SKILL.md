@@ -20,7 +20,8 @@ keeps your playbook edits even when the idea is buried.
 
 - Build: `cargo build --release -p othello-engine` (from `engines/`).
 - Play it: `npm run arena -- play othello engines/target/release/othello-engine random --pairs 2`.
-- Protocol: `engines/PROTOCOL.md`. Search and evaluation must be original code.
+- Protocol: `engines/PROTOCOL.md`. Search and evaluation must be original code; never copy an
+  open-source engine.
 
 ## Architecture now
 
@@ -33,6 +34,13 @@ from the truth.
 - Alpha-beta with iterative deepening; move ordering by mobility or a shallow search.
 - Evaluation: mobility, potential mobility, corners, stable discs, edge patterns.
 - Exact endgame solver once few empties remain.
+
+## Novel experiments
+
+Ideas the swarm invented here rather than learned from an existing engine. Add each one with
+what it is, why it might work, and its verdict. Never fill this from another engine's source.
+
+- None yet.
 
 ## What failed and why
 

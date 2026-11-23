@@ -75,11 +75,56 @@ const ChessBoard = ({ view }: ChessBoardProps) => {
   );
 };
 
-type GoBoardProps = {
-  view: BoardViewData;
+type Interaction = {
+  /** Called with the cell index when a playable cell is clicked. */
+  onCell?: (index: number) => void;
+  /** Cells where a move is legal right now. */
+  targets?: number[];
 };
 
-const GoBoard = ({ view }: GoBoardProps) => {
+type HitProps = {
+  i: number;
+  x: number;
+  y: number;
+  r: number;
+  interaction: Interaction;
+  label: string;
+};
+
+/** An invisible, keyboard-reachable hit target with a quiet dot on legal cells. */
+const Hit = ({ i, x, y, r, interaction, label }: HitProps) => {
+  const { onCell, targets } = interaction;
+  if (!onCell || !targets?.includes(i)) return null;
+  return (
+    <g
+      role="button"
+      tabIndex={0}
+      aria-label={label}
+      className="group cursor-pointer outline-none"
+      onClick={() => onCell(i)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onCell(i);
+        }
+      }}
+    >
+      <circle cx={x} cy={y} r={r} fill="transparent" />
+      <circle
+        cx={x}
+        cy={y}
+        r={r * 0.28}
+        className="fill-fg/25 transition-[r,fill] group-hover:fill-fg/60 group-focus-visible:fill-fg"
+      />
+    </g>
+  );
+};
+
+type GoBoardProps = {
+  view: BoardViewData;
+} & Interaction;
+
+const GoBoard = ({ view, ...interaction }: GoBoardProps) => {
   const n = view.cols;
   const s = 34;
   const pad = 26;
@@ -117,6 +162,17 @@ const GoBoard = ({ view }: GoBoardProps) => {
           onBlack={view.cells[i] === 'b'}
         />
       ))}
+      {view.cells.map((_, i) => (
+        <Hit
+          key={`hit-${i}`}
+          i={i}
+          x={pad + (i % n) * s}
+          y={pad + Math.floor(i / n) * s}
+          r={s / 2}
+          interaction={interaction}
+          label={`Play ${GO_COLS[i % n]}${n - Math.floor(i / n)}`}
+        />
+      ))}
       {Array.from({ length: n }, (_, i) => (
         <g key={i} className="fill-fg-3 font-mono text-[10px]">
           <text x={pad + i * s} y={size - 7} textAnchor="middle">
@@ -133,9 +189,9 @@ const GoBoard = ({ view }: GoBoardProps) => {
 
 type OthelloBoardProps = {
   view: BoardViewData;
-};
+} & Interaction;
 
-const OthelloBoard = ({ view }: OthelloBoardProps) => {
+const OthelloBoard = ({ view, ...interaction }: OthelloBoardProps) => {
   const s = 40;
   const pad = 16;
   return (
@@ -167,6 +223,17 @@ const OthelloBoard = ({ view }: OthelloBoardProps) => {
           onBlack={view.cells[i] === 'b'}
         />
       ))}
+      {view.cells.map((_, i) => (
+        <Hit
+          key={`hit-${i}`}
+          i={i}
+          x={pad + (i % 8) * s + s / 2}
+          y={Math.floor(i / 8) * s + s / 2}
+          r={s / 2}
+          interaction={interaction}
+          label={`Play ${FILES[i % 8]}${Math.floor(i / 8) + 1}`}
+        />
+      ))}
       {Array.from({ length: 8 }, (_, i) => (
         <g key={i} className="fill-fg-3 font-mono text-[10px]">
           <text x={6} y={i * s + s / 2 + 3.5} textAnchor="middle">
@@ -183,9 +250,9 @@ const OthelloBoard = ({ view }: OthelloBoardProps) => {
 
 type HexBoardProps = {
   view: BoardViewData;
-};
+} & Interaction;
 
-const HexBoard = ({ view }: HexBoardProps) => {
+const HexBoard = ({ view, ...interaction }: HexBoardProps) => {
   const n = view.cols;
   const r = 13;
   const w = Math.sqrt(3) * r;
@@ -259,6 +326,14 @@ const HexBoard = ({ view }: HexBoardProps) => {
               strokeWidth={1.5}
             />
             {view.last.includes(i) && <LastMark x={x} y={y} r={3.5} onBlack={c === 'b'} />}
+            <Hit
+              i={i}
+              x={x}
+              y={y}
+              r={r * 0.9}
+              interaction={interaction}
+              label={`Play ${'abcdefghijk'[col]}${row + 1}`}
+            />
           </g>
         );
       })}
@@ -271,20 +346,20 @@ type BoardViewProps = {
   view: BoardViewData;
   className?: string;
   label: string;
-};
+} & Interaction;
 
 /** Pure SVG renderer for every arena game. */
-const BoardView = ({ game, view, className, label }: BoardViewProps) => (
+const BoardView = ({ game, view, className, label, onCell, targets }: BoardViewProps) => (
   <figure
     data-slot="board"
-    role="img"
+    role={onCell ? 'group' : 'img'}
     aria-label={label}
     className={cn('mx-auto w-full', className)}
   >
     {game === 'chess' && <ChessBoard view={view} />}
-    {game === 'go9' && <GoBoard view={view} />}
-    {game === 'othello' && <OthelloBoard view={view} />}
-    {game === 'hex' && <HexBoard view={view} />}
+    {game === 'go9' && <GoBoard view={view} onCell={onCell} targets={targets} />}
+    {game === 'othello' && <OthelloBoard view={view} onCell={onCell} targets={targets} />}
+    {game === 'hex' && <HexBoard view={view} onCell={onCell} targets={targets} />}
   </figure>
 );
 

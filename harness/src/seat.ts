@@ -1,4 +1,5 @@
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { buildWasm, wasmPaths } from './wasm';
 import { relative, resolve } from 'node:path';
 import { GAMES, randomPlayer, type Task } from '@arena/shared';
 import { agent, bumpSessions, now, post, records, rungs, setAgent, tasks, track } from './board';
@@ -148,7 +149,7 @@ export const submit = async (taskId: string) => {
     await git(['checkout', '--', relative(ARENA_ROOT, crateDir)]);
     await git(['clean', '-fdq', '--', relative(ARENA_ROOT, crateDir)]);
     logVerdict(task.track_id, `buried · ${task.title} · ${why}`);
-    await commitAndPush([playbook(task.track_id)], `${task.track_id} playbook: lesson from “${task.title}”`);
+    await commitAndPush([playbook(task.track_id)], `docs(${task.track_id}): playbook lesson from “${task.title}”\n\nBuried: ${why}`);
     await db.update('tasks', { id: task.id }, { status: 'dead', closed_at: now() });
     await post('patch_rejected', { track_id: task.track_id, agent_id: 'referee', task_id: task.id, match_id: matchId, title: `Rejected: ${task.title}`, detail: why });
     await post('idea_dead', { track_id: task.track_id, agent_id: 'strategist', task_id: task.id, title: task.title, detail: why });
@@ -215,9 +216,12 @@ export const submit = async (taskId: string) => {
     // Ship: the crate and its playbook go to main together.
     const delta = prev === null ? 'first rated version' : `${gate.est.elo - prev >= 0 ? '+' : ''}${Math.round(gate.est.elo - prev)}`;
     logVerdict(task.track_id, `${version} shipped · ${task.title} · rated ${Math.round(gate.est.elo)} (${delta})`);
+    // The browser build: visitors play the version that just shipped.
+    const wasm = await buildWasm(task.track_id, { version, elo: Math.round(gate.est.elo) });
+    if (!wasm) log(`wasm build failed for ${task.track_id}; shipping without a playable build`);
     const pushed = await commitAndPush(
-      [crateDir, resolve(ENGINES_DIR, 'Cargo.lock'), playbook(task.track_id)],
-      `${task.track_id} ${version}: ${task.title}`,
+      [crateDir, resolve(ENGINES_DIR, 'Cargo.lock'), playbook(task.track_id), ...(wasm ? wasmPaths(task.track_id) : [])],
+      `feat(${task.track_id}): ${task.title}\n\nArena ${version}, rated ${Math.round(gate.est.elo)} (${delta}).`,
     );
     if (!pushed) {
       // Undo the local ship commit so the burial pushes only the playbook lesson.

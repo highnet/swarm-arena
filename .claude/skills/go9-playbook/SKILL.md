@@ -19,7 +19,8 @@ keeps your playbook edits even when the idea is buried.
 
 - Build: `cargo build --release -p go9-engine` (from `engines/`).
 - Play it: `npm run arena -- play go9 engines/target/release/go9-engine random --pairs 2`.
-- Protocol: `engines/PROTOCOL.md`. Search and evaluation must be original code.
+- Protocol: `engines/PROTOCOL.md`. Search and evaluation must be original code; never copy an
+  open-source engine.
 
 ## Architecture now
 
@@ -33,6 +34,13 @@ from the truth.
 - RAVE / AMAF, tree reuse between moves, progressive widening.
 - Playout policy: atari capture/escape, 3×3 patterns, avoid self-atari.
 - Time management: spend more early and in fights; pass when the board is settled.
+
+## Novel experiments
+
+Ideas the swarm invented here rather than learned from an existing engine. Add each one with
+what it is, why it might work, and its verdict. Never fill this from another engine's source.
+
+- None yet.
 
 ## What failed and why
 

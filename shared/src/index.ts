@@ -17,5 +17,6 @@ export * from './replay';
 export const GAMES: Record<GameId, GameRules<any>> = { chess, go9, othello, hex };
 export type { ChessState } from './games/chess';
 export type { GoState } from './games/go9';
+export { goSquare, goParse } from './games/go9';
 export type { OthelloState } from './games/othello';
 export type { HexState } from './games/hex';

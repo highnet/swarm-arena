@@ -1,5 +1,6 @@
 import { Suspense } from 'react';
 import type { Metadata } from 'next';
+import { pageMeta } from '@/lib/site';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft, CircleDashed, CircleDot, CircleSlash, GitMerge } from 'lucide-react';
@@ -7,14 +8,17 @@ import type { GameId, Task } from '@arena/shared';
 import { BoardFeed } from '@/components/arena/BoardFeed';
 import { Lineage } from '@/components/arena/Lineage';
 import { RaceChart } from '@/components/arena/RaceChart';
+import { SourceViewer } from '@/components/arena/SourceViewer';
 import { TrackLadder } from '@/components/arena/TrackLadder';
 import { Badge } from '@/components/ui/Badge';
 import { Panel } from '@/components/ui/Panel';
+import { buttonVariants } from '@/components/ui/Button';
 import { Typography } from '@/components/ui/Typography';
 import { getSnapshot } from '@/lib/data';
 import { lineage, newestFirst, snapshotNow, trackSummaries } from '@/lib/derive';
 import { formatDay, formatElo, formatTime } from '@/lib/format';
 import { getPlaybook } from '@/lib/playbook';
+import { getEngineSource } from '@/lib/source';
 import { SERIES, SHORT_NAME, TRACK_ORDER } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
 
@@ -22,11 +26,18 @@ type EnginePageProps = {
   params: Promise<{ id: string }>;
 };
 
+const REPO_URL = process.env.NEXT_PUBLIC_REPO_URL ?? 'https://github.com/highnet/swarm-arena';
+
 export const generateStaticParams = async () => TRACK_ORDER.map((id) => ({ id }));
 
 export const generateMetadata = async ({ params }: EnginePageProps): Promise<Metadata> => {
   const { id } = await params;
-  return { title: SHORT_NAME[id as GameId] ?? 'Engine' };
+  const name = SHORT_NAME[id as GameId] ?? 'Engine';
+  return pageMeta(
+    `${name} engine`,
+    `The ${name} engine the swarm is building: rating by version, ladder, lineage, playbook and source. Play against it in your browser.`,
+    `/engines/${id}`,
+  );
 };
 
 const TASK_TONE = {
@@ -83,6 +94,7 @@ const EngineContent = async ({ params }: EnginePageProps) => {
 
   const { nodes, beforeFirst } = lineage(s, track.id);
   const playbook = await getPlaybook(track.id);
+  const source = await getEngineSource(track.id);
 
   return (
     <main className="mx-auto w-full max-w-[90rem] px-4 pb-16 pt-6 sm:px-6">
@@ -112,6 +124,12 @@ const EngineContent = async ({ params }: EnginePageProps) => {
             ? 'Every opponent on the ladder is beaten; each new version now has to beat the last.'
             : `Next opponent: ${track.nextRung?.label} (${formatElo(track.nextRung?.elo)}).`}
         </Typography>
+        <Link
+          href={`/engines/${track.id}/play`}
+          className={buttonVariants({ variant: 'primary', className: 'mt-4' })}
+        >
+          Play against it
+        </Link>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_23rem]">
@@ -194,6 +212,19 @@ const EngineContent = async ({ params }: EnginePageProps) => {
           )}
         </Panel>
       </div>
+
+      <Panel
+        id="source"
+        title="Source"
+        className="mt-4"
+        actions={
+          <Typography variant="meta" as="span">
+            engines/{track.id} on main · written by the swarm
+          </Typography>
+        }
+      >
+        <SourceViewer files={source} repoUrl={REPO_URL} />
+      </Panel>
 
       <Panel title="Matches" className="mt-4" bodyClassName="overflow-x-auto">
         <table className="w-full min-w-[40rem] text-[13px]">

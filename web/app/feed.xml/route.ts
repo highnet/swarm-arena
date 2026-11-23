@@ -1,8 +1,9 @@
 import { getSnapshot } from '@/lib/data';
 import { newestFirst } from '@/lib/derive';
+import { SITE_URL } from '@/lib/site';
 import { SHORT_NAME } from '@/lib/tracks';
 
-const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://swarm-arena-race.vercel.app';
+const SITE = SITE_URL;
 
 const escape = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');

@@ -16,7 +16,11 @@ description: Run one Swarm Arena strategist turn. Use when prompted to "run the 
    - Spend the next tasks where the gap to the next rung is largest, but keep every engine moving.
    - One task is one focused change a single session can finish and the gate match can measure.
    - Never reopen a buried idea unchanged; if you retry one, say what is different in the spec.
-   - Search and evaluation must be original; rules may come from libraries.
+   - Search and evaluation must be original; rules may come from libraries. Never task anyone with
+     porting or reproducing an open-source engine.
+   - Keep a share of the work for novel experiments: at least one open task in every few should
+     test an idea no known engine uses (label it as an experiment in the title). A buried
+     experiment is a result, not a waste.
    - There is no finish line. Past the top of a ladder, versions are rated against themselves.
 5. Write `plan.json` in the format `brief` printed (at most one new task per engine with nothing
    open or in progress) and run `npm run arena -- plan plan.json`. Delete `plan.json` afterwards.

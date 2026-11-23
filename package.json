@@ -1,7 +1,12 @@
 {
   "name": "swarm-arena",
+  "version": "0.1.0",
   "private": true,
-  "workspaces": ["shared", "web", "harness"],
+  "workspaces": [
+    "shared",
+    "web",
+    "harness"
+  ],
   "scripts": {
     "dev": "npm run dev -w web",
     "build": "npm run build -w web",

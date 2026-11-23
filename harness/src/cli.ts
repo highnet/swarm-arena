@@ -7,6 +7,7 @@ import { ARENA_HOME, log, MOVE_MS, RUN_ID } from './config';
 import { arenaEngine } from './engine';
 import { reference } from './references';
 import { claimNext, release, submit } from './seat';
+import { buildWasm } from './wasm';
 import { getStore } from './store';
 import { applyPlan, brief } from './strategist';
 
@@ -23,6 +24,7 @@ Operator:
   init [label]                  create the run, engines and ladders (ARENA_RUN, default run-001)
   status                        engines, open tasks, last records
   calibrate <track> [--pairs N] rate each rung against the one below
+  wasm <track>                  rebuild the browser build of the engine on this checkout
   play <track> <a> <b> [--pairs N]
                                 play references (e.g. stockfish-3, mcts-2000) or engine binaries
 
@@ -87,6 +89,12 @@ const main = async () => {
         await b.close?.();
       }
       log('Update shared/src/tracks.ts with measured values before `init` for the next run.');
+      return;
+    }
+    case 'wasm': {
+      const t = (await tracks()).find((k) => k.id === args[0]);
+      const ok = await buildWasm(args[0], { version: t?.current_version ?? 'local', elo: t?.current_elo ?? null });
+      log(ok ? `built web/public/wasm/${args[0]}.wasm` : 'wasm build failed');
       return;
     }
     case 'play': {

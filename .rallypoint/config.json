@@ -1,0 +1,27 @@
+{
+  "$schema": "https://rallypoint.tools/schema/config.json",
+  "integrationBranch": "main",
+  "branchPrefix": "agent/",
+  "claimRefPrefix": "rallypoint-claims/issue-",
+  "sessionRefPrefix": "rallypoint-sessions/",
+  "sharedIdentity": "",
+  "staleClaimHours": 3,
+  "stalePullRequestHours": 24,
+  "maxOpenPullRequests": 15,
+  "labels": {
+    "claimed": "status:claimed",
+    "blocked": "status:blocked",
+    "deferred": "status:deferred",
+    "human": "needs:human",
+    "approved": "review:approved",
+    "changesRequested": "status:changes-requested",
+    "mergedUnreviewed": "merged:unreviewed",
+    "improvement": "loop:improvement"
+  },
+  "improvement": {
+    "tunablePaths": [".rallypoint/roles/"],
+    "evaluationSample": 10,
+    "windowDays": 14,
+    "counterTolerance": 0.1
+  }
+}

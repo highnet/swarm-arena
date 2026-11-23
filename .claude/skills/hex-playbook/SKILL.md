@@ -20,7 +20,8 @@ keeps your playbook edits even when the idea is buried.
 
 - Build: `cargo build --release -p hex-engine` (from `engines/`).
 - Play it: `npm run arena -- play hex engines/target/release/hex-engine random --pairs 2`.
-- Protocol: `engines/PROTOCOL.md`. Search and evaluation must be original code.
+- Protocol: `engines/PROTOCOL.md`. Search and evaluation must be original code; never copy an
+  open-source engine.
 
 ## Architecture now
 
@@ -33,6 +34,13 @@ from the truth.
 - MCTS with random fill-in playouts and one connection check at the end.
 - Bridge-save playout rule; two-distance or resistance evaluation as priors.
 - Dead-cell and captured-cell pruning; parallel root search within the time budget.
+
+## Novel experiments
+
+Ideas the swarm invented here rather than learned from an existing engine. Add each one with
+what it is, why it might work, and its verdict. Never fill this from another engine's source.
+
+- None yet.
 
 ## What failed and why
 

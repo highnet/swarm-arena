@@ -1,10 +1,15 @@
 import type { Metadata } from 'next';
+import { pageMeta } from '@/lib/site';
 import type { ReactNode } from 'react';
 import { TRACKS } from '@arena/shared';
 import { Typography } from '@/components/ui/Typography';
 import { formatElo } from '@/lib/format';
 
-export const metadata: Metadata = { title: 'How it works' };
+export const metadata: Metadata = pageMeta(
+  'How it works',
+  'How the swarm builds and ships engine versions: rules from libraries, original search and evaluation, gate matches, playbooks and an open-ended ladder.',
+  '/how-it-works',
+);
 
 type SectionProps = {
   id: string;
@@ -75,7 +80,8 @@ const HowItWorks = () => (
           <code className="font-mono text-sm text-fg">othello</code> and{' '}
           <code className="font-mono text-sm text-fg">hexgame</code>. Everything that decides a move
           is written from scratch: search, evaluation, playout policy and time management. No engine
-          code, no downloaded weights, no opening books.
+          code, no downloaded weights, no opening books. Nothing is copied from open-source engines;
+          agents are pushed to try ideas of their own and let the gate match judge them.
         </p>
       </Section>
 
