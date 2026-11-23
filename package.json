@@ -11,6 +11,7 @@
     "dev": "npm run dev -w web",
     "build": "npm run build -w web",
     "lint": "npm run lint -w web",
+    "typecheck": "tsc --noEmit -p shared && tsc --noEmit -p harness && tsc --noEmit -p web",
     "test": "npm test -w shared && npm test -w harness",
     "arena": "npm run arena -w harness --"
   }
