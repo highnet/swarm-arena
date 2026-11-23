@@ -71,7 +71,13 @@ One thread, modest memory, and every reply within the `go <ms>` budget (200 ms i
   (a few random plies or an opening list) before small weight differences can be read: without
   one, repeats of the same setting differed by ±10 games out of 40.
 - Evaluation: edge patterns (an edge-configuration table), interior stability, parity.
-- Exact endgame solver once few empties remain.
+- Endgame solver (#94 built one at N = 14, buried on a near-deterministic gate; see "What failed"):
+  resubmit it once the gate varies its openings, then try a small TT inside the
+  solve (from ~10 empties up; transpositions are common late); scale N with the budget (each
+  empty ~3×: N 15 at ~0.6 s, 16 at ~1.8 s, the site's 0.5-3 s); a win/loss/draw null-window
+  solve (-1, 1) one or two empties beyond N, since only the result counts for the rating;
+  start the solve one or two empties early and keep its partial root result; cheaper child
+  generation (one `available_moves` per child is most of the cost).
 - Quiescence follow-ups (#59 was buried flat): extend on *new* corner access only (corner
   became legal on the last ply) instead of any corner on offer; or drop stand-pat when the
   opponent's only threat is a corner and the mover has fewer than 3 moves; or spend the nodes on
@@ -177,6 +183,52 @@ differently. Never re-propose an idea from this list unchanged.
   Discs only get added, so transpositions come from move-order permutations inside a ply band
   (plus passes). With branching ~10 the gain showed as ordering (earlier cutoffs, −45% nodes)
   more than as direct cut-off hits.
+- **Exact endgame solver (task #94, PR #100 lesson; buried, not shipped).** Code: commits
+  8ab673e and e2b240a on branch `agent/94-exact-endgame-solver-search-to-the-final-d` (may vanish
+  with the branch; the design below is enough to rebuild it). At `SOLVE_EMPTIES` = 14 empties or fewer, `best_move()`
+  first runs the normal midgame search for 10% of `go <ms>` (the fallback move, also the root's
+  first move), then `solve_root()` solves to the end until 80% of the budget. Its own negamax
+  (`Solver::solve`) on the final disc difference, empties to the winner, no `evaluate()` calls;
+  two passes end the game as in the midgame terminal. Fail-soft alpha-beta in [-64, 64] with PVS
+  (null window after the first child, root included). Order: fastest-first (fewest opponent
+  replies) with an odd-quadrant parity tiebreak; from 6 empties down parity only; the last empty
+  is a special case (mover, else opponent, else nobody). Shares the 1024-node clock check. An
+  unfinished solve still plays its best root move once the first root move is exact (any later
+  replacement was proven better); otherwise the midgame move. No TT inside the solve. About 45 M
+  nodes/s here.
+- Solve-time table (`solve_report` ignored test, 8 seeded positions per empty count, release,
+  wall clock, 2 s cap per position; "<=100" counts solves within half a go-200 budget):
+
+  | empties | plain (no order) | fastest+parity | fastest+parity+PVS (submitted) |
+  | --- | --- | --- | --- |
+  | 12 | median 22 ms, max 162, 7/8 | 7.4 / 15.5, 8/8 | 6.8 / 19.1, 8/8, 0.34 M nodes |
+  | 13 | 47 / 473, 6/8 | 16.0 / 24.9, 8/8 | 13.0 / 28.3, 8/8, 0.70 M |
+  | 14 | 82 / 2000+, 5/8 | 37.1 / 77.7, 8/8 | 33.7 / 55.7, 8/8, 1.37 M |
+  | 15 | - | 94 / 432, 5/8 | 64 / 368, 5/8, 5.0 M |
+  | 16 | - | 256 / 333, 0/8 | 162 / 382, 1/8, 8.8 M |
+  | 17 | - | 745 / 2000+, 0/8 | 646 / 2000+, 0/8 |
+  | 18-20 | - | 2000+ (cap) | 2000+ (cap) |
+
+  Fastest-first is the big win (5-15× fewer nodes than plain at 12-14); parity alone halves
+  nodes, on top of fastest-first it adds ~10%; PVS another 15-30%. Each extra empty costs ~3×.
+  N = 14 is the largest count with every position under 100 ms. The spec's "16-20 empties in
+  200 ms" needs a TT and/or faster move generation than the crate's `make_move` per child.
+- Measured (#94): `arena versus othello --pairs 20` vs main v0.3: +20 −20, but every game was
+  won by the second player: with no opening variety each colour pair replays one game, so it
+  says nothing. Local `arena play … edax-4 --pairs 10` is just as deterministic: main v0.3 and
+  the solver both +1 −19 (the referee's gate is nearly as deterministic, below). **Use a
+  seeded random-opening driver instead**: 80 games vs main, 6 random opening plies per pair, both
+  colours, `go 200`: **+46 −32 =2** (59%, about +60 Elo), slowest reply 143 ms. Tests: the solve
+  matches full-width minimax on 40+ endgames (4-10 empties and a hand-built 9-empty position),
+  handles forced passes, and self-play from a solved 12-empty position ends at the solved score.
+- **Referee (#94):** 0–40 vs Edax level 4, rated 541 ± 485, "not above 1265". Read it with care:
+  the 40 gate games held only **4 distinct move sequences**, so the gate measured about 2 games
+  per colour, repeated. The gate has almost no opening variety on this rung: v0.3 alone has
+  scored 8–32, 5–35, 19–18–3 and 18–22 there. Locally main v0.3 also goes +1 −19 against the
+  same Edax 4. Against v0.3 on 80 varied games the solver scored +46 −32 =2. Before retrying,
+  the gate needs opening variety (seeded random opening plies, as in the head-to-head above);
+  then resubmit unchanged. A solver can only help after the midgame reaches 14 empties, and in
+  these Edax games the midgame was already lost.
 
 ## Results log
 
@@ -187,3 +239,4 @@ differently. Never re-propose an idea from this list unchanged.
 - 2026-11-23 16:32 UTC · buried · Experiment: corner quiescence at the alpha-beta leaves · Rated 962 ± 163, not above 1459.
 - 2026-11-23 17:28 UTC · buried · Frontier (potential mobility) and edge-anchored stable discs in the Othello evaluation · Rated 1309 ± 108, not above 1459.
 - 2026-11-23 18:29 UTC · v0.3 passed the referee · Resubmit #67: potential mobility + edge-anchored stable discs, measured on the fixed gate · rated 1265 (+92 vs v0.2 on the same rung)
+- 2026-11-23 19:34 UTC · buried · Exact endgame solver: search to the final disc count once few empties remain · Rated 541 ± 485, not above 1265.

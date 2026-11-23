@@ -20,6 +20,27 @@ const EXPAND_AT: u32 = 2;
 const MAX_NODES: usize = 2_000_000;
 /// Playouts between clock checks.
 const CHECK_EVERY: u32 = 64;
+/// Inferior-move pruning at expansion (#95): no children on dead cells or on cells the
+/// opponent of the mover has captured.
+pub const PRUNE_EXPANSION: bool = true;
+
+/// The cells a node with this position gets children on: every empty cell, minus (with
+/// [`PRUNE_EXPANSION`]) the dead cells and the pairs the opponent captured. Never empty while
+/// a cell is empty.
+pub fn candidates(black: u128, white: u128, black_to_move: bool) -> u128 {
+    let empty = ALL & !(black | white);
+    if !PRUNE_EXPANSION {
+        return empty;
+    }
+    let inf = board::inferior(black, white);
+    let theirs = inf.captured[black_to_move as usize];
+    let keep = empty & !inf.dead & !theirs;
+    if keep != 0 {
+        keep
+    } else {
+        empty
+    }
+}
 
 #[derive(Clone, Copy)]
 struct Node {
@@ -83,7 +104,7 @@ pub fn search(
     let mut rng = Rng::new(seed);
     let mut nodes: Vec<Node> = Vec::with_capacity(1 << 16);
     nodes.push(Node::new(u8::MAX));
-    expand(&mut nodes, 0, empties, &mut rng);
+    expand(&mut nodes, 0, candidates(black, white, black_to_move), &mut rng);
 
     let mut path: Vec<u32> = Vec::with_capacity(128);
     let mut playouts = 0u32;
@@ -102,9 +123,8 @@ pub fn search(
             let node = nodes[id as usize];
             if !node.expanded {
                 if node.visits + 1 >= EXPAND_AT && nodes.len() + 121 <= MAX_NODES {
-                    let empty = ALL & !(b | w);
-                    if empty != 0 {
-                        expand(&mut nodes, id, empty, &mut rng);
+                    if ALL & !(b | w) != 0 {
+                        expand(&mut nodes, id, candidates(b, w, btm), &mut rng);
                         continue;
                     }
                 }
@@ -294,4 +314,23 @@ mod tests {
         )
         .is_none());
     }
+
+    #[test]
+    fn expansion_skips_dead_and_opponent_captured_cells() {
+        // Black e2 captures e1 and f1; Black f5 g5 g6 f7 make f6 dead.
+        let black = 1u128 << 15 | [49, 50, 61, 71].iter().fold(0u128, |m, &i| m | 1u128 << i);
+        let (e1, f1, f6) = (1u128 << 4, 1u128 << 5, 1u128 << 60);
+        let empty = ALL & !black;
+        // White to move: no children on the dead cell or Black's pair.
+        let c = candidates(black, 0, false);
+        assert_eq!(c, empty & !(e1 | f1 | f6));
+        // Black to move may still play its own pair, never the dead cell.
+        assert_eq!(candidates(black, 0, true), empty & !f6);
+        // A lone empty cell is always kept.
+        let last = ALL & !board::LEFT & !(1u128 << 60);
+        assert_eq!(candidates(last, board::LEFT, true).count_ones(), 1);
+        let out = search(black, 0, false, Limit::Playouts(2000), 3).unwrap();
+        assert_eq!((e1 | f1 | f6) >> out.mv & 1, 0);
+    }
+
 }

@@ -9,6 +9,7 @@ export { chess, go9, hex, othello };
 export * from './elo';
 export * from './players';
 export * from './referee';
+export * from './openings';
 export * from './model';
 export * from './tracks';
 export * from './replay';

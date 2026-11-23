@@ -21,11 +21,20 @@ export type MatchSpec = {
   pairs: number;
   purpose: Match["purpose"];
   taskId?: string | null;
+  /**
+   * Seed for each pair's random opening (`matchOpenings`). Omit to start every game from the
+   * initial position (calibration does). One submit uses one seed for all its gate matches.
+   */
+  openingSeed?: number;
 };
 
 /** Play a match, store every game, and post the verdict. Returns the performance estimate. */
 export const runMatch = async (spec: MatchSpec) => {
   const db = getStore();
+  const seedNote =
+    spec.openingSeed === undefined
+      ? ""
+      : `, random openings from seed ${spec.openingSeed}`;
   const id = `${RUN_ID}-${spec.track}-${Date.now().toString(36)}`;
   await db.insert("matches", {
     id,
@@ -44,7 +53,7 @@ export const runMatch = async (spec: MatchSpec) => {
     finished_at: null,
   });
   log(
-    `match ${id}: ${spec.candidateVersion} vs ${spec.opponentLabel}, ${spec.pairs * 2} games`,
+    `match ${id}: ${spec.candidateVersion} vs ${spec.opponentLabel}, ${spec.pairs * 2} games${seedNote}`,
   );
   if (spec.taskId) {
     const what = {
@@ -57,7 +66,7 @@ export const runMatch = async (spec: MatchSpec) => {
       agent_id: "referee",
       task_id: spec.taskId,
       match_id: id,
-      title: `${what} started: ${spec.candidateVersion} vs ${spec.opponentLabel}, ${spec.pairs * 2} games.`,
+      title: `${what} started: ${spec.candidateVersion} vs ${spec.opponentLabel}, ${spec.pairs * 2} games${seedNote}.`,
     });
   }
   const forfeits: string[] = [];
@@ -68,6 +77,7 @@ export const runMatch = async (spec: MatchSpec) => {
     spec.pairs,
     {
       moveTimeMs: MOVE_MS + MOVE_SLACK_MS,
+      openingSeed: spec.openingSeed,
       onGame: async (g, i) => {
         const engineFirst = i % 2 === 0;
         if (g.offender !== null && (g.offender === 0) === engineFirst) {
@@ -113,7 +123,7 @@ export const runMatch = async (spec: MatchSpec) => {
     match_id: id,
     task_id: spec.taskId ?? null,
     title: `${GAMES[spec.track].name} ${spec.candidateVersion} vs ${spec.opponentLabel}: ${score}`,
-    detail: `Performance ${Math.round(est.elo)} ± ${Math.round(est.error)} over ${games} games.${forfeits.length ? ` ${forfeits.length} forfeits by the engine.` : ""}`,
+    detail: `Performance ${Math.round(est.elo)} ± ${Math.round(est.error)} over ${games} games${seedNote}.${forfeits.length ? ` ${forfeits.length} forfeits by the engine.` : ""}`,
     data: {
       wins: result.wins,
       draws: result.draws,
@@ -121,6 +131,7 @@ export const runMatch = async (spec: MatchSpec) => {
       elo: Math.round(est.elo),
       error: Math.round(est.error),
       forfeits,
+      opening_seed: result.openingSeed,
     },
   });
   return { matchId: id, est, result, forfeits };

@@ -1,0 +1,1 @@
+- 2026-11-23 · **endgame solver** · Othello · buried: Rated 541 ± 485, not above 1265. · Exact endgame solver: search to the final disc count once few empties remain
