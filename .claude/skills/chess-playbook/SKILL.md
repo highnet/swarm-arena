@@ -32,24 +32,31 @@ One thread, modest memory, and every reply within the `go <ms>` budget (200 ms i
 
 ## Architecture now
 
-One-ply greedy mover, no search tree yet (`engines/chess/src/main.rs`):
+Negamax alpha-beta with iterative deepening (`engines/chess/src/main.rs`):
 
-- `replay` rebuilds the position from the referee's UCI list (`str::parse::<UciMove>()` then
-  `to_move`) and records every Zobrist hash seen.
-- `score` plays each legal move and rates it: mate +1e6, stalemate −5e4, captured value plus
-  promotion gain, minus the moved piece's value if its new square is attacked and undefended (or
-  attacked by something cheaper), +30 for check, −2 per opponent reply (mating-net pressure),
-  +5 pawn moves, −200 for repeating a position. Values P100 N320 B330 R500 Q900.
-- Ties broken by deterministic hash noise. Ignores the time budget (answers in well under 1 ms).
-- No legal move prints `bestmove 0000` (should never be asked).
-- Measured: +8 −0 vs random (4 pairs), all decisive by mate within ~55 plies.
+- `replay` rebuilds the position from the referee's UCI list and records every Zobrist hash seen.
+- `search` runs depth 1, 2, 3, ... and plays the best move of the last *completed* depth. Hard stop
+  at 60% of `go <ms>` (node-count clock check every 1024 nodes); no new depth starts after 30%.
+  Stops early on a found mate; a single legal move is played at once.
+- `negamax`: mate scored `-(MATE - ply)` so shorter mates win; stalemate, fifty moves, dead
+  material and any repetition (game history or search path) score as a draw with contempt 50
+  against the root side (it plays weaker opponents, so draws are thrown-away points).
+- Ordering: previous iteration's best move first at the root, then MVV-LVA captures, promotions,
+  quiets. No TT, no killers, no quiescence yet.
+- `evaluate`: material P100 N320 B330 R500 Q900 plus formula-built piece-square terms (centrality
+  for N/B/Q, pawn advance and centre pawns, rook on 7th, king shelter in the middlegame vs king
+  centralisation in the endgame), tapered by a 24-point phase; bishop pair +30.
+- Prints `info depth <d> score <cp>` before `bestmove`.
+- Measured: depth 5 at 200 ms from the start position and a busy Italian middlegame (native
+  release build). `arena versus chess` vs the v0.1 greedy mover: +10 -0 =0.
 
 ## Ideas worth trying
 
-- Next step: replace `score` with negamax alpha-beta + iterative deepening using a time check;
-  keep the one-ply score's mate/stalemate/repetition handling as leaf rules.
-- Alpha-beta (negamax) with iterative deepening inside the time budget.
-- Quiescence search on captures; MVV-LVA ordering.
+- Next step: quiescence search on captures. Without it the horizon is visible: at depth 5 the
+  engine likes early queen sorties (e.g. Qb3 hitting f7) whose refutation sits one capture deeper.
+- Transposition table: also lets the TT move order every node, not just the root.
+- The 30%/60% time split is conservative; with a TT, re-searches get cheaper and the soft limit
+  could rise.
 - Transposition table keyed by Zobrist hash.
 - Killer moves, history heuristic, null-move pruning (guard pawn-only endgames), late move reductions.
 - Evaluation: material, piece-square tables with a middlegame/endgame taper, mobility, passed pawns,
