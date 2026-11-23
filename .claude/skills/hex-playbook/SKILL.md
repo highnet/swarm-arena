@@ -60,16 +60,6 @@ MCTS (UCT) since #42, with RAVE since #50. Three files in `engines/hex/src`:
   are split ⌈k/2⌉/⌊k/2⌋ as before (k keeps the parity of all empties, so the per-colour counts
   match the uniform fill). `fill_uniform` is kept for the switch and the tests. Only interior
   bridges: edge templates were tried and buried (#73, below), no ladders.
-  **Ownership-guided split (#88, `search::OWNERSHIP_LAMBDA = 0.25`, 0 = v0.4 exactly):** for
-  the first half of each `go` (half the clock, or half of `Limit::Playouts`) the search counts,
-  per cell, how often Black owns it on the final fill board; then `board::ownership_weights`
-  turns that map into two acceptance tables (Black to move / White to move, weight
-  `0.5 + λ(own_side − 0.5)` over the largest weight `0.5 + λ/2`) and the rest of the playouts use
-  `fill_weighted`: bridge pairing unchanged, then the side to move's ⌈k/2⌉ cells are drawn by
-  successive weighted sampling without replacement (draw a remaining cell uniformly, keep it if
-  a 32-bit draw is below its threshold, else redraw), so per-colour counts are exact. A table
-  entry of `u32::MAX` accepts without a draw, so λ = 0 replays `fill_bridges`' random stream
-  exactly (tested). The map resets every `go` and is frozen once the second half starts.
 - `search.rs`: node arena (`Vec<Node>`, 24 bytes a node, children contiguous and shuffled at
   expansion), expand a leaf on its 2nd visit, tree capped at 2M nodes (48 MB), clock checked
   every 64 playouts. `Limit::Playouts(n)` makes it deterministic for tests; `Limit::Time` is
@@ -145,7 +135,8 @@ what it is, why it might work, and its verdict. Never fill this from another eng
   most a few tens of percent). Local 200 ms, 20 games each: λ = 0.25 vs main (v0.4) **14–6**
   (`arena versus hex`), λ = 0.5 vs λ = 0 **13–7** (`arena play`). Games did vary (different
   lengths), but #73 also scored 14–6 locally and the referee's 40 did not confirm it, so treat
-  local 20-game results as weak. Verdict: see the results log for the referee's call on λ = 0.25.
+  local 20-game results as weak. Verdict: **buried** at 2572 ± 108 vs v0.4's 2607 (40 games vs v0.4, about even); code
+  reverted, design under 'What failed'.
 
 ## What failed and why
 
@@ -167,6 +158,21 @@ Never re-propose an idea from this list unchanged.
   (the uniform fill cut it in only 6.5% of 5000 fills in the test), so the pairing corrects few
   playouts, unlike interior bridges. Try instead: larger templates (IIIa, row 3) whose uniform
   cut rate is far higher, or count templates only when the stone also matters (part of a chain).
+- Ownership-guided fill-in (#88, buried at 2572 ± 108: no gain over v0.4 in the referee's 40
+  games). Design (reverted; commit 206c41f on pr#92's branch has the code): first half of each
+  `go` counts per cell how often Black owns it on the final fill board; second half, after the
+  unchanged bridge pairing, the side to move's ⌈k/2⌉ cells are drawn by successive weighted
+  sampling without replacement (uniform draw, accept with weight `0.5 + λ(own_side − 0.5)` over
+  `0.5 + λ/2`, else redraw), so colour counts stay exact; λ = 0 replayed `fill_bridges`' random
+  stream exactly (tested). λ = 0.25 vs main 14–6 and λ = 0.5 vs off 13–7 locally (20 games), the
+  same local 14–6 that #73 got and the referee again did not confirm. Likely why: the root
+  ownership map is averaged over the whole tree, so in the deep, narrow C = 0 lines it pushes
+  cells toward the root's consensus rather than the line's own fight, and RAVE already reads the
+  same per-cell statistics, so the bias adds little information the selection did not have.
+  Try instead: a per-node (or per-depth-band) map, a bias only on cells whose ownership is
+  near 0.5 at the root (contested), or use the map for priors/pruning (cells owned > 95% by one
+  side as dead) rather than inside the playouts. Do not trust local 20-game `versus` gains of
+  14–6 or less: twice now they did not survive the referee.
 
 ## Results log
 
