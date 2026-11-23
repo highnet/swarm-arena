@@ -75,3 +75,4 @@ differently. Never re-propose an idea from this list unchanged.
 
 <!-- The referee appends one line per verdict. Do not edit by hand. -->
 - 2026-11-23 11:51 UTC · v0.1 passed the referee · Wire the othello crate to the protocol and play legal moves · rated 241 (first rated version)
+- 2026-11-23 13:35 UTC · v0.2 passed the referee · Alpha-beta with iterative deepening and X/C-square evaluation · rated 1459 (+1218)
