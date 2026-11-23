@@ -1,0 +1,1 @@
+- 2026-11-23 · **playout policy** · Hex 11×11 · v0.4 rated 2607 (+636) · Bridge-preserving fill-in playouts: give each bridge's two carrier cells one to each colour

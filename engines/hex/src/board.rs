@@ -107,14 +107,104 @@ pub fn playout(black: u128, white: u128, black_to_move: bool, rng: &mut Rng) -> 
     black_connects(fill(black, white, black_to_move, rng))
 }
 
+/// Bridge pairing in the fill-in (#60): before the random split, each bridge whose two carrier
+/// cells are both empty gives one carrier cell to each colour, so no playout cuts a bridge.
+pub const BRIDGE_PAIRING: bool = true;
+
 /// The fill-in of [`playout`] without the connection check: returns Black's final board
 /// (White owns every other cell). The search reads AMAF statistics from it.
+#[inline]
 pub fn fill(black: u128, white: u128, black_to_move: bool, rng: &mut Rng) -> u128 {
-    let mut empty = [0u8; CELLS];
+    if BRIDGE_PAIRING {
+        fill_bridges(black, white, black_to_move, rng)
+    } else {
+        fill_uniform(black, white, black_to_move, rng)
+    }
+}
+
+/// Uniform fill-in: every empty cell in one random order, alternating colours from the side to
+/// move (the side to move gets ⌈k/2⌉ of the k empty cells).
+pub fn fill_uniform(black: u128, white: u128, black_to_move: bool, rng: &mut Rng) -> u128 {
+    split(black, ALL & !(black | white), black_to_move, rng)
+}
+
+/// Shift `x` so that bit `i + d` lands on bit `i` (d may be negative).
+#[inline]
+const fn back(x: u128, d: i32) -> u128 {
+    if d >= 0 {
+        x >> d
+    } else {
+        (x << -d) & ALL
+    }
+}
+
+/// The three bridge directions that point down the board (each bridge is found once, from its
+/// upper stone): offset of the far stone, offsets of the two carrier cells, and the origin
+/// cells whose column leaves room for the bridge. Neighbours of (r, c) are (r, c±1),
+/// (r−1, c), (r−1, c+1), (r+1, c), (r+1, c−1).
+const BRIDGE_DIRS: [(i32, i32, i32, u128); 3] = [
+    // (r+1, c+1) through (r, c+1) and (r+1, c).
+    (12, 1, 11, ALL & !RIGHT),
+    // (r+2, c−1) through (r+1, c−1) and (r+1, c).
+    (21, 10, 11, ALL & !LEFT),
+    // (r+1, c−2) through (r, c−1) and (r+1, c−1).
+    (9, -1, 10, ALL & !LEFT & !col_mask(1)),
+];
+
+/// Every bridge of either colour whose carrier is empty, as its two carrier cells.
+/// Returns how many it wrote (at most 3 per stone, so 363 fits).
+#[inline]
+fn bridges(black: u128, white: u128, out: &mut [(u8, u8); 364]) -> usize {
+    let empty = ALL & !(black | white);
+    let mut n = 0;
+    for stones in [black, white] {
+        for (far, ca, cb, mask) in BRIDGE_DIRS {
+            let mut origins = stones & mask & back(stones, far) & back(empty, ca) & back(empty, cb);
+            while origins != 0 {
+                let a = origins.trailing_zeros() as i32;
+                out[n] = ((a + ca) as u8, (a + cb) as u8);
+                n += 1;
+                origins &= origins - 1;
+            }
+        }
+    }
+    n
+}
+
+/// Bridge-preserving fill-in: visit the bridges with an empty carrier in random order; each one
+/// whose two carrier cells are both still unassigned gives one (chosen at random) to each
+/// colour. The remaining empty cells are split as in [`fill_uniform`], minus one cell per pair
+/// for each side, so the side to move still gets ⌈k/2⌉ of all k empty cells.
+pub fn fill_bridges(black: u128, white: u128, black_to_move: bool, rng: &mut Rng) -> u128 {
+    let mut list = [(0u8, 0u8); 364];
+    let n = bridges(black, white, &mut list);
+    let mut taken = 0u128;
+    let mut black_gets = 0u128;
+    for i in 0..n {
+        let r = rng.next_u64();
+        let j = i + ((r >> 32) * (n - i) as u64 >> 32) as usize;
+        list.swap(i, j);
+        let (a, b) = list[i];
+        let pair = 1u128 << a | 1u128 << b;
+        if taken & pair == 0 {
+            taken |= pair;
+            black_gets |= 1u128 << if r & 1 == 0 { a } else { b };
+        }
+    }
+    let rest = ALL & !(black | white | taken);
+    split(black | black_gets, rest, black_to_move, rng)
+}
+
+/// Split the k cells of `empty` at random: ⌈k/2⌉ to the side to move, the rest to the other
+/// side. Returns Black's final board. After bridge pairing (p cells to each side) k has the
+/// parity of all k + 2p empties, so the side to move still ends with ⌈(k + 2p)/2⌉ of them.
+#[inline]
+fn split(black: u128, empty: u128, black_to_move: bool, rng: &mut Rng) -> u128 {
+    let mut cells = [0u8; CELLS];
     let mut k = 0;
-    let mut bits = ALL & !(black | white);
+    let mut bits = empty;
     while bits != 0 {
-        empty[k] = bits.trailing_zeros() as u8;
+        cells[k] = bits.trailing_zeros() as u8;
         k += 1;
         bits &= bits - 1;
     }
@@ -123,14 +213,13 @@ pub fn fill(black: u128, white: u128, black_to_move: bool, rng: &mut Rng) -> u12
     let mut picked = 0u128;
     for i in 0..mine {
         let j = i + rng.below(k - i);
-        empty.swap(i, j);
-        picked |= 1u128 << empty[i];
+        cells.swap(i, j);
+        picked |= 1u128 << cells[i];
     }
-    let rest = ALL & !(black | white | picked);
     if black_to_move {
         black | picked
     } else {
-        black | rest
+        black | (empty & !picked)
     }
 }
 
@@ -193,5 +282,88 @@ mod tests {
         // First player wins random fill-ins a bit more than half the time; it must not be
         // degenerate either way.
         assert!((900..1300).contains(&black_wins), "{black_wins}");
+    }
+
+    /// Random position: `stones` cells, alternating colours. Returns (black, white, black_to_move).
+    fn random_position(rng: &mut Rng, stones: usize) -> (u128, u128, bool) {
+        let (mut b, mut w) = (0u128, 0u128);
+        for s in 0..stones {
+            loop {
+                let c = rng.below(CELLS);
+                if (b | w) >> c & 1 == 0 {
+                    if s % 2 == 0 {
+                        b |= 1u128 << c;
+                    } else {
+                        w |= 1u128 << c;
+                    }
+                    break;
+                }
+            }
+        }
+        (b, w, stones % 2 == 0)
+    }
+
+    #[test]
+    fn bridge_fill_keeps_the_split() {
+        let mut rng = Rng::new(17);
+        for t in 0..2000 {
+            let (b, w, btm) = random_position(&mut rng, t % 110);
+            let u = fill_uniform(b, w, btm, &mut rng);
+            let p = fill_bridges(b, w, btm, &mut rng);
+            assert_eq!(p & b, b, "keeps Black's stones");
+            assert_eq!(p & w, 0, "never takes White's stones");
+            assert_eq!(p.count_ones(), u.count_ones(), "position {t}");
+        }
+    }
+
+    #[test]
+    fn bridges_are_found_in_all_six_directions() {
+        // Centre stone (5, 5) with a partner at each bridge offset: one bridge each, and the
+        // carriers are the two common neighbours.
+        let centre = 5 * 11 + 5;
+        for (dr, dc) in [(-2, 1), (-1, 2), (1, 1), (2, -1), (1, -2), (-1, -1)] {
+            let other = ((5 + dr) * 11 + 5 + dc) as u32;
+            let black = 1u128 << centre | 1u128 << other;
+            let mut out = [(0u8, 0u8); 364];
+            assert_eq!(bridges(black, 0, &mut out), 1, "offset ({dr}, {dc})");
+            let carrier = 1u128 << out[0].0 | 1u128 << out[0].1;
+            assert_eq!(carrier, grow(1u128 << centre) & grow(1u128 << other) & !black);
+            assert_eq!(bridges(0, black, &mut out), 1, "White, offset ({dr}, {dc})");
+        }
+        // Brute force over every pair of cells: a bridge is two non-adjacent cells with exactly
+        // two common neighbours (so nothing wraps around the board's sides).
+        for a in 0..CELLS as u32 {
+            for b in a + 1..CELLS as u32 {
+                let stones = 1u128 << a | 1u128 << b;
+                let common = grow(1u128 << a) & grow(1u128 << b) & !stones;
+                let adjacent = grow(1u128 << a) >> b & 1 == 1;
+                let want = usize::from(!adjacent && common.count_ones() == 2);
+                let mut out = [(0u8, 0u8); 364];
+                assert_eq!(bridges(stones, 0, &mut out), want, "cells {a} and {b}");
+            }
+        }
+        // An occupied carrier cell disables the bridge.
+        let black = 1u128 << centre | 1u128 << (centre + 12);
+        let mut out = [(0u8, 0u8); 364];
+        assert_eq!(bridges(black, 1u128 << (centre + 1), &mut out), 0);
+    }
+
+    #[test]
+    fn every_bridge_fill_keeps_a_black_bridge_connected() {
+        // Black bridge d4–e5 with an empty carrier, a White wall around it, White to move.
+        let (a, b) = (3 * 11 + 3, 4 * 11 + 4);
+        let black = 1u128 << a | 1u128 << b;
+        let white = 1u128 << (2 * 11 + 6) | 1u128 << (7 * 11 + 2) | 1u128 << (5 * 11 + 8);
+        let mut rng = Rng::new(5);
+        let mut cut = 0;
+        for _ in 0..5000 {
+            let fb = fill_bridges(black, white, false, &mut rng);
+            assert_ne!(reach(fb, 1u128 << a) >> b & 1, 0, "the bridge must hold");
+            if reach(fill_uniform(black, white, false, &mut rng), 1u128 << a) >> b & 1 == 0 {
+                cut += 1;
+            }
+        }
+        // The uniform fill does cut it sometimes (about a quarter of the time).
+        assert!(cut > 500, "{cut}");
     }
 }
