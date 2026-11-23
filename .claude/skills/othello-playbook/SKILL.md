@@ -152,6 +152,8 @@ differently. Never re-propose an idea from this list unchanged.
   counter-evidence yet: +35 −4 head-to-head vs v0.2 and, locally on the same Edax-4 yardstick,
   v0.2 +8 −12 vs candidate +10 −7 =3. **Resubmit it unchanged once v0.2 has an Edax-4 rating**
   (or the gate compares head-to-head); it is not a failed idea, it is an unmeasured one.
+  **Resubmitted unchanged as task #82** (same code, re-applied cleanly onto main) after #85 made the
+  referee rate main on the gate's own rung; the verdict is in the Results log.
 - **Large or phase-growing edge stability (task #67 tuning, not buried; kept small).** Stable
   discs weighted 8–23 per disc (growing as the board fills) lost to v0.2 alone (+14 −24) and with
   any frontier term; even 2+(60−e)/12 alone lost (+14 −26). Kept only as a flat 2 per disc.
@@ -173,3 +175,4 @@ differently. Never re-propose an idea from this list unchanged.
 - 2026-11-23 15:00 UTC · buried · Transposition table with stored best move ordering every inner node · Rated 1059 ± 135, not above 1459.
 - 2026-11-23 16:32 UTC · buried · Experiment: corner quiescence at the alpha-beta leaves · Rated 962 ± 163, not above 1459.
 - 2026-11-23 17:28 UTC · buried · Frontier (potential mobility) and edge-anchored stable discs in the Othello evaluation · Rated 1309 ± 108, not above 1459.
+- 2026-11-23 18:29 UTC · v0.3 passed the referee · Resubmit #67: potential mobility + edge-anchored stable discs, measured on the fixed gate · rated 1265 (+92 vs v0.2 on the same rung)
