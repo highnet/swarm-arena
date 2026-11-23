@@ -42,8 +42,23 @@ Negamax alpha-beta with iterative deepening (`engines/chess/src/main.rs`):
   material and any repetition (game history or search path) score as a draw with contempt 50
   against the root side (it plays weaker opponents, so draws are thrown-away points).
 - Ordering: the transposition-table move first (root: the previous iteration's best, or the
-  stored move from the previous `go`), then MVV-LVA captures, promotions, quiets. No killers or
-  history (tried in #87 and buried; see What failed).
+  stored move from the previous `go`), then MVV-LVA captures, promotions, then two killer slots
+  per ply (quiet beta cut-offs, keys 400k/399k), then quiets by a side/from/to history table
+  (+depth² per quiet cut-off, all halved past 300k). Killers and history are fresh each `go`;
+  root and quiescence ordering use MVV-LVA only. (#87's ordering, returned in #98 with PVS/LMR.)
+- PVS + LMR in `negamax` (#98): the first move gets the full window, later moves a null window
+  `(alpha, alpha+1)`, re-searched with the full window on a fail-high inside `(alpha, beta)`.
+  Late move reductions: at depth >= 3, not in check, from the 4th move on (`LMR_MIN_INDEX` 3),
+  a quiet move that is not the TT move, not a killer and does not give check is first searched
+  at depth-1-R (R 1; R 2 from the 9th move at depth >= 6), and re-searched at full depth (null
+  window) if it beats alpha. The root stays full-window and unreduced. `search_depth_feats`
+  turns ordering and PVS/LMR on or off; `pvs_report` (ignored test) prints the comparison.
+- Measured for #98 (`pvs_report`, native release): fixed depth over the 8 TT FENs, v0.4 (TT
+  only) → +ordering → full: d5 626k → 417k → 182k nodes (−71%), same move+score 6/8 (the other
+  two within 8 cp); d6 2.62M → 1.50M → 621k (−76%), 5/8 (within 8 cp, one equal-score king move).
+  At `go 200` (120 ms hard / 60 ms soft, ±1 ply between runs): start d6 (356k nodes) → d7 (114k);
+  Italian d5 (208k) → d6 (200k); Kiwipete d4 (152k) → d5 (160k): +1 ply on all three. Local
+  `arena versus chess` vs v0.4: +6 −3 =1 (ordering alone was +2 −16 =2).
 - Transposition table (`Tt`, task #63): 2^20 × 16 B = 16 MB, one slot per index, full 64-bit
   Zobrist key stored to reject collisions. Entry: key, score, compact move (from/to/promotion,
   top bit set so 0 = none), depth, generation (6 bits) + bound (exact/lower/upper). A
@@ -95,8 +110,9 @@ Negamax alpha-beta with iterative deepening (`engines/chess/src/main.rs`):
   which is most of the remaining qnode waste; checks in the first quiescence ply.
 - The 30%/60% time split is conservative; with the TT, re-searches are cheaper and the soft limit
   could rise (each new depth costs ~2.5–3× the previous with the table, ~6–7× without).
-- Null-move pruning (guard pawn-only endgames), late move reductions, PVS. LMR and PVS rely on
-  good quiet ordering; killers + history (#87, buried, see What failed) are the obvious partner.
+- Null-move pruning (guard pawn-only endgames), now that PVS/LMR (#98) make the null window
+  routine. LMR tuning: reduction by a log(depth)·log(index) table, reduce less for moves with
+  high history, and PVS/aspiration windows at the root (the root is still full-window).
 - Counter-move table (quiet reply to the opponent's last move) and history-gravity updates
   (penalise quiets that were searched before the cut move), once quiet ordering ships at all.
 - Opening variety for local testing: `arena versus` plays deterministic engines from the start
@@ -148,6 +164,7 @@ what it is, why it might work, and its verdict. Never fill this from another eng
   number; (2) if it still loses, ship it together with something that uses the better move
   order (LMR or PVS), since the ordering alone mostly changes which depth the clock lands on;
   (3) keep the d4–d6 node numbers above as the baseline.
+  #98 took option (2): the same ordering returned with PVS + LMR (see Architecture now).
 
 When an idea is buried, write what it was, the measured result and what to try
 differently. Never re-propose an idea from this list unchanged.
