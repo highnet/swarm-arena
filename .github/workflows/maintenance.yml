@@ -6,10 +6,11 @@
 #   - agent/<issue>-… branches once their pull request is closed, or when their issue is closed
 #     or no longer claimed and no pull request is open from them
 #
-# GitHub Actions minutes are capped, so this is the repository's only workflow: one job, once a
-# day (Actions bills each job rounded up to a whole minute, so a single job keeps it at one).
-# Every check that judges a change — tests, the referee's games, preflight, review — runs in the
-# Claude cloud sessions, never here. Waiting a day costs nothing: released refs already read as
+# GitHub Actions minutes are capped, so this runs as one job, once a day (Actions bills each job
+# rounded up to a whole minute, so a single job keeps it at one). The only other workflow is
+# web-checks.yml: lint and typecheck, on pull requests that touch web/, shared/ or the package files.
+# Every other check that judges a change — tests, the referee's games, preflight, review — runs in
+# the Claude cloud sessions, never here. Waiting a day costs nothing: released refs already read as
 # absent to every Rallypoint script, and release-please batches the day's merges into its PR.
 # Run it by hand with "Run workflow" (workflow_dispatch) when a release is wanted sooner.
 name: maintenance

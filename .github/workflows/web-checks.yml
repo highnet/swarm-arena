@@ -1,0 +1,38 @@
+# Lint and typecheck for the site and the shared types (the harness is typechecked too).
+#
+# Actions minutes are capped (see maintenance.yml), so this runs only on pull requests that touch
+# web/, shared/ or the package files, as one job with the npm cache. Other pull requests skip it;
+# their checks (tests, the referee's games, preflight, review) run in the Claude cloud sessions.
+name: web-checks
+
+on:
+  pull_request:
+    paths:
+      - "web/**"
+      - "shared/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/web-checks.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
