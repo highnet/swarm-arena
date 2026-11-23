@@ -96,3 +96,4 @@ differently. Never re-propose an idea from this list unchanged.
 
 <!-- The referee appends one line per verdict. Do not edit by hand. -->
 - 2026-11-23 12:45 UTC · v0.1 passed the referee · Wire hexgame to the protocol and play legal moves · rated 759 (first rated version)
+- 2026-11-23 14:33 UTC · v0.2 passed the referee · MCTS (UCT) with random fill-in playouts on a flat 121-cell board · rated 1459 (+700)
