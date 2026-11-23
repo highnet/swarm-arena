@@ -24,6 +24,6 @@ export const GET = async () => {
       return `<item><title>${escape(engine + r.title)}</title><link>${link}</link><guid isPermaLink="false">${s.run.id}-${r.id}</guid><pubDate>${new Date(r.at).toUTCString()}</pubDate>${r.detail ? `<description>${escape(r.detail)}</description>` : ''}</item>`;
     })
     .join('');
-  const xml = `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>Swarm Arena</title><link>${SITE}</link><description>Four engines, built from nothing, ranked only by games.</description>${items}</channel></rss>`;
+  const xml = `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>Swarm Arena</title><link>${SITE}</link><description>A swarm of AI agents building chess, Go, Othello and Hex engines that keep getting stronger.</description>${items}</channel></rss>`;
   return new Response(xml, { headers: { 'Content-Type': 'application/rss+xml; charset=utf-8' } });
 };
