@@ -85,6 +85,10 @@ npm run arena -- init "First run"     # once per run (ARENA_RUN, default run-001
 > run the swarm strategist
 > run a swarm agent
 
+Or leave it running: `/loop /swarm-conductor` in a cloud session surveys the board each tick and
+starts one session per role and target. `docs/LOOPS.md` has the prompts, including a two-session
+builder/judge loop for when sessions cannot start sessions.
+
 Operator commands: `status`, `calibrate <track>`, `play <track> <a> <b>` (references like
 `stockfish-3`, `gnugo-5`, `edax-6`, `mcts-2000`, or a path to an engine binary).
 Set `ARENA_STORE=file` to run everything offline against `.arena/store.json`.

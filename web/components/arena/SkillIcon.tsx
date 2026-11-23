@@ -1,4 +1,4 @@
-import { BookOpen, Bot, Compass } from 'lucide-react';
+import { BookOpen, Bot, Compass, Radar, type LucideIcon } from 'lucide-react';
 import type { GameId } from '@arena/shared';
 import { TRACK_ORDER } from '@/lib/tracks';
 import { EngineLogo } from './EngineLogo';
@@ -14,7 +14,8 @@ const SkillIcon = ({ name, slots }: SkillIconProps) => {
   if (name.endsWith('-playbook') && TRACK_ORDER.includes(game)) {
     return <EngineLogo game={game} slot={slots[game] ?? 1} size="md" />;
   }
-  const Icon = name === 'swarm-agent' ? Bot : name === 'swarm-strategist' ? Compass : BookOpen;
+  const Icon: LucideIcon =
+    { 'swarm-agent': Bot, 'swarm-strategist': Compass, 'swarm-conductor': Radar }[name] ?? BookOpen;
   return (
     <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg border border-line bg-panel-raised text-fg-2">
       <Icon className="size-5" aria-hidden="true" />

@@ -22,7 +22,16 @@ import {
   release,
   submit,
 } from "./seat";
-import { merge, metrics, next, retro, verdict } from "./orchestrator";
+import {
+  merge,
+  metrics,
+  next,
+  retro,
+  ROLES,
+  verdict,
+  type Role,
+} from "./orchestrator";
+import { pinAgentId } from "./rallypoint";
 import { buildWasm } from "./wasm";
 import { getStore } from "./store";
 import { applyPlan, brief } from "./strategist";
@@ -31,8 +40,13 @@ const USAGE = `arena <command>
 
 Agent sessions (run inside a Claude Code session on this repo):
   prepare                       reference engines, warm builds, cached main binaries (seconds when warm)
-  next [track]                  take this session's Rallypoint role (merger, fixer, reviewer, improver,
-                                worker or planner) and print its brief; a worker claims an issue
+  next [track] [--role R] [--pr N] [--agent-id ID] [--only R,R]
+                                take this session's Rallypoint role (merger, fixer, reviewer, improver,
+                                worker or planner) and print its brief; a worker claims an issue.
+                                --role skips the picker (a conductor dispatched this session to one
+                                target; it prints ROLE none if the target no longer needs it), --pr
+                                names the pull request, --agent-id pins the id the lease was written under,
+                                --only limits the picker (a builder or judge loop)
   verdict <pr> approve|request-changes "<note>"
                                 reviewer: record one verdict through review.mjs
   merge <pr>                    merger: merge an approved PR and land its arena task
@@ -146,7 +160,30 @@ const main = async () => {
       break;
     }
     case "next": {
-      console.log(await next(args[0]));
+      const opt = (name: string) => {
+        const i = args.indexOf(`--${name}`);
+        return i >= 0 ? args[i + 1] : undefined;
+      };
+      const role = opt("role");
+      if (role && !(ROLES as readonly string[]).includes(role))
+        throw new Error(`--role is one of ${ROLES.join(", ")}`);
+      const agentId = opt("agent-id");
+      if (agentId) pinAgentId(agentId);
+      const pr = opt("pr");
+      const only = opt("only")?.split(",") as Role[] | undefined;
+      const bad = only?.find((r) => !(ROLES as readonly string[]).includes(r));
+      if (bad) throw new Error(`--only takes ${ROLES.join(",")}; not ${bad}`);
+      const track = args.find(
+        (a, i) => !a.startsWith("--") && !args[i - 1]?.startsWith("--"),
+      );
+      console.log(
+        await next({
+          role: role as Role | undefined,
+          pr: pr ? Number(pr) : undefined,
+          track,
+          only,
+        }),
+      );
       return;
     }
     case "verdict": {

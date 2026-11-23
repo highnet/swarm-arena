@@ -7,11 +7,13 @@ import {
   GitMerge,
   Layers,
   ListOrdered,
+  Radar,
+  Gavel,
+  Hammer,
   RefreshCcw,
   ScrollText,
   ShieldCheck,
   Sparkles,
-  Telescope,
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
@@ -53,7 +55,7 @@ Run a swarm agent on the chess engine. Follow .claude/skills/swarm-agent/SKILL.m
     when: 'Pull requests are piling up. Finishing work beats starting it.',
     icon: ShieldCheck,
     prompt: `${REPO_LINE}
-Clear the Rallypoint queue. Repeat \`npm run arena -- next\` and do each merger, fixer or reviewer role it gives you, one at a time, following .claude/skills/swarm-agent/SKILL.md and the matching .rallypoint/roles/<role>.md. Never review or merge work this session wrote. Stop as soon as it assigns worker or planner. Leave one retro at the end.`,
+Clear the Rallypoint queue. Repeat \`npm run arena -- next --only merger,reviewer\` and do each role it gives you, one at a time, following .claude/skills/swarm-agent/SKILL.md and the matching .rallypoint/roles/<role>.md. Never review or merge work this session wrote. Stop when it prints ROLE none. Leave one retro at the end.`,
   },
   {
     title: 'Plan the next experiments',
@@ -83,12 +85,41 @@ Act as the Rallypoint improver for the swarm. Follow .claude/skills/swarm-stewar
     prompt: `${REPO_LINE}
 Act as the Rallypoint janitor. Read .rallypoint/roles/janitor.md, run \`node .rallypoint/scripts/report.mjs\`, and repair only what the report proves is stale (old claims, orphaned leases, released arena tasks still marked claimed on the board). Change nothing else. Leave a retro.`,
   },
+];
+
+const LOOP_PREFIX = 'I am the operator and confirm every round in advance for this run.';
+
+const LOOPS: { title: string; when: string; icon: LucideIcon; prompt: string }[] = [
   {
-    title: 'Run a fleet',
-    when: 'For an operator session with the remote-session tools: start several agents at once.',
-    icon: Telescope,
-    prompt: `Start 4 Claude Code cloud sessions on github.com/${REPO}, each with this prompt: "Run a swarm agent. Follow .claude/skills/swarm-agent/SKILL.md exactly: prepare, take your Rallypoint role with npm run arena -- next, do that one role, log progress, and leave a retro." Then watch the board and tell me what each one shipped, reviewed or merged.`,
+    title: 'Conductor',
+    when: 'End to end. A cloud session with the remote-session tools surveys the board each tick and starts one session per role and target.',
+    icon: Radar,
+    prompt: `${REPO_LINE}
+/loop /swarm-conductor ${LOOP_PREFIX} CONCURRENCY=4. Dispatch only through separate sessions; escalate needs:human and unknown sources to me instead of working around them.`,
   },
+  {
+    title: 'Builder',
+    when: 'No remote sessions? Run two loops. This one claims, fixes, plans and improves, and never judges.',
+    icon: Hammer,
+    prompt: `${REPO_LINE}
+/loop 20m /swarm-agent Take your role with \`npm run arena -- next --only worker,fixer,planner,improver\` and do that one role to the end. ROLE none means nothing to build this tick: stop.`,
+  },
+  {
+    title: 'Judge',
+    when: 'The builder’s other half, in a second session: reviews and merges, and never writes.',
+    icon: Gavel,
+    prompt: `${REPO_LINE}
+/loop 10m /swarm-agent Take your role with \`npm run arena -- next --only merger,reviewer\` and do that one role. Never review a pull request this session pushed to. ROLE none means the queue is clear: stop.`,
+  },
+];
+
+const LAYERS: { name: string; does: string }[] = [
+  {
+    name: 'Conductor',
+    does: 'surveys as the orchestrator, leases each target, starts its session',
+  },
+  { name: 'Role session', does: 'one role on one target, then ends; the only thing that writes' },
+  { name: 'Subagents', does: 'research, prototypes and second reads inside that one role' },
 ];
 
 const ROLES: { role: string; when: string; does: string }[] = [
@@ -118,12 +149,18 @@ const ROLES: { role: string; when: string; does: string }[] = [
     does: 'claims it, changes the engine, submits to the referee',
   },
   { role: 'Planner', when: 'nothing is open', does: 'the strategist opens the next issues' },
+  {
+    role: 'Janitor',
+    when: 'claims, leases or labels disagree',
+    does: 'repairs only what the report proves is stale',
+  },
 ];
 
 const RULES: string[] = [
   'One issue, one branch, one pull request. Nobody pushes to main.',
   'Claims are atomic: claim.mjs reserves the issue before anything else changes.',
   'Never review or approve your own work. Verdicts go through review.mjs only.',
+  'Each role runs as its own session. Subagents help inside one role and never write to GitHub.',
   'The referee measures every engine change with games: legality, build, browser build, smoke test, gate match, and a head-to-head with the version it would replace.',
   'Search and evaluation are original. Rules come from libraries; nothing is ported from open-source engines.',
   'Engines think alone: one thread, no network, no processes, within the move clock.',
@@ -193,6 +230,36 @@ const Protocol = async () => {
             <CopyPrompt key={p.title} {...p} icon={<Icon aria-hidden="true" />} />
           ))}
         </div>
+      </section>
+
+      <section aria-labelledby="loops" className="mt-10">
+        <Typography variant="sectionTitle" id="loops">
+          Leave it running
+        </Typography>
+        <Typography variant="small" className="mt-1 max-w-3xl">
+          A <code className="font-mono">/loop</code> keeps a session working on its own. Stop the
+          loop to stop the swarm; anything already dispatched finishes its one job.
+        </Typography>
+        <ol className="mt-4 flex flex-col gap-px overflow-hidden rounded-lg border border-line bg-line sm:flex-row">
+          {LAYERS.map((l, i) => (
+            <li key={l.name} className="flex-1 bg-panel px-4 py-3">
+              <p className="text-[13px] text-fg">
+                <span className="mr-2 font-mono text-xs tabular text-fg-3">{i + 1}</span>
+                <span className="font-medium">{l.name}</span>
+              </p>
+              <p className="mt-0.5 text-xs text-fg-2 text-pretty">{l.does}</p>
+            </li>
+          ))}
+        </ol>
+        <div className="mt-4 grid gap-4 md:grid-cols-3">
+          {LOOPS.map(({ icon: Icon, ...p }) => (
+            <CopyPrompt key={p.title} {...p} icon={<Icon aria-hidden="true" />} />
+          ))}
+        </div>
+        <Typography variant="small" className="mt-2">
+          More, with bounded runs and maintenance loops:{' '}
+          <code className="font-mono">docs/LOOPS.md</code>.
+        </Typography>
       </section>
 
       <div className="mt-10 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">

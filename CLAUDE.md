@@ -14,6 +14,9 @@ and merged by a merger. Nobody pushes to `main`.
 
 - Prompted to run a swarm agent: follow `.claude/skills/swarm-agent/SKILL.md`. `npm run arena -- next`
   gives the session its Rallypoint role (merger, fixer, reviewer, improver, worker, planner).
+- Prompted to run the swarm autonomously (or `/loop /swarm-conductor`): follow
+  `.claude/skills/swarm-conductor/SKILL.md`. It surveys as the orchestrator and dispatches each role
+  as its own session; ready-made `/loop` prompts are in `docs/LOOPS.md`.
 - Arena tasks: the referee (`npm run arena -- submit`) measures the branch with games and opens the
   pull request with that evidence; the review judges it against the issue and the arena rules.
 - The four games exist to find general concepts. Load `.claude/skills/concepts/SKILL.md` with any

@@ -12,12 +12,13 @@ makes the next change. Read `.rallypoint/roles/improver.md` first: its guardrail
 
 Only these (the merger refuses anything else):
 
-- `.claude/skills/swarm-*/` (agent, strategist, steward skills)
+- `.claude/skills/swarm-*/` (agent, strategist, steward skills; **not** `swarm-conductor`, which
+  dispatches reviewers and mergers and so belongs with the judges)
 - `.claude/skills/concepts/` (structure and beliefs; never the evidence log)
 - `.rallypoint/roles/{worker,planner,tester,fixer,janitor,orchestrator}.md`
 - `docs/SWARM.md`
 
-Frozen: the referee and everything that judges (match rules, gates, Elo, time limits, the
+Frozen: the conductor skill, the referee and everything that judges (match rules, gates, Elo, time limits, the
 outside-help check), the harness, the Rallypoint scripts and config, the reviewer, merger and
 improver prompts, engines and playbooks.
 

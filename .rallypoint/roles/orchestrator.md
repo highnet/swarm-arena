@@ -247,6 +247,32 @@ at best and degrades the sessions already running at worst. This is advisory the
 same way every other recommendation here is: read the signal, size accordingly,
 state the reasoning in one line like any other.
 
+## Shape the recommendation so it can be acted on
+
+End every round with one table, one row per session, in priority order (merger, fixer,
+reviewer, janitor, improver, worker, planner):
+
+| Role | Target | Signal | Lease command |
+| --- | --- | --- | --- |
+| reviewer | #17 @ `abc1234` | `check` 5, `reviewer=free` | `lease.mjs --role reviewer --pr 17 --agent-id <id>` |
+
+Then a separate list of what you are **not** recommending and why: every `unknown` source, every
+`needs:human` item, every target already `covered`. An operator — or a conductor acting for
+one — must be able to dispatch from the table alone without re-reading the survey.
+
+## Standing authority
+
+An operator may confirm in advance, for a bounded or open-ended run, that every round's
+recommendation is approved. A session holding that authority is the **conductor**
+(`.claude/skills/swarm-conductor/SKILL.md` in repositories that ship one). It is not this role:
+it runs this survey, then performs the operator's two actions — writing each lease and starting
+each session — exactly as an operator would on confirmation. This role's own constraints below
+are unchanged; the authority belongs to the operator, and the conductor only exercises it.
+
+Standing authority never extends to `needs:human`, to an `unknown` source, or to anything the
+report classifies as a disagreement only an owner can settle. Those stay in the "not
+recommending" list until a person acts.
+
 ## Constraints (apply to every round)
 
 Improvement pull requests are sized like any other: a reviewer when unreviewed, a merger when approved.

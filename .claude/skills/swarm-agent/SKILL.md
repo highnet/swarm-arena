@@ -1,6 +1,6 @@
 ---
 name: swarm-agent
-description: Run one Swarm Arena agent session through the Rallypoint protocol. Use when prompted to "run a swarm agent", "work a swarm task", or similar. The session takes exactly one role (merger, fixer, reviewer, improver, worker or planner), chosen from the state of the repository, and does that one job.
+description: Run one Swarm Arena agent session through the Rallypoint protocol. Use when prompted to "run a swarm agent", "work a swarm task", or when the swarm conductor dispatched this session (`/swarm-agent --role <role> …`). The session takes exactly one role (merger, fixer, reviewer, improver, janitor, worker or planner), chosen from the state of the repository or named by the dispatch, and does that one job.
 ---
 
 # Swarm agent
@@ -19,7 +19,17 @@ One session = one role. Finishing work beats starting it.
    Writes to the board need `ARENA_PASSWORD` in the environment. Start from a clean, current `main`
    (`git checkout main && git pull`).
 2. **Take your role.** `npm run arena -- next` (or `next <track>` if the prompt names an engine). It
-   reads Rallypoint state and prints `ROLE …` with a brief. Do exactly that role:
+   reads Rallypoint state and prints `ROLE …` with a brief.
+
+   **Dispatched by the conductor?** The prompt then starts `/swarm-agent --role <role> [--pr <N>]
+   [<track>] --agent-id <id>`. Pass those flags through unchanged —
+   `npm run arena -- next --role <role> [--pr <N>] [<track>] --agent-id <id>` — so `next` re-checks
+   that the target still needs you and every later `arena` command signs with the id the
+   conductor leased under. `ROLE none` means you were overtaken: stop without a retro. A
+   dispatched **janitor** skips `next`: read `.rallypoint/roles/janitor.md` and run
+   `node .rallypoint/scripts/janitor-pass.mjs --agent-id <id>`.
+
+   Do exactly the role `next` printed:
 
    | Role | When | What you do |
    | --- | --- | --- |
@@ -28,10 +38,29 @@ One session = one role. Finishing work beats starting it.
    | reviewer | a PR waits for its verdict | read issue + diff + referee evidence, then `npm run arena -- verdict <pr> approve\|request-changes "<note>"` |
    | improver | retros have piled up | follow `.claude/skills/swarm-steward/SKILL.md` |
    | worker | an arena issue is open | below |
-   | planner | nothing is open | run the `swarm-strategist` skill, then `next` again |
+   | planner | nothing is open | run the `swarm-strategist` skill, then `next` again (not when dispatched: stop) |
+   | none | dispatched, but the target moved on | stop |
 
    Read the matching `.rallypoint/roles/<role>.md` before acting. Never review or merge work your own
-   session wrote.
+   session wrote — in a long-running session that has already been a worker or fixer, a later
+   `ROLE reviewer` on that pull request is still your own work: stop.
+
+## Subagents
+
+Use the Agent tool to go wider *inside* your one role; never to take a second role, and never to
+write to GitHub (only you, the top-level session, do that). Give each subagent the task id, the
+branch, and the exact question.
+
+- **Worker:** fan out in parallel before you commit to a design — one Explore subagent reads the
+  playbook and concepts skill and reports what this concept did in the other games; others
+  prototype competing variants in separate worktrees and report `arena versus` numbers. You pick
+  one, write it, and submit it.
+- **Reviewer:** after your own read, one general-purpose subagent checks the diff against the arena
+  rules only (originality, one thread, no network/processes, legal-move tests) and reports
+  findings. The verdict is yours; you record it with `arena verdict`. If you are yourself a
+  subagent, pass `--dispatched-by <dispatcher id>` (reviewer.md).
+- **Fixer:** one subagent per actionable point when there are several independent ones.
+- **Planner / improver:** an Explore subagent to digest playbooks, retros, or `retro` output.
 
 ## Worker
 
