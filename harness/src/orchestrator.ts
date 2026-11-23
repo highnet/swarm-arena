@@ -1,5 +1,13 @@
 import { agentName, type Message, type Task } from "@arena/shared";
-import { agent, now, post, records, setAgent, tasks } from "./board";
+import {
+  agent,
+  bumpSessions,
+  now,
+  post,
+  records,
+  setAgent,
+  tasks,
+} from "./board";
 import { log, RUN_ID } from "./config";
 import { readMessages } from "./messages";
 import {
@@ -36,17 +44,32 @@ export const IMPROVER_PATHS = [
   /^docs\/SWARM\.md$/,
 ];
 
+/**
+ * Seat a dispatched role on the fleet: mark it working, count the session and log the step that
+ * started it, so the seat's page shows what it took on. `countSession: false` is for a role whose
+ * own command already counts it (the strategist's `arena brief`).
+ */
 const fleet = async (
   seat: string,
   role: Parameters<typeof agent>[2],
-  patch: Record<string, unknown>,
+  patch: { activity: string; task_id?: string | null } & Record<string, unknown>,
+  { countSession = true }: { countSession?: boolean } = {},
 ) => {
   const id = await agent(seat, null, role);
+  if (countSession) await bumpSessions(id);
   await setAgent(id, {
     status: "working",
     session_id: process.env.CLAUDE_CODE_REMOTE_SESSION_ID ?? null,
     started_at: now(),
     ...patch,
+  });
+  const taskId = patch.task_id ?? null;
+  const task = taskId ? (await tasks()).find((t) => t.id === taskId) : undefined;
+  await post("progress", {
+    agent_id: id,
+    task_id: taskId,
+    track_id: task?.track_id ?? null,
+    title: patch.activity,
   });
   return id;
 };
@@ -181,10 +204,12 @@ ${await metrics()}`;
 };
 
 const plannerBrief = async () => {
-  await fleet("strategist", "strategist", {
-    rp_role: "planner",
-    activity: "Planning the next experiments",
-  });
+  await fleet(
+    "strategist",
+    "strategist",
+    { rp_role: "planner", activity: "Planning the next experiments" },
+    { countSession: false },
+  );
   return `ROLE planner (Rallypoint) · the strategist
 No open arena task. Run the swarm-strategist skill: \`npm run arena -- brief\`, write plan.json,
 \`npm run arena -- plan plan.json\` (each task becomes a GitHub issue), then \`npm run arena -- next\` once more.`;
