@@ -13,7 +13,7 @@ const PLAYOUT_CAP: u32 = 3 * NN as u32;
 /// UCT exploration constant (win rates in 0..1), added to the RAVE blend.
 const EXPLORE: f32 = 0.0;
 /// RAVE equivalence parameter: beta = sqrt(K / (3n + K)).
-const RAVE_K: f32 = 1000.0;
+const RAVE_K: f32 = 3000.0;
 /// Value of a child with neither real nor AMAF visits (tried before any visited child).
 const FPU: f32 = 1.1;
 /// A leaf is expanded once it has this many visits.
@@ -176,7 +176,6 @@ fn amaf_update(nodes: &mut [Node], path: &[u32], seq: &[u8], root_mover: u8, bla
 /// beta = sqrt(K / (3n + K)), plus the UCB term when EXPLORE > 0. A child with no real visits is
 /// valued by AMAF alone, one with neither by FPU; ties go to the earlier (shuffled) child.
 fn select(nodes: &[Node], parent: usize) -> usize {
-    let (rave_k, explore) = sweep();
     let p = &nodes[parent];
     let (first, end) = (p.first as usize, p.first as usize + p.children as usize);
     let log_n = (p.visits.max(1) as f32).ln();
@@ -189,12 +188,12 @@ fn select(nodes: &[Node], parent: usize) -> usize {
         } else {
             let amaf = if n.amaf_visits > 0 { n.amaf_wins / n.amaf_visits as f32 } else { 0.5 };
             if n.visits == 0 {
-                amaf + explore * log_n.sqrt()
+                amaf + EXPLORE * log_n.sqrt()
             } else {
                 let nv = n.visits as f32;
-                let beta = (rave_k / (3.0 * nv + rave_k)).sqrt();
+                let beta = (RAVE_K / (3.0 * nv + RAVE_K)).sqrt();
                 let q = n.wins / nv;
-                (1.0 - beta) * q + beta * amaf + explore * (log_n / nv).sqrt()
+                (1.0 - beta) * q + beta * amaf + EXPLORE * (log_n / nv).sqrt()
             }
         };
         if v > best_value {
@@ -203,17 +202,6 @@ fn select(nodes: &[Node], parent: usize) -> usize {
         }
     }
     best
-}
-
-// SWEEP-ONLY: remove before submit.
-#[allow(non_snake_case)]
-fn sweep() -> (f32, f32) {
-    use std::sync::OnceLock;
-    static P: OnceLock<(f32, f32)> = OnceLock::new();
-    *P.get_or_init(|| {
-        let g = |k: &str, d: f32| std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d);
-        (g("GO9_K", RAVE_K), g("GO9_C", EXPLORE))
-    })
 }
 
 #[cfg(test)]
