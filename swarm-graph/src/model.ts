@@ -153,7 +153,20 @@ export type SwarmNode = {
   workItem?: SwarmWorkItem;
   /** For agent and work nodes: the sector they belong to. */
   sectorId?: string | null;
+  /** For sectors: every work item aimed at it, by phase (closed ones left out). */
+  tally?: SwarmTally;
 };
+
+/** Work items counted by phase: waiting issues, open branches and pull requests, merged. */
+export type SwarmTally = {
+  issue: number;
+  branch: number;
+  pr: number;
+  landed: number;
+  total: number;
+};
+
+const emptyTally = (): SwarmTally => ({ issue: 0, branch: 0, pr: 0, landed: 0, total: 0 });
 
 export type SwarmLinkKind =
   /** sector — hub: the sector is a set of paths in the integration branch. */
@@ -204,6 +217,8 @@ export type SwarmGraph = {
     sectors: number;
     branches: number;
     pullRequests: number;
+    /** Every work item by stage, merged history included, for a progress bar. */
+    stages: Record<SwarmStage, number>;
   };
 };
 
@@ -299,6 +314,28 @@ export const buildSwarmGraph = (input: SwarmInput, options: SwarmGraphOptions = 
     shown.set(id, { id, role: id, status: 'idle', sector: null, lastSeen: at });
   }
 
+  // Progress: every work item counted once, by sector and by stage.
+  const tallies = new Map(input.sectors.map((s) => [s.id, emptyTally()]));
+  const stages: Record<SwarmStage, number> = {
+    backlog: 0,
+    held: 0,
+    claimed: 0,
+    review: 0,
+    changes: 0,
+    approved: 0,
+    merged: 0,
+    closed: 0,
+  };
+  for (const w of input.workItems) {
+    if (!sectors.has(w.sector)) continue;
+    stages[w.stage]++;
+    const phase = phaseOf(w.stage);
+    const t = tallies.get(w.sector);
+    if (!phase || !t) continue;
+    t[phase]++;
+    t.total++;
+  }
+
   // Work items: every open issue, branch and pull request, plus the newest merged per sector.
   const kept: SwarmWorkItem[] = [];
   const mergedBySector = new Map<string, SwarmWorkItem[]>();
@@ -379,6 +416,7 @@ export const buildSwarmGraph = (input: SwarmInput, options: SwarmGraphOptions = 
       active: liveSectors.has(s.id),
       sector: s,
       sectorId: s.id,
+      tally: tallies.get(s.id),
     });
     links.push({
       id: `trunk:${s.id}`,
@@ -542,6 +580,7 @@ export const buildSwarmGraph = (input: SwarmInput, options: SwarmGraphOptions = 
       sectors: input.sectors.length,
       branches,
       pullRequests,
+      stages,
     },
   };
 };
