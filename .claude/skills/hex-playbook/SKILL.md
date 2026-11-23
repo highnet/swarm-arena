@@ -13,7 +13,14 @@ keeps your playbook edits even when the idea is buried.
 
 - Referee: 11×11, no swap rule, `a1` top-left; Black moves first and joins top to bottom,
   White joins left to right.
-- Check which colour `hexgame` assigns to which edges and translate coordinates both ways.
+- `hexgame` 0.1 matches the referee exactly: `Coords { row, column }` zero-based from the top
+  left, `Display`/`FromStr` use the same `c4` form (`a1` top-left, letters a–k, no skipped `i`),
+  Black owns `Edge::Top`/`Edge::Bottom`, White `Edge::Left`/`Edge::Right`, and the six neighbours
+  of (r, c) are (r, c±1), (r−1, c), (r−1, c+1), (r+1, c), (r+1, c−1) as in `hex.ts`. The engine
+  still parses moves itself (`to_coords`, strict `a1`–`k11`) and tests the round trip, the
+  neighbour set and both win directions.
+- `Board::play(coords, color)` places either colour (handy for "would the opponent win here");
+  `Game::play` uses the side to move. `Board` is cheap to clone (union-find inside).
 - There are no draws; a full board always has a winner.
 
 ## Use the engine
@@ -31,9 +38,15 @@ One thread, modest memory, and every reply within the `go <ms>` budget (200 ms i
 
 ## Architecture now
 
-Nothing yet: the crate answers the protocol but cannot choose a move. Describe the engine here
-as it grows (search, evaluation, time management, data structures) so the next session starts
-from the truth.
+Foundation (issue #3): no search. `go` replays the moves into a `hexgame::Game`, then
+1. plays a cell that wins at once, else
+2. blocks a cell where the opponent would win at once, else
+3. plays the empty cell with the best one-ply heuristic: `20 − 3·(hex distance to f6)`,
+   +4 per own neighbour, +2 per opponent neighbour, +5 per own stone at a bridge with both
+   carrier cells empty. Ties break by a deterministic hash of cell and ply.
+It ignores the clock (it answers in microseconds). Opens f6. Beats the random mover 10–0, but
+games run ~100 plies: it does not understand connection, only clumping. The next step is a real
+search (MCTS with fill-in playouts) or a distance/resistance evaluation.
 
 ## Ideas worth trying
 
