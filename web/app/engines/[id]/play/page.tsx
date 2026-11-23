@@ -7,6 +7,7 @@ import { EngineLogo } from '@/components/arena/EngineLogo';
 import { EngineTabs } from '@/components/arena/EngineTabs';
 import { PlayGame } from '@/components/arena/PlayGame';
 import { Typography } from '@/components/ui/Typography';
+import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { getSnapshot } from '@/lib/data';
 import { formatElo } from '@/lib/format';
 import { getPlayable } from '@/lib/playable';
@@ -69,11 +70,7 @@ const PlayContent = async ({ params }: PlayPageProps) => {
 };
 
 const PlayPage = ({ params }: PlayPageProps) => (
-  <Suspense
-    fallback={
-      <main className="mx-auto w-full max-w-[90rem] flex-1 px-4 pt-6 sm:px-6" aria-busy="true" />
-    }
-  >
+  <Suspense fallback={<PageSkeleton className="max-w-[90rem] px-4 pt-6 sm:px-6" />}>
     <PlayContent params={params} />
   </Suspense>
 );

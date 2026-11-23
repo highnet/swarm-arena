@@ -22,6 +22,7 @@ import { TaskTypeChip, VersionChip } from '@/components/arena/TaskChips';
 import { Badge } from '@/components/ui/Badge';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
+import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { getSnapshot } from '@/lib/data';
 import { REPO_URL } from '@/lib/github';
 import { formatDay, formatElo, formatTime } from '@/lib/format';
@@ -306,11 +307,7 @@ const TaskContent = async ({ params }: TaskPageProps) => {
 };
 
 const TaskPage = ({ params }: TaskPageProps) => (
-  <Suspense
-    fallback={
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 pt-6 sm:px-6" aria-busy="true" />
-    }
-  >
+  <Suspense fallback={<PageSkeleton className="max-w-5xl px-4 pt-6 sm:px-6" />}>
     <TaskContent params={params} />
   </Suspense>
 );

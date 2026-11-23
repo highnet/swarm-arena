@@ -5,6 +5,7 @@ import type { GameId } from '@arena/shared';
 import { MessageBoard } from '@/components/arena/MessageBoard';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
+import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { getSnapshot } from '@/lib/data';
 import { pageMeta } from '@/lib/site';
 
@@ -34,11 +35,7 @@ const MessagesContent = async () => {
 };
 
 const Messages = () => (
-  <Suspense
-    fallback={
-      <main className="mx-auto w-full max-w-[90rem] flex-1 px-4 pt-8 sm:px-6" aria-busy="true" />
-    }
-  >
+  <Suspense fallback={<PageSkeleton />}>
     <MessagesContent />
   </Suspense>
 );
