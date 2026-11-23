@@ -965,8 +965,9 @@ mod tests {
         let (mut off_nodes, mut on_nodes, mut cuts) = (0u64, 0u64, 0u64);
         for fen in TT_FENS {
             let pos = from_fen(fen);
-            let off = search_depth_with(&pos, &HashSet::new(), 4, &mut Tt::new(4), false).unwrap();
-            let on = search_depth_with(&pos, &HashSet::new(), 4, &mut Tt::new(18), true).unwrap();
+            // Killer/history ordering off on both sides, so this measures the table alone.
+            let off = search_depth_opts(&pos, &HashSet::new(), 4, &mut Tt::new(4), false, false).unwrap();
+            let on = search_depth_opts(&pos, &HashSet::new(), 4, &mut Tt::new(18), true, false).unwrap();
             assert_eq!((off.best, off.score), (on.best, on.score), "{fen}");
             assert!(on.nodes <= off.nodes, "{fen}: {} vs {}", on.nodes, off.nodes);
             cuts += on.tt_cuts;
