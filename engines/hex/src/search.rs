@@ -20,11 +20,6 @@ const EXPAND_AT: u32 = 2;
 const MAX_NODES: usize = 2_000_000;
 /// Playouts between clock checks.
 const CHECK_EVERY: u32 = 64;
-/// Ownership-guided fill-in (#88): during the first half of the budget the search counts how
-/// often Black owns each cell at the end of its playouts; in the second half the fill-in draws
-/// the side to move's cells with weight `0.5 + lambda * (own - 0.5)` (exact per-colour counts,
-/// see `board::fill_weighted`). 0 = off, exactly v0.4.
-pub const OWNERSHIP_LAMBDA: f32 = 0.25;
 
 #[derive(Clone, Copy)]
 struct Node {
@@ -80,18 +75,6 @@ pub fn search(
     limit: Limit,
     seed: u64,
 ) -> Option<Outcome> {
-    search_with(black, white, black_to_move, limit, seed, OWNERSHIP_LAMBDA)
-}
-
-/// [`search`] with an explicit ownership lambda (0 = uniform fill-in after bridge pairing).
-pub fn search_with(
-    black: u128,
-    white: u128,
-    black_to_move: bool,
-    limit: Limit,
-    seed: u64,
-    lambda: f32,
-) -> Option<Outcome> {
     let empties = ALL & !(black | white);
     if empties == 0 {
         return None;
@@ -104,30 +87,11 @@ pub fn search_with(
 
     let mut path: Vec<u32> = Vec::with_capacity(128);
     let mut playouts = 0u32;
-    // Ownership map: Black-owned counts per cell over the first-half playouts, then the two
-    // weight tables (Black to move, White to move) once the second half starts.
-    let guided = lambda > 0.0;
-    let mut owned = [0u32; 128];
-    let mut weights: Option<Box<(board::Weights, board::Weights)>> = None;
-    let mut mapped = 0u32;
     loop {
         match limit {
             Limit::Playouts(n) if playouts >= n => break,
             Limit::Time(t) if playouts % CHECK_EVERY == 0 && start.elapsed() >= t => break,
             _ => {}
-        }
-        if guided && weights.is_none() && mapped > 0 {
-            let half = match limit {
-                Limit::Playouts(n) => playouts >= n / 2,
-                Limit::Time(t) => playouts % CHECK_EVERY == 0 && start.elapsed() >= t / 2,
-            };
-            if half {
-                let mut own = [0.0f32; board::CELLS];
-                for (o, &c) in own.iter_mut().zip(owned.iter()) {
-                    *o = c as f32 / mapped as f32;
-                }
-                weights = Some(Box::new(board::ownership_weights(&own, lambda)));
-            }
         }
         // Selection.
         let (mut b, mut w, mut btm) = (black, white, black_to_move);
@@ -160,21 +124,7 @@ pub fn search_with(
             path.push(id);
         }
         // Simulation and backup.
-        let final_black = match &weights {
-            Some(tables) => {
-                let table = if btm { &tables.0 } else { &tables.1 };
-                board::fill_weighted(b, w, btm, table, &mut rng)
-            }
-            None => board::fill(b, w, btm, &mut rng),
-        };
-        if guided && weights.is_none() {
-            mapped += 1;
-            let mut bits = final_black;
-            while bits != 0 {
-                owned[bits.trailing_zeros() as usize] += 1;
-                bits &= bits - 1;
-            }
-        }
+        let final_black = board::fill(b, w, btm, &mut rng);
         backup(&mut nodes, &path, black_to_move, final_black);
         playouts += 1;
     }
@@ -324,23 +274,9 @@ mod tests {
         assert_eq!(stats(1), (1, 1, 1, 1)); // Black 0: on the path, owned, won
         assert_eq!(stats(2), (0, 0, 0, 0)); // Black 1: White owns cell 1
         assert_eq!(stats(3), (0, 0, 1, 1)); // Black 2: owned by Black, won
-                                            // Under "Black 0" the children are White's: White owns 1 (lost), not 2.
+        // Under "Black 0" the children are White's: White owns 1 (lost), not 2.
         assert_eq!(stats(4), (1, 0, 1, 0)); // White 1: on the path, owned, lost
         assert_eq!(stats(5), (0, 0, 0, 0)); // White 2: Black owns cell 2
-    }
-
-    #[test]
-    fn lambda_zero_is_v04_and_guided_search_is_deterministic() {
-        // f6 e7 g5, White to move.
-        let black = 1u128 << (5 * 11 + 5) | 1u128 << (4 * 11 + 6);
-        let white = 1u128 << (6 * 11 + 4);
-        let off = search_with(black, white, false, Limit::Playouts(4000), 9, 0.0).unwrap();
-        let again = search_with(black, white, false, Limit::Playouts(4000), 9, 0.0).unwrap();
-        assert_eq!((off.mv, off.winrate), (again.mv, again.winrate));
-        let a = search_with(black, white, false, Limit::Playouts(4000), 9, 0.5).unwrap();
-        let b = search_with(black, white, false, Limit::Playouts(4000), 9, 0.5).unwrap();
-        assert_eq!((a.mv, a.winrate), (b.mv, b.winrate));
-        assert_eq!(a.playouts, 4000);
     }
 
     #[test]

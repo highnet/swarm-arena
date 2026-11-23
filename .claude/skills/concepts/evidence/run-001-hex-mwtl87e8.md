@@ -1,0 +1,1 @@
+- 2026-11-23 · **playout policy** · Hex 11×11 · buried: Rated 2572 ± 108, not above 2607. · Experiment: ownership-guided fill-in, where the root's own playout ownership map biases the split of contested cells
