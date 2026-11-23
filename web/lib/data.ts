@@ -1,4 +1,4 @@
-import { cacheLife } from 'next/cache';
+import { cacheLife, cacheTag } from 'next/cache';
 import { TRACKS, type GameRow, type Message, type Snapshot } from '@arena/shared';
 import { getSupabase, supabaseConfigured } from './supabase';
 
@@ -103,8 +103,12 @@ const fromSupabase = async (): Promise<Snapshot | null> => {
   };
 };
 
+/** Expired on demand by `refreshLive` whenever Supabase Realtime reports a change. */
+export const SNAPSHOT_TAG = 'snapshot';
+
 export const getSnapshot = async (): Promise<Snapshot> => {
   'use cache';
+  cacheTag(SNAPSHOT_TAG);
   cacheLife({ stale: 30, revalidate: 30, expire: 3600 });
   if (supabaseConfigured()) {
     const live = await fromSupabase().catch((e) => {
@@ -118,6 +122,7 @@ export const getSnapshot = async (): Promise<Snapshot> => {
 
 export const getMatchGames = async (matchId: string): Promise<GameRow[]> => {
   'use cache';
+  cacheTag(SNAPSHOT_TAG);
   cacheLife({ stale: 60, revalidate: 300, expire: 86400 });
   if (!supabaseConfigured()) return [];
   const { data } = await getSupabase().from('games').select('*').eq('match_id', matchId);
