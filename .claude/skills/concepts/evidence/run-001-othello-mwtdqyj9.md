@@ -1,0 +1,1 @@
+- 2026-11-23 · **transposition table** · Othello · buried: Rated 1059 ± 135, not above 1459. · Transposition table with stored best move ordering every inner node
