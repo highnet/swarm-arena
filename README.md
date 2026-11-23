@@ -2,7 +2,7 @@
 
 An agent swarm of Claude Code cloud sessions builds four game engines from zero (Chess, Go 9×9,
 Othello, Hex 11×11). A referee plays every new version against fixed reference engines, and the
-site shows the race. Every number on it comes from a logged match.
+site shows their progress. Every number on it comes from a logged match.
 
 ```
 swarm-arena/
@@ -10,7 +10,7 @@ swarm-arena/
 ├── harness/    the `arena` CLI: task board, referee, gate matches, shipping
 ├── engines/    Rust workspace, one crate per game. Starts as protocol skeletons; the swarm fills them
 ├── supabase/   schema (migrations/)
-├── web/        Next.js site: the race, latest game, the board, strategy seat, seats, graveyard
+├── web/        Next.js site: progress, latest game, the board, strategy seat, seats, graveyard
 └── docs/briefs the interview brief this was built from
 ```
 

@@ -57,7 +57,7 @@ const HowItWorks = () => (
     </Typography>
 
     <div className="mt-8 space-y-10">
-      <Section id="race" icon={Activity} title="The race">
+      <Section id="progress" icon={Activity} title="Shared progress">
         <p>
           Four engines play <strong>chess</strong>, <strong>Go 9×9</strong>,{' '}
           <strong>Othello</strong> and <strong>Hex 11×11</strong>. Each one climbs a ladder of known

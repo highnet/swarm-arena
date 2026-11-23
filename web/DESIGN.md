@@ -1,6 +1,6 @@
 ---
 name: Swarm Arena
-description: A dense, quiet dark dashboard where four game engines race up their Elo ladders and every number traces to a played match.
+description: A dense, quiet dark dashboard where four game engines climb their Elo ladders together and every number traces to a played match.
 colors:
   bg: "oklch(0.155 0.006 265)"
   panel: "oklch(0.185 0.006 265)"
@@ -165,7 +165,7 @@ components:
 
 **Creative North Star: "The Referee's Console"**
 
-Swarm Arena is the category standard played straight: a Linear-grade dark dashboard, dense, quiet and precise. A cool near-black ground carries one raised panel tone, and structure comes from hairline borders rather than boxes, shadows or colour. The chrome is deliberately colourless (white, three greys, hairlines) so that the only saturated things on screen are the data: four track hues climbing a race chart, and the rare green or red of a verdict.
+Swarm Arena is the category standard played straight: a Linear-grade dark dashboard, dense, quiet and precise. A cool near-black ground carries one raised panel tone, and structure comes from hairline borders rather than boxes, shadows or colour. The chrome is deliberately colourless (white, three greys, hairlines) so that the only saturated things on screen are the data: four track hues climbing a progress chart, and the rare green or red of a verdict.
 
 The system is dark only, by design. There is no light theme and no theme switch; `color-scheme: dark` is set at the root. Density is high and calm: 13-14px UI text, 10px row padding, 16px panel gutters, a 48px top bar. Nothing is decorative. Every saturated mark either identifies a track or reports a status, and every number is set in Geist Mono with tabular figures because it was measured, not written.
 
@@ -197,7 +197,7 @@ A colourless greyscale world on a cool near-black ground, with saturation spent 
 - **Ink 3** (`fg-3`): meta, timestamps, axis labels, "/ finish" denominators, neutral record icons.
 
 ### Track identity (categorical data)
-- **Track 1 Blue** (`series-1`), **Track 2 Orange** (`series-2`), **Track 3 Aqua** (`series-3`), **Track 4 Amber** (`series-4`): four fixed categorical slots, validated with the dataviz CVD validator against `panel`. A track is assigned a slot once (`color_slot`) and keeps it everywhere: race-chart lines, legend dots, ladder fill and cleared rungs, feed and filter dots, tooltip rows.
+- **Track 1 Blue** (`series-1`), **Track 2 Orange** (`series-2`), **Track 3 Aqua** (`series-3`), **Track 4 Amber** (`series-4`): four fixed categorical slots, validated with the dataviz CVD validator against `panel`. A track is assigned a slot once (`color_slot`) and keeps it everywhere: progress-chart lines, legend dots, ladder fill and cleared rungs, feed and filter dots, tooltip rows.
 
 ### Status (reserved)
 - **Verdict Green** (`good`) with **Verdict Green Text** (`good-text`): landed patches, cleared rungs, finished tracks, working agents. The darker value fills dots and tints badges; the lighter value is the readable text tone.
@@ -227,7 +227,7 @@ A colourless greyscale world on a cool near-black ground, with saturation spent 
 ### Hierarchy
 - **Display / page title** (600, 24px rising to 28px at `sm`, tight tracking, balanced wrap): one per page, the h1 under the top bar.
 - **Lede** (400, 15px, 24px line height, `fg-2`): the one or two sentences under the page title; kept to about `max-w-2xl`.
-- **Section title** (500, 14px, `fg`): panel headers ("The race", "Latest game", "Board").
+- **Section title** (500, 14px, `fg`): panel headers ("Progress", "Latest game", "Board").
 - **Body** (400, 14px, 24px line height, `fg-2`): explanatory copy, `max-w-prose` where it runs long.
 - **Small** (400, 13px, 20px line height): record titles, row names, nav links, button text.
 - **Meta** (400, 12px, 20px line height, `fg-3`) and **Label** (500, 12px, `fg-3`): timestamps, counters' labels, axis text, record-kind labels, day dividers. Sentence case, never uppercase.
@@ -247,10 +247,10 @@ Inside panels the rhythm is fixed: 16px horizontal padding, 10px vertical row pa
 
 ## Elevation & Depth
 
-Flat and tonal. Depth is three steps of lightness on one hue (`bg` < `panel` < `panel-raised`) separated by 1px hairlines; panels carry no shadow. Shadows exist in exactly two places, both state- or float-driven: the race-chart hover tooltip and the pressed segment in a segmented control. The sticky top bar and feed day dividers use translucency plus backdrop blur instead of a shadow.
+Flat and tonal. Depth is three steps of lightness on one hue (`bg` < `panel` < `panel-raised`) separated by 1px hairlines; panels carry no shadow. Shadows exist in exactly two places, both state- or float-driven: the progress-chart hover tooltip and the pressed segment in a segmented control. The sticky top bar and feed day dividers use translucency plus backdrop blur instead of a shadow.
 
 ### Shadow Vocabulary
-- **Float** (`box-shadow: 0 8px 24px rgb(0 0 0 / 0.45)`): the race-chart crosshair tooltip, which sits on `panel-raised` with a `line-strong` border.
+- **Float** (`box-shadow: 0 8px 24px rgb(0 0 0 / 0.45)`): the progress-chart crosshair tooltip, which sits on `panel-raised` with a `line-strong` border.
 - **Pressed segment** (`box-shadow: 0 1px 2px rgb(0 0 0 / 0.4)`): the active option in a segmented filter, lifting it out of its `bg` well.
 
 ### Named Rules
@@ -285,7 +285,7 @@ Quiet and compact; most controls are ghost or segment, colour changes on hover o
 ### Navigation
 The 48px sticky top bar on `bg` at 90% with backdrop blur and a hairline bottom. Left: a 20px line-mark plus "Swarm Arena" (14px, 600). Right: 13px `fg-2` links with 6px radius that fill `panel-raised` on hover (hidden below `sm`), a 16px hairline divider, then the live indicator (a 6px dot: pulsing `good` when live, `warning` while connecting, `fg-3` for a static snapshot, always with its word).
 
-### Race Chart (signature)
+### Progress Chart (signature)
 Elo over time, one 2px line per track in its series hue, direct-labelled at the right edge (dot + name + mono Elo) instead of relying on a legend. Finish lines are dashed in the track hue (70% opacity, 35% once finished); gridlines are `line` with mono `fg-3` tick labels. Hovering shows a crosshair with points ringed in `panel` and the Float tooltip listing each engine's version and Elo. An `sr-only` table carries the same data.
 
 ### Track Ladder

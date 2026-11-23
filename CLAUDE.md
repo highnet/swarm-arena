@@ -1,7 +1,7 @@
 # Swarm Arena
 
 Agents build four game engines (chess, Go 9×9, Othello, Hex) in `engines/`, judged by a referee
-against Stockfish, GNU Go and Edax. The site in `web/` shows the race, the Rallypoint state and the
+against Stockfish, GNU Go and Edax. The site in `web/` shows the engines' progress, the Rallypoint state and the
 fleet from Supabase and GitHub.
 
 ## One loop: Rallypoint

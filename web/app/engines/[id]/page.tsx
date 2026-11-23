@@ -24,7 +24,7 @@ import { BoardFeed } from '@/components/arena/BoardFeed';
 import { EngineLogo } from '@/components/arena/EngineLogo';
 import { EngineTabs } from '@/components/arena/EngineTabs';
 import { Lineage } from '@/components/arena/Lineage';
-import { RaceChart } from '@/components/arena/RaceChart';
+import { ProgressChart } from '@/components/arena/ProgressChart';
 import { SourceViewer } from '@/components/arena/SourceViewer';
 import { TrackLadder } from '@/components/arena/TrackLadder';
 import { Badge } from '@/components/ui/Badge';
@@ -149,7 +149,7 @@ const EngineContent = async ({ params }: EnginePageProps) => {
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_23rem]">
         <Panel icon={TrendingUp} title="Rating by version">
           <div className="px-2 pt-3 sm:px-3">
-            <RaceChart
+            <ProgressChart
               series={[{ id: track.id, name: SHORT_NAME[track.id], slot: track.colorSlot, points }]}
               start={Date.parse(s.run.started_at)}
               end={Date.parse(snapshotNow(s))}
