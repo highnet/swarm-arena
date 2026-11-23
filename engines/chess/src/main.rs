@@ -321,6 +321,11 @@ impl Ordering {
         self.history[side as usize][from][to]
     }
 
+    /// Whether `m` sits in one of the two killer slots at `ply`.
+    fn is_killer(&self, m: &Move, ply: i32) -> bool {
+        self.killers.get(ply as usize).is_some_and(|k| k[0] == Some(*m) || k[1] == Some(*m))
+    }
+
     /// Records a quiet move that caused a beta cut-off at `ply` with `depth` plies left.
     fn cutoff(&mut self, m: &Move, side: Color, ply: i32, depth: u32) {
         if let Some(k) = self.killers.get_mut(ply as usize) {
@@ -338,6 +343,12 @@ impl Ordering {
     }
 }
 
+/// Late move reductions apply from this remaining depth on, after this many moves have been
+/// searched at the node; from `LMR_LATE_INDEX` on (at depth >= 6) the reduction is two plies.
+const LMR_MIN_DEPTH: u32 = 3;
+const LMR_MIN_INDEX: usize = 3;
+const LMR_LATE_INDEX: usize = 8;
+
 struct Search<'a> {
     seen: &'a HashSet<u64>,
     tt: &'a mut Tt,
@@ -345,6 +356,8 @@ struct Search<'a> {
     /// Killer moves and history ordering for quiet moves (off: quiets in generation order).
     order: Ordering,
     use_order: bool,
+    /// Principal variation search (null windows after the first move) with late move reductions.
+    use_pvs: bool,
     /// Probes that found this position's entry, and those that cut the node off.
     tt_hits: u64,
     tt_cuts: u64,
@@ -424,12 +437,44 @@ impl Search<'_> {
             moves.sort_unstable_by_key(|m| -order_key(m, tt_move));
         }
         self.path.push(h);
+        let in_check = pos.is_check();
         let mut best = -INF;
         let mut best_move = None;
-        for m in &moves {
+        for (i, m) in moves.iter().enumerate() {
             let mut child = pos.clone();
             child.play_unchecked(*m);
-            let s = -self.negamax(&child, depth - 1, ply + 1, -beta, -alpha);
+            let s = if i == 0 || !self.use_pvs {
+                -self.negamax(&child, depth - 1, ply + 1, -beta, -alpha)
+            } else {
+                // Principal variation search: a later move only has to prove it is no better
+                // than alpha, so it gets a null window; a fail-high inside (alpha, beta) is
+                // re-searched with the full window. Late quiet moves are first searched shallower.
+                let r = if self.use_pvs
+                    && depth >= LMR_MIN_DEPTH
+                    && !in_check
+                    && i >= LMR_MIN_INDEX
+                    && is_quiet(m)
+                    && Some(*m) != tt_move
+                    && !self.order.is_killer(m, ply)
+                    && !child.is_check()
+                {
+                    if depth >= 6 && i >= LMR_LATE_INDEX {
+                        2
+                    } else {
+                        1
+                    }
+                } else {
+                    0
+                };
+                let mut v = -self.negamax(&child, depth - 1 - r, ply + 1, -alpha - 1, -alpha);
+                if r > 0 && v > alpha && !self.stopped {
+                    v = -self.negamax(&child, depth - 1, ply + 1, -alpha - 1, -alpha);
+                }
+                if v > alpha && v < beta && !self.stopped {
+                    v = -self.negamax(&child, depth - 1, ply + 1, -beta, -alpha);
+                }
+                v
+            };
             if self.stopped {
                 break;
             }
@@ -569,7 +614,7 @@ struct Outcome {
 fn search(pos: &Chess, seen: &HashSet<u64>, budget_ms: u64) -> Option<Outcome> {
     let hard = Duration::from_millis(budget_ms * 6 / 10);
     let soft = Duration::from_millis(budget_ms * 3 / 10);
-    TT.with(|tt| run(pos, seen, hard, soft, MAX_DEPTH, &mut tt.borrow_mut(), true, true))
+    TT.with(|tt| run(pos, seen, hard, soft, MAX_DEPTH, &mut tt.borrow_mut(), true, true, true))
 }
 
 /// Fixed-depth search with no clock and a fresh table: deterministic, for tests and measurement.
@@ -581,7 +626,7 @@ fn search_depth(pos: &Chess, seen: &HashSet<u64>, depth: u32) -> Option<Outcome>
 /// Fixed-depth search on a given table, with the table on or off.
 #[cfg(test)]
 fn search_depth_with(pos: &Chess, seen: &HashSet<u64>, depth: u32, tt: &mut Tt, use_tt: bool) -> Option<Outcome> {
-    search_depth_opts(pos, seen, depth, tt, use_tt, true)
+    search_depth_feats(pos, seen, depth, tt, use_tt, true, true)
 }
 
 /// Fixed-depth search with the table and the killer/history ordering each on or off.
@@ -594,8 +639,22 @@ fn search_depth_opts(
     use_tt: bool,
     use_order: bool,
 ) -> Option<Outcome> {
+    search_depth_feats(pos, seen, depth, tt, use_tt, use_order, false)
+}
+
+/// Fixed-depth search with the table, the ordering and PVS + LMR each on or off.
+#[cfg(test)]
+fn search_depth_feats(
+    pos: &Chess,
+    seen: &HashSet<u64>,
+    depth: u32,
+    tt: &mut Tt,
+    use_tt: bool,
+    use_order: bool,
+    use_pvs: bool,
+) -> Option<Outcome> {
     let day = Duration::from_secs(86_400);
-    run(pos, seen, day, day, depth, tt, use_tt, use_order)
+    run(pos, seen, day, day, depth, tt, use_tt, use_order, use_pvs)
 }
 
 /// Iterative deepening up to `max_depth`, stopping at `hard` and not starting a depth after `soft`.
@@ -608,6 +667,7 @@ fn run(
     tt: &mut Tt,
     use_tt: bool,
     use_order: bool,
+    use_pvs: bool,
 ) -> Option<Outcome> {
     let start = Instant::now();
     let mut moves: Vec<Move> = pos.legal_moves().into_iter().collect();
@@ -626,6 +686,7 @@ fn run(
         use_tt,
         order: Ordering::new(),
         use_order,
+        use_pvs,
         tt_hits: 0,
         tt_cuts: 0,
         path: Vec::with_capacity(MAX_DEPTH as usize + 1),
@@ -908,6 +969,7 @@ mod tests {
             use_tt: false,
             order: Ordering::new(),
             use_order: false,
+            use_pvs: false,
             tt_hits: 0,
             tt_cuts: 0,
             path: Vec::new(),
@@ -1048,8 +1110,8 @@ mod tests {
             let pos = from_fen(fen);
             let hard = Duration::from_millis(120);
             let soft = Duration::from_millis(60);
-            let off = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(4), false, true).unwrap();
-            let on = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true, true).unwrap();
+            let off = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(4), false, true, true).unwrap();
+            let on = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true, true, true).unwrap();
             println!("go 200 {name}: off depth {} nodes {} | on depth {} nodes {} hits {} cuts {}", off.depth, off.nodes, on.depth, on.nodes, on.tt_hits, on.tt_cuts);
         }
     }
@@ -1138,9 +1200,81 @@ mod tests {
             let pos = from_fen(fen);
             let hard = Duration::from_millis(120);
             let soft = Duration::from_millis(60);
-            let off = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true, false).unwrap();
-            let on = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true, true).unwrap();
+            let off = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true, false, false).unwrap();
+            let on = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true, true, false).unwrap();
             println!("go 200 {name}: off depth {} nodes {} | on depth {} nodes {}", off.depth, off.nodes, on.depth, on.nodes);
+        }
+    }
+
+    #[test]
+    fn pvs_and_lmr_keep_results_near_the_full_search() {
+        // Fixed depth 5, ordering on, PVS + LMR off vs on: reductions may change the move only
+        // where it scores within a small margin of the unreduced result, and must save nodes.
+        let (mut off_nodes, mut on_nodes) = (0u64, 0u64);
+        for fen in TT_FENS {
+            let pos = from_fen(fen);
+            let off = search_depth_feats(&pos, &HashSet::new(), 5, &mut Tt::new(18), true, true, false).unwrap();
+            let on = search_depth_feats(&pos, &HashSet::new(), 5, &mut Tt::new(18), true, true, true).unwrap();
+            assert!((off.score - on.score).abs() <= 40, "{fen}: off {} on {}", off.score, on.score);
+            off_nodes += off.nodes;
+            on_nodes += on.nodes;
+        }
+        assert!(on_nodes < off_nodes, "{on_nodes} vs {off_nodes}");
+    }
+
+    #[test]
+    fn pvs_and_lmr_keep_mates() {
+        // Mate in two (and the other tactical cases) are found with the same move and score.
+        let cases: [(&str, u32); 5] = [
+            ("7k/8/8/8/8/8/1R6/R1K5 w - - 0 1", 4),
+            ("7k/8/5KQ1/8/8/8/8/8 w - - 0 1", 3),
+            ("4k3/8/4p3/3p4/8/8/8/3QK3 w - - 0 1", 3),
+            ("8/8/7k/8/8/8/1R6/R1K5 w - - 0 1", 6),
+            ("7k/8/6K1/8/8/8/8/5Q2 w - - 0 1", 4),
+        ];
+        for (fen, depth) in cases {
+            let pos = from_fen(fen);
+            let off = search_depth_feats(&pos, &HashSet::new(), depth, &mut Tt::new(16), true, true, false).unwrap();
+            let on = search_depth_feats(&pos, &HashSet::new(), depth, &mut Tt::new(16), true, true, true).unwrap();
+            assert_eq!(off.score, on.score, "{fen}");
+            if off.score.abs() > MATE_BOUND {
+                assert_eq!(off.best, on.best, "{fen}");
+            }
+        }
+        let pos = from_fen("7k/8/8/8/8/8/1R6/R1K5 w - - 0 1");
+        let out = search_depth(&pos, &HashSet::new(), 4).unwrap();
+        assert_eq!(out.score, MATE - 3);
+    }
+
+    #[test]
+    #[ignore = "measurement: cargo test --release -p chess-engine pvs_report -- --ignored --nocapture"]
+    fn pvs_report() {
+        // v0.4 = TT only; +order = killers/history; full = ordering + PVS + LMR.
+        for depth in [5u32, 6] {
+            let (mut base_n, mut ord_n, mut full_n, mut same) = (0u64, 0u64, 0u64, 0);
+            for fen in TT_FENS {
+                let pos = from_fen(fen);
+                let base = search_depth_feats(&pos, &HashSet::new(), depth, &mut Tt::new(TT_BITS), true, false, false).unwrap();
+                let ord = search_depth_feats(&pos, &HashSet::new(), depth, &mut Tt::new(TT_BITS), true, true, false).unwrap();
+                let full = search_depth_feats(&pos, &HashSet::new(), depth, &mut Tt::new(TT_BITS), true, true, true).unwrap();
+                if (base.best, base.score) == (full.best, full.score) {
+                    same += 1;
+                } else {
+                    println!("  d{depth} differs {fen}: v0.4 {:?} {} full {:?} {}", base.best, base.score, full.best, full.score);
+                }
+                base_n += base.nodes;
+                ord_n += ord.nodes;
+                full_n += full.nodes;
+            }
+            println!("depth {depth}: nodes v0.4 {base_n} +order {ord_n} full {full_n} ({:+.1}%), same {same}/8", 100.0 * (full_n as f64 / base_n as f64 - 1.0));
+        }
+        for (name, fen) in [("start", TT_FENS[0]), ("italian", TT_FENS[1]), ("kiwipete", TT_FENS[2])] {
+            let pos = from_fen(fen);
+            let hard = Duration::from_millis(120);
+            let soft = Duration::from_millis(60);
+            let base = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true, false, false).unwrap();
+            let full = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true, true, true).unwrap();
+            println!("go 200 {name}: v0.4 depth {} nodes {} | full depth {} nodes {}", base.depth, base.nodes, full.depth, full.nodes);
         }
     }
 }
