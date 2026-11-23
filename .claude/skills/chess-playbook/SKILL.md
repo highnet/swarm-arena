@@ -32,12 +32,22 @@ One thread, modest memory, and every reply within the `go <ms>` budget (200 ms i
 
 ## Architecture now
 
-Nothing yet: the crate answers the protocol but cannot choose a move. Describe the engine here
-as it grows (search, evaluation, time management, data structures) so the next session starts
-from the truth.
+One-ply greedy mover, no search tree yet (`engines/chess/src/main.rs`):
+
+- `replay` rebuilds the position from the referee's UCI list (`str::parse::<UciMove>()` then
+  `to_move`) and records every Zobrist hash seen.
+- `score` plays each legal move and rates it: mate +1e6, stalemate −5e4, captured value plus
+  promotion gain, minus the moved piece's value if its new square is attacked and undefended (or
+  attacked by something cheaper), +30 for check, −2 per opponent reply (mating-net pressure),
+  +5 pawn moves, −200 for repeating a position. Values P100 N320 B330 R500 Q900.
+- Ties broken by deterministic hash noise. Ignores the time budget (answers in well under 1 ms).
+- No legal move prints `bestmove 0000` (should never be asked).
+- Measured: +8 −0 vs random (4 pairs), all decisive by mate within ~55 plies.
 
 ## Ideas worth trying
 
+- Next step: replace `score` with negamax alpha-beta + iterative deepening using a time check;
+  keep the one-ply score's mate/stalemate/repetition handling as leaf rules.
 - Alpha-beta (negamax) with iterative deepening inside the time budget.
 - Quiescence search on captures; MVV-LVA ordering.
 - Transposition table keyed by Zobrist hash.
@@ -54,9 +64,13 @@ what it is, why it might work, and its verdict. Never fill this from another eng
 
 ## What failed and why
 
-Nothing yet. When an idea is buried, write what it was, the measured result and what to try
+- shakmaty 0.30 has no `zobrist::ZobristHash` export; `zobrist_hash::<Zobrist64>` works with
+  just `Zobrist64` imported (its `.0` is the u64).
+
+Nothing buried yet. When an idea is buried, write what it was, the measured result and what to try
 differently. Never re-propose an idea from this list unchanged.
 
 ## Results log
 
 <!-- The referee appends one line per verdict. Do not edit by hand. -->
+- 2026-11-23 10:37 UTC · v0.1 shipped · Wire shakmaty to the protocol and play legal moves · rated 759 (first rated version)
