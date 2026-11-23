@@ -193,7 +193,7 @@ export const passExit = ({ steps }) =>
 /**
  * @param {{
  *   argv: string[],
- *   run?: (script: string, args: string[]) => { code: number | null, stdout: string },
+ *   run?: (script: string, args: string[]) => { code: number | null, stdout: string, stderr?: string },
  *   stdout?: (line: string) => void,
  *   stderr?: (line: string) => void,
  * }} input
@@ -223,11 +223,28 @@ export const janitorPass = ({
    * @param {number[]} [tolerated] Exit codes that are an outcome, not a fault.
    */
   const step = (name, script, scriptArgs, tolerated = []) => {
-    const { code, stdout: output } = run(script, scriptArgs);
+    const { code, stdout: output, stderr: errors = "" } = run(script, scriptArgs);
     stdout(`\n## ${name} (exit ${code})\n`);
     if (output.trim() !== "") stdout(output.trimEnd());
+    if (errors.trim() !== "") stdout(errors.trimEnd());
     steps.push({ name, code, tolerated });
     return { code, output };
+  };
+
+  /**
+   * The survey's disagreements, or `null` when its output was not JSON.
+   * Parsed from stdout alone: a warning on stderr must not make a readable
+   * survey look unparseable.
+   *
+   * @param {string} output
+   * @returns {{ disagreements?: { kind?: string, issue?: string }[] } | null}
+   */
+  const parseSurvey = (output) => {
+    try {
+      return JSON.parse(output);
+    } catch {
+      return null;
+    }
   };
 
   // 1. Survey. `--json` because the release step below acts on the
@@ -237,12 +254,10 @@ export const janitorPass = ({
   //    not failures of the step.
   const survey = step("Coordination state", "report.mjs", ["--json"], [2, 3]);
 
-  /** @type {{ disagreements?: { kind?: string, issue?: string }[] }} */
-  let parsed = {};
+  const surveyed = parseSurvey(survey.output);
+  const parsed = surveyed ?? {};
 
-  try {
-    parsed = JSON.parse(survey.output);
-  } catch {
+  if (surveyed === null) {
     stderr(
       "The survey could not be parsed, so no claim release was attempted. The remaining steps still run.",
     );
@@ -338,13 +353,46 @@ export const janitorPass = ({
   // 6. Session leases whose target is gone or whose TTL has passed. Last
   //    because it is the step most easily forgotten when a pass is run as
   //    separate commands by hand, which is the whole reason this file exists.
+  const repairs = steps.length - 1; // every step after the survey is a repair
   step("Session leases", "lease.mjs", ["--sweep", ...dry]);
+
+  // 7. Re-check. The first survey describes the board *before* this pass
+  //    repaired it, so its disagreements are stale once a repair ran; ending on
+  //    them reads a pass that fixed everything as one that failed. A read-only
+  //    second survey reports what is actually left. Skipped on a dry run,
+  //    where nothing was repaired.
+  /** @type {number | null} */
+  let remaining = surveyed === null ? null : (surveyed.disagreements ?? []).length;
+
+  if (!args.dryRun && surveyed !== null && remaining > 0 && repairs > 0) {
+    const after = step(
+      "Coordination state (after repairs)",
+      "report.mjs",
+      ["--json"],
+      [2, 3],
+    );
+    const recheck = parseSurvey(after.output);
+    remaining = recheck === null ? null : (recheck.disagreements ?? []).length;
+  }
 
   const code = passExit({ steps });
 
   stdout(`\n## Pass summary\n`);
-  for (const { name, code: stepCode } of steps) {
-    stdout(`- ${name}: exit ${stepCode}`);
+  for (const { name, code: stepCode, tolerated = [] } of steps) {
+    // A tolerated non-zero code is a finding or a command declining, not a
+    // step failing; say so, or a reader takes `exit 2` for a fault.
+    const note =
+      stepCode !== 0 && tolerated.includes(stepCode ?? -1)
+        ? " (finding or refusal, not a failure)"
+        : "";
+    stdout(`- ${name}: exit ${stepCode}${note}`);
+  }
+  if (remaining !== null) {
+    stdout(
+      remaining === 0
+        ? "\nNo disagreements remain."
+        : `\n${remaining} disagreement(s) remain after this pass; see the last coordination-state survey above.`,
+    );
   }
   stdout(
     code === EXIT.ok
@@ -368,7 +416,8 @@ const defaultRun = (script, args) => {
 
   return {
     code: result.status,
-    stdout: `${result.stdout ?? ""}${result.stderr ?? ""}`,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
   };
 };
 

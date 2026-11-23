@@ -846,6 +846,18 @@ export const lease = ({
       return EXIT.inconclusive;
     }
 
+    // A live lease already held under this caller's own agent id is the
+    // caller's lease, not a collision: a retried or repeated acquire is
+    // idempotent and reports the lease it already holds, unchanged.
+    if (state.kind === "live" && existing.readable && existing.agent === agentId) {
+      stdout(`\`${refPath}\` is already held by \`${agentId}\` (this caller): ${state.detail}. Nothing was written.`);
+      stdout(`LEASE_REF=${refPath}`);
+      stdout(`LEASE_SHA=${existing.sha}`);
+      stdout(`LEASE_HEAD=${existing.head}`);
+      stdout(`LEASE_AGENT=${agentId}`);
+      return EXIT.ok;
+    }
+
     if (state.kind === "live") {
       stderr(
         `\`${refPath}\` is already held: ${state.detail}. Somebody else is on this target; there is nothing to dispatch.`,
