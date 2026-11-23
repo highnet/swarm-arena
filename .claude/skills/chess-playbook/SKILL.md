@@ -73,11 +73,16 @@ Negamax alpha-beta with iterative deepening (`engines/chess/src/main.rs`):
   for N/B/Q, pawn advance and centre pawns, rook on 7th, king shelter in the middlegame vs king
   centralisation in the endgame), tapered by a 24-point phase; bishop pair +30.
 - Prints `info depth <d> score <cp> nodes <n> qnodes <q> tthits <h> ttcuts <c>` before `bestmove`.
-- Measured at `go 200` (native release): start position depth 4, ~300k nodes of which ~150k
-  quiescence; Italian middlegame after 6.O-O depth 4, ~294k nodes, ~200k quiescence. Without
-  quiescence it reached depth 5 but scored that middlegame +239 for b2b4 — horizon optimism.
-  Quiescence costs one ply of nominal depth and buys honest leaf scores. `arena versus chess`
-  vs main (v0.2, no quiescence): +7 -2 =1.
+- Measured at `go 200` with the TT (`tt_report`, native release, 120 ms hard / 60 ms soft; wall
+  clock, so ±1 ply between runs): start position depth 6, ~356k nodes, 6.5k TT hits, 4.4k TT cuts
+  (TT off: depth 5, ~330k); Italian middlegame after 6.O-O depth 6, ~333k nodes, 9.3k hits, 5.8k
+  cuts (off: depth 5, ~363k); Kiwipete middlegame depth 5, ~226k nodes, 3.1k hits, 1.1k cuts (off:
+  depth 4, ~364k; the review's run saw depth 4 both ways). Fixed depth over the 8 TT test FENs:
+  same move and score 8/8, nodes -17% at d3, -47% at d4, -60% at d5.
+- Before the TT (quiescence only): start depth 4, ~300k nodes of which ~150k quiescence; Italian
+  depth 4, ~294k nodes, ~200k quiescence. Without quiescence it reached depth 5 but scored that
+  middlegame +239 for b2b4 — horizon optimism. Quiescence costs one ply of nominal depth and buys
+  honest leaf scores. `arena versus chess` vs main (v0.2, no quiescence): +7 -2 =1.
 
 ## Ideas worth trying
 
