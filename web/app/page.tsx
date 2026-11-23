@@ -4,7 +4,6 @@ import {
   Activity,
   ArrowUpRight,
   Bot,
-  CalendarDays,
   Cpu,
   Gamepad2,
   GitMerge,
@@ -38,7 +37,7 @@ import {
   snapshotNow,
   trackSummaries,
 } from '@/lib/derive';
-import { formatDay, formatInt } from '@/lib/format';
+import { formatInt } from '@/lib/format';
 import { SERIES, SHORT_NAME } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
 
@@ -67,16 +66,28 @@ type CounterProps = {
   label: string;
   value: string;
   icon: LucideIcon;
+  href: string;
 };
 
-const Counter = ({ label, value, icon: Icon }: CounterProps) => (
-  <div className="min-w-0 bg-panel px-4 py-3">
-    <dd className="font-mono text-xl font-medium tabular tracking-tight text-fg">{value}</dd>
-    <dt className="mt-0.5 flex items-center gap-1.5 text-xs text-fg-3">
-      <Icon className="size-3.5 shrink-0" aria-hidden="true" />
-      {label}
-    </dt>
-  </div>
+const Counter = ({ label, value, icon: Icon, href }: CounterProps) => (
+  <li className="min-w-0">
+    <Link
+      href={href}
+      className="group flex h-full flex-col bg-panel px-4 py-3 outline-none transition-colors hover:bg-panel-raised focus-visible:bg-panel-raised"
+    >
+      <span className="flex items-center justify-between gap-2 font-mono text-xl font-medium tabular tracking-tight text-fg">
+        {value}
+        <ArrowUpRight
+          className="size-3.5 shrink-0 text-fg-3 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+          aria-hidden="true"
+        />
+      </span>
+      <span className="mt-0.5 flex items-center gap-1.5 text-xs text-fg-3 group-hover:text-fg-2">
+        <Icon className="size-3.5 shrink-0" aria-hidden="true" />
+        {label}
+      </span>
+    </Link>
+  </li>
 );
 
 const HomeContent = async () => {
@@ -146,14 +157,30 @@ const HomeContent = async () => {
         <RightNow s={s} slots={slots} />
       </section>
 
-      <dl className="mt-10 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-3 lg:grid-cols-6">
-        <Counter label="agent sessions so far" icon={Bot} value={formatInt(c.sessions)} />
-        <Counter label="agents working now" icon={Users} value={formatInt(c.working)} />
-        <Counter label="games played" icon={Swords} value={formatInt(c.games)} />
-        <Counter label="versions shipped" icon={GitMerge} value={formatInt(c.landed)} />
-        <Counter label="ideas buried" icon={Skull} value={formatInt(c.dead)} />
-        <Counter label="started" icon={CalendarDays} value={formatDay(s.run.started_at)} />
-      </dl>
+      <nav aria-label="Run totals" className="mt-10">
+        <ul className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-3 lg:grid-cols-5">
+          <Counter
+            label="agent sessions so far"
+            icon={Bot}
+            value={formatInt(c.sessions)}
+            href="/sessions"
+          />
+          <Counter
+            label="agents working now"
+            icon={Users}
+            value={formatInt(c.working)}
+            href="/fleet"
+          />
+          <Counter label="games played" icon={Swords} value={formatInt(c.games)} href="/games" />
+          <Counter
+            label="versions shipped"
+            icon={GitMerge}
+            value={formatInt(c.landed)}
+            href="/versions"
+          />
+          <Counter label="ideas buried" icon={Skull} value={formatInt(c.dead)} href="/graveyard" />
+        </ul>
+      </nav>
 
       <section aria-labelledby="engines-title" className="mt-8">
         <div className="mb-3 flex items-center justify-between gap-3">

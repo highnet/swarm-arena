@@ -193,7 +193,7 @@ const Graveyard = ({ dead, slots, limit = 5 }: GraveyardProps) => (
         The graveyard <span className="ml-1 font-normal text-fg-3">in memoriam</span>
       </>
     }
-    actions={dead.length > limit ? <MoreLink href="/board?kind=dead">Older</MoreLink> : undefined}
+    actions={dead.length > limit ? <MoreLink href="/graveyard">Older</MoreLink> : undefined}
   >
     {dead.length === 0 ? (
       <Typography variant="small" className="px-4 py-6">
