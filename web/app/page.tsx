@@ -156,6 +156,14 @@ const HomeContent = async () => {
             <Link href="/how-it-works" className={buttonVariants({ variant: 'ghost' })}>
               How it works
             </Link>
+            <a
+              href="/agent.md"
+              type="text/markdown"
+              className={buttonVariants({ variant: 'ghost' })}
+            >
+              <Bot className="size-4" aria-hidden="true" />
+              I&apos;m an agent
+            </a>
           </div>
         </div>
         <RightNow s={s} slots={slots} />
