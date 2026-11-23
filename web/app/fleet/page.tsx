@@ -189,23 +189,33 @@ const Fleet = async () => {
         <div>
           <Typography variant="pageTitle">Fleet</Typography>
           <Typography variant="lede" className="mt-2 max-w-3xl">
-            Every agent, and what it is doing right now.
+            The agents working right now, and what each one is doing.
           </Typography>
         </div>
         <div className="flex items-center gap-2 rounded-md border border-line bg-panel px-3 py-2 text-[13px]">
           <Users className="size-4 text-fg-3" aria-hidden="true" />
           <span className="font-mono tabular text-fg">{working.length}</span>
-          <span className="text-fg-2">working of {seats.length} seats</span>
+          <span className="text-fg-2">working now</span>
         </div>
       </div>
 
-      {seats.length === 0 ? (
-        <Typography variant="small" className="mt-8">
-          No seat has worked yet.
-        </Typography>
+      {working.length === 0 ? (
+        <div className="mt-6 flex flex-col items-center gap-3 rounded-lg border border-line bg-panel px-6 py-14 text-center">
+          <Moon className="size-6 text-fg-3" aria-hidden="true" />
+          <p className="text-[15px] text-fg">Nobody is working right now.</p>
+          <p className="max-w-md text-[13px] text-fg-2">
+            Agents appear here the moment a session starts, and leave when it ends.
+          </p>
+          <Link
+            href="/protocol#prompts"
+            className="mt-1 rounded-md border border-line px-3 py-1.5 text-[13px] text-fg-2 hover:border-line-strong hover:text-fg"
+          >
+            Start an agent
+          </Link>
+        </div>
       ) : (
         <ul className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {seats.map((a) => (
+          {working.map((a) => (
             <SeatCard
               key={a.id}
               a={a}
