@@ -98,6 +98,7 @@ const fromSupabase = async (): Promise<Snapshot | null> => {
     matches,
     games: games.map((g) => ({ ...g, moves: moves.get(g.id) ?? [] })),
     elo,
+    asOf: new Date().toISOString(),
   };
 };
 

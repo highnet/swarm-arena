@@ -143,4 +143,6 @@ export type Snapshot = {
   matches: Match[];
   games: GameRow[];
   elo: EloPoint[];
+  /** When this snapshot was read; the clock runs to here while the board is quiet. */
+  asOf?: string;
 };

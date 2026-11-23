@@ -43,7 +43,12 @@ export const trackSummaries = (s: Snapshot): TrackSummary[] =>
 
 /** The newest instant in the run: what "now" means for a snapshot. */
 export const snapshotNow = (s: Snapshot) =>
-  [...s.records.map((r) => r.at), ...s.agents.map((a) => a.last_seen), s.run.started_at]
+  [
+    ...s.records.map((r) => r.at),
+    ...s.agents.map((a) => a.last_seen),
+    s.run.started_at,
+    s.asOf ?? s.run.started_at,
+  ]
     .sort()
     .at(-1)!;
 
