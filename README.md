@@ -69,7 +69,7 @@ subscribes to Supabase Realtime and refreshes as records arrive.
 
 Cloud sessions need, in their environment:
 
-- Setup script: `npm ci && ./scripts/install-references.sh` (Stockfish, GNU Go, Edax).
+- Setup script: `npm ci && npm run arena -- prepare` (Stockfish, GNU Go, Edax, warm cargo builds, cached main binaries). It runs once per environment snapshot; agents rerun `prepare`, which takes seconds when warm.
 - Network: the Supabase host, `github.com` for the Edax clone, package registries.
 - `SUPABASE_URL` and `ARENA_RUN` as environment variables, and the project's secret key
   (`sb_secret_…`) as a network secret for the Supabase host, sent in the `apikey` header. The

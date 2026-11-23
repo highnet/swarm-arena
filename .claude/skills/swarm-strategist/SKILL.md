@@ -5,7 +5,7 @@ description: Run one Swarm Arena strategist turn. Use when prompted to "run the 
 
 # Swarm strategist
 
-1. Setup if needed: `npm ci` from the repo root.
+1. Setup: `npm run arena -- prepare` (seconds when the environment already ran it).
 2. `npm run arena -- brief` prints every engine's rating, ladder, open work, shipped and buried
    ideas, recent strategy calls, and the plan format.
 3. Read the message board (`brief` includes it). Answer questions addressed to the strategist and

@@ -12,10 +12,11 @@ that playbook.
 
 ## Steps
 
-1. Setup (skip what is already done). Writes to the board need `ARENA_PASSWORD` in the
-   environment; without it the referee cannot record anything.
-   `npm ci` and `./scripts/install-references.sh` from the repo root. Check `git status` is clean
-   and you are on an up-to-date `main` (`git checkout main && git pull`).
+1. Setup: `npm run arena -- prepare`. The environment already ran it, so it should finish in
+   seconds; it installs anything missing (reference engines, warm cargo builds, cached main
+   binaries). Do not run `npm ci` or the install script yourself. Writes to the board need
+   `ARENA_PASSWORD` in the environment. Be on an up-to-date, clean `main`
+   (`git checkout main && git pull`).
 2. Claim: `npm run arena -- next` (or `npm run arena -- next <track>` if the prompt names an engine).
    - If it prints "No open task", run the `swarm-strategist` skill instead, then try `next` once more.
    - Otherwise it prints a briefing: task id, crate, spec, current rating, ladder, recent results.

@@ -1,13 +1,25 @@
-import { TRACKS, type Agent, type BoardRecord, type GameId, type RecordKind, type Rung, type Task, type Track } from '@arena/shared';
-import { RUN_ID } from './config';
-import { getStore } from './store';
+import {
+  TRACKS,
+  type Agent,
+  type BoardRecord,
+  type GameId,
+  type RecordKind,
+  type Rung,
+  type Task,
+  type Track,
+} from "@arena/shared";
+import { RUN_ID } from "./config";
+import { getStore } from "./store";
 
 /** Writes to the shared board. Every write is a structured record; no transcripts. */
 
 export const now = () => new Date().toISOString();
 
-export const post = (kind: RecordKind, fields: Partial<BoardRecord> & { title: string }) =>
-  getStore().insert<BoardRecord>('records', {
+export const post = (
+  kind: RecordKind,
+  fields: Partial<BoardRecord> & { title: string },
+) =>
+  getStore().insert<BoardRecord>("records", {
     run_id: RUN_ID,
     at: now(),
     kind,
@@ -22,10 +34,10 @@ export const post = (kind: RecordKind, fields: Partial<BoardRecord> & { title: s
 
 export const ensureRun = async (label: string) => {
   const db = getStore();
-  if ((await db.select('runs', { id: RUN_ID })).length) return false;
-  await db.insert('runs', { id: RUN_ID, label, started_at: now() });
+  if ((await db.select("runs", { id: RUN_ID })).length) return false;
+  await db.insert("runs", { id: RUN_ID, label, started_at: now() });
   for (const t of TRACKS) {
-    await db.insert('tracks', {
+    await db.insert("tracks", {
       id: t.id,
       run_id: RUN_ID,
       name: t.name,
@@ -34,7 +46,7 @@ export const ensureRun = async (label: string) => {
       current_version: null,
     });
     for (const [position, r] of t.rungs.entries()) {
-      await db.insert('rungs', {
+      await db.insert("rungs", {
         id: `${RUN_ID}-${t.id}-${position}`,
         run_id: RUN_ID,
         track_id: t.id,
@@ -47,38 +59,58 @@ export const ensureRun = async (label: string) => {
       });
     }
   }
-  await agent('strategist', null, 'strategist');
-  await agent('referee', null, 'referee');
-  await post('strategy', {
-    agent_id: 'strategist',
-    title: 'Run opened. Four engines, one rule: no rating without games.',
-    detail: 'Every engine starts from an empty crate. The referee forfeits any illegal move.',
+  await agent("strategist", null, "strategist");
+  await agent("referee", null, "referee");
+  await post("strategy", {
+    agent_id: "strategist",
+    title: "Run opened. Four engines, one rule: no rating without games.",
+    detail:
+      "Every engine starts from an empty crate. The referee forfeits any illegal move.",
   });
   return true;
 };
 
-export const agent = async (seat: string, track: GameId | null, role: Agent['role']) => {
+export const agent = async (
+  seat: string,
+  track: GameId | null,
+  role: Agent["role"],
+) => {
   const db = getStore();
-  const id = seat.replace(/\//g, '-');
-  const existing = await db.select<Agent>('agents', { id });
+  const id = seat.replace(/\//g, "-");
+  const existing = await db.select<Agent>("agents", { id });
   if (!existing.length) {
-    await db.insert('agents', { id, run_id: RUN_ID, seat, track_id: track, role, status: 'idle', last_seen: now(), sessions: 0 });
+    await db.insert("agents", {
+      id,
+      run_id: RUN_ID,
+      seat,
+      track_id: track,
+      role,
+      status: "idle",
+      last_seen: now(),
+      sessions: 0,
+    });
   }
   return id;
 };
 
 export const setAgent = async (id: string, patch: Partial<Agent>) =>
-  getStore().update('agents', { id }, { last_seen: now(), ...patch });
+  getStore().update("agents", { id }, { last_seen: now(), ...patch });
 
 export const bumpSessions = async (id: string) => {
-  const [a] = await getStore().select<Agent>('agents', { id });
+  const [a] = await getStore().select<Agent>("agents", { id });
   if (a) await setAgent(id, { sessions: a.sessions + 1 });
 };
 
-export const tracks = () => getStore().select<Track>('tracks', { run_id: RUN_ID });
-export const track = async (id: GameId) => (await getStore().select<Track>('tracks', { run_id: RUN_ID, id }))[0];
+export const tracks = () =>
+  getStore().select<Track>("tracks", { run_id: RUN_ID });
+export const track = async (id: GameId) =>
+  (await getStore().select<Track>("tracks", { run_id: RUN_ID, id }))[0];
 export const rungs = async (id: GameId) =>
-  (await getStore().select<Rung>('rungs', { run_id: RUN_ID, track_id: id })).sort((a, b) => a.position - b.position);
-export const tasks = () => getStore().select<Task>('tasks', { run_id: RUN_ID });
+  (
+    await getStore().select<Rung>("rungs", { run_id: RUN_ID, track_id: id })
+  ).sort((a, b) => a.position - b.position);
+export const tasks = () => getStore().select<Task>("tasks", { run_id: RUN_ID });
 export const records = async () =>
-  (await getStore().select<BoardRecord>('records', { run_id: RUN_ID })).sort((a, b) => a.at.localeCompare(b.at));
+  (await getStore().select<BoardRecord>("records", { run_id: RUN_ID })).sort(
+    (a, b) => a.at.localeCompare(b.at),
+  );

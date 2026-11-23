@@ -1,25 +1,35 @@
-import { mctsPlayer, randomPlayer, type GameId, type Mover } from '@arena/shared';
-import { edax, gnugo, stockfish } from './engine';
+import {
+  mctsPlayer,
+  randomPlayer,
+  type GameId,
+  type Mover,
+} from "@arena/shared";
+import { edax, gnugo, stockfish } from "./engine";
 
 /**
  * Resolve a rung's opponent id to a player. Built-ins need nothing installed;
  * external references need their binary on PATH (or the *_BIN env var).
  */
-export const reference = async (opponent: string, game: GameId, moveMs: number, seed: number): Promise<Mover> => {
-  if (opponent === 'random') return randomPlayer(seed);
-  const [kind, arg] = opponent.split('-');
+export const reference = async (
+  opponent: string,
+  game: GameId,
+  moveMs: number,
+  seed: number,
+): Promise<Mover> => {
+  if (opponent === "random") return randomPlayer(seed);
+  const [kind, arg] = opponent.split("-");
   const n = Number(arg);
   switch (kind) {
-    case 'mcts':
+    case "mcts":
       return mctsPlayer(n, seed);
-    case 'stockfish':
-      if (game !== 'chess') break;
+    case "stockfish":
+      if (game !== "chess") break;
       return stockfish(n, moveMs);
-    case 'gnugo':
-      if (game !== 'go9') break;
+    case "gnugo":
+      if (game !== "go9") break;
       return gnugo(n);
-    case 'edax':
-      if (game !== 'othello') break;
+    case "edax":
+      if (game !== "othello") break;
       return edax(n);
   }
   throw new Error(`unknown reference "${opponent}" for ${game}`);
