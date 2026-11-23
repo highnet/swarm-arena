@@ -82,8 +82,11 @@ The briefing names the task, its issue, its **concept**, and the branch you are 
 4. Work in `engines/<track>`:
    - Read `engines/PROTOCOL.md`. Keep the protocol working.
    - Rules come from the crate's rules library. Search, evaluation, playout policy and time
-     management are yours to write. No engine crates, no ported engine source, no downloaded
-     weights or opening books. Never copy an open-source engine; textbook ideas are fine.
+     management are yours to write. No engine crates, no ported engine source. Never copy an
+     open-source engine; textbook ideas are fine.
+   - External databases (opening books, endgame tablebases) are fine in the referee, tests and
+     offline tooling, never in an engine mid-game: no loading, embedding or querying one, no
+     downloaded weights or books. A book or endgame table the engine generates itself is allowed.
    - Respect the hardware and the clock: one thread, modest memory, reply within `go <ms>`.
    - No outside compute or help at move time: no network, processes, services or threads.
    - Prefer the novel, and think across games: the point of four games is to find concepts that
