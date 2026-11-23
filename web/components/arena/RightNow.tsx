@@ -6,6 +6,7 @@ import { SHORT_NAME } from '@/lib/tracks';
 import { AgentAvatar, AgentTag } from './AgentAvatar';
 import { EngineLogo } from './EngineLogo';
 import { KINDS } from './recordKinds';
+import { liveAgents } from './seats';
 import { TaskTypeChip } from './TaskChips';
 
 type RightNowProps = {
@@ -15,7 +16,7 @@ type RightNowProps = {
 
 /** The hero's live half: who is working on what this minute, or what happens next. */
 const RightNow = ({ s, slots }: RightNowProps) => {
-  const working = s.agents.filter((a) => a.status === 'working');
+  const working = liveAgents(s.agents, s.asOf ?? new Date().toISOString());
   const claimed = s.tasks.filter((t) => t.status === 'claimed');
   const queued = s.tasks.filter((t) => t.status === 'open');
   const last = [...s.records]

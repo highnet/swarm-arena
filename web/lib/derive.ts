@@ -1,4 +1,5 @@
 import type { BoardRecord, GameId, GameRow, Snapshot } from '@arena/shared';
+import { liveAgents } from '@/components/arena/seats';
 import { TRACK_ORDER } from './tracks';
 
 export type TrackSummary = {
@@ -61,7 +62,7 @@ export const counters = (s: Snapshot) => ({
   dead: s.records.filter((r) => r.kind === 'idea_dead').length,
   rungs: s.rungs.filter((r) => r.cleared_at).length,
   rungsTotal: s.rungs.length,
-  working: s.agents.filter((a) => a.status === 'working').length,
+  working: liveAgents(s.agents, s.asOf ?? new Date().toISOString()).length,
   sessions: s.agents.reduce((n, a) => n + a.sessions, 0),
 });
 

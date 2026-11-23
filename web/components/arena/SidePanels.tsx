@@ -15,6 +15,7 @@ import { formatDay, formatTime } from '@/lib/format';
 import { SERIES, SHORT_NAME } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
 import { AgentTag } from './AgentAvatar';
+import { liveAgents, shownStatus } from './seats';
 import { TaskTypeChip } from './TaskChips';
 
 type Slots = Partial<Record<GameId, number>>;
@@ -224,22 +225,27 @@ const Graveyard = ({ dead, slots, limit = 5 }: GraveyardProps) => (
 
 type FleetProps = {
   agents: Agent[];
+  /** The snapshot's clock: a working seat silent for too long counts as stale, not at work. */
+  asOf: string;
   slots: Slots;
 };
 
-const STATUS_DOT: Record<Agent['status'], string> = {
+const STATUS_DOT: Record<ReturnType<typeof shownStatus>, string> = {
   working: 'bg-good animate-pulse-dot',
+  stale: 'bg-warning',
   idle: 'bg-fg-3',
   stopped: 'border border-line-strong bg-transparent',
 };
 
 /** Every seat in the swarm, working ones first. */
-const Fleet = ({ agents, slots }: FleetProps) => {
-  const order = ['working', 'idle', 'stopped'];
+const Fleet = ({ agents, asOf, slots }: FleetProps) => {
+  const order = ['working', 'stale', 'idle', 'stopped'];
   const sorted = [...agents].sort(
-    (a, b) => order.indexOf(a.status) - order.indexOf(b.status) || a.seat.localeCompare(b.seat),
+    (a, b) =>
+      order.indexOf(shownStatus(a, asOf)) - order.indexOf(shownStatus(b, asOf)) ||
+      a.seat.localeCompare(b.seat),
   );
-  const working = agents.filter((a) => a.status === 'working').length;
+  const working = liveAgents(agents, asOf).length;
   return (
     <Panel
       id="fleet"
@@ -260,7 +266,7 @@ const Fleet = ({ agents, slots }: FleetProps) => {
           {sorted.map((a) => (
             <li key={a.id} className="flex items-center gap-2.5 px-4 py-2">
               <span
-                className={cn('size-1.5 shrink-0 rounded-full', STATUS_DOT[a.status])}
+                className={cn('size-1.5 shrink-0 rounded-full', STATUS_DOT[shownStatus(a, asOf)])}
                 aria-hidden="true"
               />
               <AgentTag id={a.id} seat={a.seat} size={22} className="flex-1 text-[13px]" />
@@ -270,7 +276,16 @@ const Fleet = ({ agents, slots }: FleetProps) => {
                   aria-hidden="true"
                 />
               )}
-              <span className="w-14 shrink-0 text-right text-xs text-fg-3">{a.status}</span>
+              <span
+                className="w-14 shrink-0 text-right text-xs text-fg-3"
+                title={
+                  shownStatus(a, asOf) === 'stale'
+                    ? 'Says it is working, but has not been heard from in 45 minutes'
+                    : undefined
+                }
+              >
+                {shownStatus(a, asOf)}
+              </span>
               <span
                 className="w-16 shrink-0 text-right font-mono text-xs tabular text-fg-3"
                 title="Sessions"
