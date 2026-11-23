@@ -12,7 +12,7 @@ import { Panel } from '@/components/ui/Panel';
 import { getGame, getSnapshot } from '@/lib/data';
 import { formatDay, formatElo, formatTime } from '@/lib/format';
 import { moveNotation } from '@/lib/gameExport';
-import { gameHref, matchHref } from '@/lib/routes';
+import { gameHref } from '@/lib/routes';
 import { SHORT_NAME } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
 
@@ -70,11 +70,6 @@ const GameContent = async (props: GamePageProps) => {
 
   return (
     <DetailShell
-      back={
-        match
-          ? { href: matchHref(match.id), label: 'The match' }
-          : { href: '/games', label: 'Games played' }
-      }
       eyebrow={
         <>
           <EngineChip track={game.track_id} slots={slots} />

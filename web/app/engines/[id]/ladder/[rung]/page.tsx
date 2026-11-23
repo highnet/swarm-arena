@@ -58,7 +58,6 @@ const RungContent = async (props: RungPageProps) => {
 
   return (
     <DetailShell
-      back={{ href: `/engines/${rung.track_id}`, label: `${SHORT_NAME[rung.track_id]} engine` }}
       eyebrow={
         <>
           <EngineChip track={rung.track_id} slots={slots} />

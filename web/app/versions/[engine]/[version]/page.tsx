@@ -68,7 +68,6 @@ const VersionContent = async (props: VersionPageProps) => {
 
   return (
     <DetailShell
-      back={{ href: '/versions', label: 'Versions shipped' }}
       eyebrow={
         <>
           <EngineChip track={track.id} slots={slots} />

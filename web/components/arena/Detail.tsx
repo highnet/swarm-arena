@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
-import { ArrowLeft } from 'lucide-react';
 import type { BoardRecord, GameId, Match } from '@arena/shared';
 import { Typography } from '@/components/ui/Typography';
 import { formatDay, formatElo, formatTime } from '@/lib/format';
@@ -10,7 +9,6 @@ import { EngineChip } from './SidePanels';
 import { KINDS, TONE_CLASS } from './recordKinds';
 
 type DetailShellProps = {
-  back: { href: string; label: string };
   /** Small line above the title: engine, kind, time. */
   eyebrow?: ReactNode;
   title: ReactNode;
@@ -19,24 +17,10 @@ type DetailShellProps = {
   children?: ReactNode;
 };
 
-/** The frame every item page shares: a way back, what it is, and its title. */
-const DetailShell = ({
-  back,
-  eyebrow,
-  title,
-  lede,
-  titleClassName,
-  children,
-}: DetailShellProps) => (
+/** The frame every item page shares: what it is, and its title. The way back is the breadcrumb. */
+const DetailShell = ({ eyebrow, title, lede, titleClassName, children }: DetailShellProps) => (
   <main className="mx-auto w-full max-w-5xl px-4 pb-16 pt-6 sm:px-6">
-    <Link
-      href={back.href}
-      className="inline-flex items-center gap-1 text-xs text-fg-3 hover:text-fg"
-    >
-      <ArrowLeft className="size-3" aria-hidden="true" />
-      {back.label}
-    </Link>
-    <div className="mt-2 pb-5">
+    <div className="pb-5">
       {eyebrow && (
         <div className="flex flex-wrap items-center gap-2 text-[13px] text-fg-2">{eyebrow}</div>
       )}

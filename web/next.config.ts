@@ -6,6 +6,8 @@ const nextConfig: NextConfig = {
   transpilePackages: ['@arena/shared', '@rallypoint/swarm-graph'],
   // Playbooks live beside the site in the repo; ship them with the server for cache refreshes.
   outputFileTracingIncludes: {
+    // News stories feed the "Just in" banner in the root layout, so every route reads them.
+    '/**': ['../news/*.md'],
     '/engines/[id]': [
       '../.claude/skills/*-playbook/SKILL.md',
       '../engines/*/Cargo.toml',
