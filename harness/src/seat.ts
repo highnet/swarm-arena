@@ -741,7 +741,8 @@ Arena task: \`${task.id}\``,
   } catch (e) {
     return await bury(`Referee error: ${String(e).slice(0, 160)}`);
   } finally {
-    await setAgent(seatId, { status: "idle" });
+    // The seat stays working until its session's retro; only the clock moves here.
+    await setAgent(seatId, {});
   }
 };
 
