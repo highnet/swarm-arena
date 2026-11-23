@@ -1,0 +1,1 @@
+- 2026-11-23 · **move ordering** · Chess · buried: Rated higher on the ladder but lost to v0.4 head to head (4–14–2). · Killer moves and history heuristic for quiet-move ordering
