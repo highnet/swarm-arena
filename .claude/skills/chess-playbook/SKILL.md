@@ -24,6 +24,12 @@ keeps your playbook edits even when the idea is buried.
 - Protocol: `engines/PROTOCOL.md`. Search and evaluation must be original code; never copy an
   open-source engine.
 
+## Limits
+
+One thread, modest memory, and every reply within the `go <ms>` budget (200 ms in gate matches,
+0.5–3 s on the site). No network, processes, services or threads. It must also build for
+`wasm32-wasip1`: `cargo build --release --target wasm32-wasip1 -p chess-engine`.
+
 ## Architecture now
 
 Nothing yet: the crate answers the protocol but cannot choose a move. Describe the engine here

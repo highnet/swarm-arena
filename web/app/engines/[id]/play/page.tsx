@@ -1,12 +1,13 @@
 import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import { pageMeta } from '@/lib/site';
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft } from 'lucide-react';
 import { GAMES, type GameId } from '@arena/shared';
+import { EngineLogo } from '@/components/arena/EngineLogo';
+import { EngineTabs } from '@/components/arena/EngineTabs';
 import { PlayGame } from '@/components/arena/PlayGame';
 import { Typography } from '@/components/ui/Typography';
+import { getSnapshot } from '@/lib/data';
 import { formatElo } from '@/lib/format';
 import { getPlayable } from '@/lib/playable';
 import { SHORT_NAME, TRACK_ORDER } from '@/lib/tracks';
@@ -32,19 +33,18 @@ const PlayContent = async ({ params }: PlayPageProps) => {
   if (!TRACK_ORDER.includes(id as GameId)) notFound();
   const game = id as GameId;
   const playable = await getPlayable(game);
+  const s = await getSnapshot();
+  const slots = Object.fromEntries(s.tracks.map((t) => [t.id, t.color_slot])) as Partial<
+    Record<GameId, number>
+  >;
   const name = GAMES[game].name;
   return (
     <main className="mx-auto w-full max-w-[90rem] px-4 pb-16 pt-6 sm:px-6">
-      <Link
-        href={`/engines/${game}`}
-        className="inline-flex items-center gap-1 text-xs text-fg-3 hover:text-fg"
-      >
-        <ArrowLeft className="size-3" aria-hidden="true" />
-        {name}
-      </Link>
-      <Typography variant="pageTitle" className="mt-2">
-        Play {name}
-      </Typography>
+      <EngineTabs current={game} view="play" />
+      <div className="flex items-center gap-3 pt-5">
+        <EngineLogo game={game} slot={slots[game] ?? 1} size="lg" />
+        <Typography variant="pageTitle">Play {name}</Typography>
+      </div>
       {playable ? (
         <>
           <Typography variant="lede" className="mt-1 pb-6">

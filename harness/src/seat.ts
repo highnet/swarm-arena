@@ -1,9 +1,11 @@
+import { cpus, totalmem } from 'node:os';
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { outsideHelp } from './rules';
 import { buildWasm, wasmPaths } from './wasm';
 import { relative, resolve } from 'node:path';
 import { GAMES, randomPlayer, type Task } from '@arena/shared';
 import { agent, bumpSessions, now, post, records, rungs, setAgent, tasks, track } from './board';
-import { ARENA_HOME, ARENA_ROOT, ENGINES_DIR, GATE_PAIRS, log, MOVE_MS, run, RUN_ID } from './config';
+import { ARENA_HOME, ARENA_ROOT, ENGINES_DIR, GATE_PAIRS, log, MOVE_MS, MOVE_SLACK_MS, run, RUN_ID } from './config';
 import { arenaEngine } from './engine';
 import { gateRung, runMatch } from './match';
 import { reference } from './references';
@@ -37,6 +39,8 @@ Title: ${task.title}
 Spec: ${task.spec}
 
 Current version: ${t.current_version ?? 'none yet'} at ${t.current_elo === null ? 'no rating' : Math.round(t.current_elo)}.
+Hardware: ${cpus().length} cores here, ${Math.round(totalmem() / 2 ** 30)} GB RAM, but the engine gets ONE thread and must also run in a browser.
+Time: answer \`go <ms>\` within <ms> (gate matches use ${MOVE_MS} ms, players on the site choose 0.5–3 s); later than <ms> + ${MOVE_SLACK_MS} ms forfeits.
 Ladder: ${ladder.map((r) => `${r.label} (${r.elo})${r.cleared_at ? ' cleared' : ''}`).join(', ')}.
 Recent results:
 ${recent || '- none yet'}
@@ -159,10 +163,18 @@ export const submit = async (taskId: string) => {
 
   try {
     await setAgent(seatId, { status: 'working' });
+    const breach = outsideHelp(crateDir);
+    if (breach) return await bury(`Engines think alone: ${breach}`);
     const build = await run('cargo', ['build', '--release', '-p', crate(task.track_id)], { cwd: ENGINES_DIR });
     if (build.code !== 0) return await bury('Build failed.');
     const test = await run('cargo', ['test', '--release', '-p', crate(task.track_id)], { cwd: ENGINES_DIR });
     if (test.code !== 0) return await bury('Tests failed.');
+    // The browser build is the sandbox: no sockets, no processes, one thread. It must compile.
+    const t0 = await track(task.track_id);
+    const wasmOk = await buildWasm(task.track_id, { version: 'candidate', elo: t0.current_elo });
+    if (!wasmOk) {
+      return await bury('The browser build (wasm32-wasip1) failed: engines must run sandboxed, single-threaded, with no network or processes.');
+    }
     const bin = resolve(ARENA_HOME, 'bin', task.id);
     mkdirSync(resolve(ARENA_HOME, 'bin'), { recursive: true });
     copyFileSync(resolve(ENGINES_DIR, 'target/release', crate(task.track_id)), bin);
@@ -218,7 +230,6 @@ export const submit = async (taskId: string) => {
     logVerdict(task.track_id, `${version} shipped · ${task.title} · rated ${Math.round(gate.est.elo)} (${delta})`);
     // The browser build: visitors play the version that just shipped.
     const wasm = await buildWasm(task.track_id, { version, elo: Math.round(gate.est.elo) });
-    if (!wasm) log(`wasm build failed for ${task.track_id}; shipping without a playable build`);
     const pushed = await commitAndPush(
       [crateDir, resolve(ENGINES_DIR, 'Cargo.lock'), playbook(task.track_id), ...(wasm ? wasmPaths(task.track_id) : [])],
       `feat(${task.track_id}): ${task.title}\n\nArena ${version}, rated ${Math.round(gate.est.elo)} (${delta}).`,

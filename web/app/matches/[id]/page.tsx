@@ -2,7 +2,7 @@ import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Swords } from 'lucide-react';
 import { GameReplay } from '@/components/arena/GameReplay';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
@@ -85,6 +85,7 @@ const MatchContent = async ({ params }: MatchPageProps) => {
           {games.map((g, i) => (
             <Panel
               key={g.id}
+              icon={Swords}
               title={`Game ${i + 1}`}
               actions={
                 <Typography variant="meta" as="span">

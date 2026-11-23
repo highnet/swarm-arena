@@ -2,6 +2,7 @@ import type { MetadataRoute } from 'next';
 import { getSnapshot } from '@/lib/data';
 import { snapshotNow } from '@/lib/derive';
 import { SITE_URL } from '@/lib/site';
+import { getSkills } from '@/lib/source';
 import { TRACK_ORDER } from '@/lib/tracks';
 
 /** Every public page: the race, engines (and their play pages), the board, skills, matches. */
@@ -27,6 +28,7 @@ const sitemap = async (): Promise<MetadataRoute.Sitemap> => {
     ]),
     page('/board', 0.7, 'hourly'),
     page('/skills', 0.6, 'daily'),
+    ...(await getSkills()).map((k) => page(`/skills/${k.name}`, 0.5, 'daily')),
     page('/how-it-works', 0.5, 'weekly'),
     ...s.matches
       .filter((m) => m.finished_at)

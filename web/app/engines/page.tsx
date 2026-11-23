@@ -1,14 +1,15 @@
 import type { Metadata } from 'next';
 import { pageMeta } from '@/lib/site';
 import Link from 'next/link';
+import { Gamepad2, ListOrdered, Table2 } from 'lucide-react';
+import { EngineCard } from '@/components/arena/EngineCard';
+import { EngineLogo } from '@/components/arena/EngineLogo';
 import { LadderLegend, TrackLadder } from '@/components/arena/TrackLadder';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
 import { getSnapshot } from '@/lib/data';
 import { trackSummaries } from '@/lib/derive';
 import { formatElo, formatInt } from '@/lib/format';
-import { SERIES } from '@/lib/tracks';
-import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = pageMeta(
   'Engines',
@@ -27,14 +28,20 @@ const Engines = async () => {
         everything that chooses a move is written here.
       </Typography>
 
-      <Panel className="mt-6" title="Ladders">
+      <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {tracks.map((t) => (
+          <EngineCard key={t.id} track={t} />
+        ))}
+      </div>
+
+      <Panel className="mt-4" icon={ListOrdered} title="Ladders">
         <TrackLadder tracks={tracks} />
         <div className="border-t border-line px-4 py-2.5">
           <LadderLegend />
         </div>
       </Panel>
 
-      <Panel className="mt-4" title="At a glance" bodyClassName="overflow-x-auto">
+      <Panel className="mt-4" icon={Table2} title="At a glance" bodyClassName="overflow-x-auto">
         <table className="w-full min-w-[36rem] text-[13px]">
           <thead>
             <tr className="border-b border-line text-left text-xs text-fg-3">
@@ -56,7 +63,7 @@ const Engines = async () => {
                     href={`/engines/${t.id}`}
                     className="inline-flex items-center gap-2 text-fg hover:underline"
                   >
-                    <span className={cn('size-2 rounded-full', SERIES[t.colorSlot].bg)} />
+                    <EngineLogo game={t.id} slot={t.colorSlot} size="sm" />
                     {t.name}
                   </Link>
                 </td>
@@ -77,7 +84,11 @@ const Engines = async () => {
                   {s.records.filter((r) => r.track_id === t.id && r.kind === 'idea_dead').length}
                 </td>
                 <td className="px-4 py-2.5 text-right">
-                  <Link href={`/engines/${t.id}/play`} className="text-xs text-fg-2 hover:text-fg">
+                  <Link
+                    href={`/engines/${t.id}/play`}
+                    className="inline-flex items-center gap-1 text-xs text-fg-2 hover:text-fg"
+                  >
+                    <Gamepad2 className="size-3.5" aria-hidden="true" />
                     Play
                   </Link>
                 </td>

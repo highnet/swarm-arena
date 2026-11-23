@@ -1,17 +1,22 @@
 import Link from 'next/link';
+import { Activity, BookOpen, Cpu, ScrollText, Workflow, type LucideIcon } from 'lucide-react';
+import type { GameId } from '@arena/shared';
+import { SHORT_NAME, TRACK_ORDER } from '@/lib/tracks';
+import { EngineLogo } from './EngineLogo';
 import { LiveIndicator } from './LiveIndicator';
 import { SearchBox } from './SearchBox';
 
 type SiteHeaderProps = {
   runId: string;
+  slots: Partial<Record<GameId, number>>;
 };
 
-const NAV = [
-  { href: '/', label: 'Race' },
-  { href: '/engines', label: 'Engines' },
-  { href: '/board', label: 'Board' },
-  { href: '/skills', label: 'Skills' },
-  { href: '/how-it-works', label: 'How it works' },
+const NAV: { href: string; label: string; icon: LucideIcon }[] = [
+  { href: '/', label: 'Race', icon: Activity },
+  { href: '/engines', label: 'Engines', icon: Cpu },
+  { href: '/board', label: 'Board', icon: ScrollText },
+  { href: '/skills', label: 'Skills', icon: BookOpen },
+  { href: '/how-it-works', label: 'How it works', icon: Workflow },
 ];
 
 const Mark = () => (
@@ -24,11 +29,14 @@ const Mark = () => (
       strokeLinecap="round"
       strokeLinejoin="round"
     />
-    <circle cx="17" cy="16" r="1.75" fill="var(--fg)" />
+    <circle cx="17" cy="16" r="1.75" fill="var(--series-1)" />
   </svg>
 );
 
-const SiteHeader = ({ runId }: SiteHeaderProps) => (
+const navLink =
+  'inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1.5 text-[13px] text-fg-2 transition-colors hover:bg-panel-raised hover:text-fg';
+
+const SiteHeader = ({ runId, slots }: SiteHeaderProps) => (
   <header className="sticky top-0 z-20 border-b border-line bg-bg/90 backdrop-blur-md">
     <a
       href="#content"
@@ -45,13 +53,10 @@ const SiteHeader = ({ runId }: SiteHeaderProps) => (
         Swarm Arena
       </Link>
       <nav aria-label="Main" className="hidden min-w-0 items-center gap-0.5 lg:flex">
-        {NAV.map((n) => (
-          <Link
-            key={n.href}
-            href={n.href}
-            className="whitespace-nowrap rounded-md px-2.5 py-1.5 text-[13px] text-fg-2 transition-colors hover:bg-panel-raised hover:text-fg"
-          >
-            {n.label}
+        {NAV.map(({ href, label, icon: Icon }) => (
+          <Link key={href} href={href} className={navLink}>
+            <Icon className="size-3.5 text-fg-3" aria-hidden="true" />
+            {label}
           </Link>
         ))}
       </nav>
@@ -66,15 +71,26 @@ const SiteHeader = ({ runId }: SiteHeaderProps) => (
       aria-label="Sections"
       className="flex flex-wrap gap-0.5 border-t border-line px-2 py-1 lg:hidden"
     >
-      {NAV.map((n) => (
-        <Link
-          key={n.href}
-          href={n.href}
-          className="whitespace-nowrap rounded-md px-2.5 py-1 text-[13px] text-fg-2 hover:bg-panel-raised hover:text-fg"
-        >
-          {n.label}
+      {NAV.map(({ href, label, icon: Icon }) => (
+        <Link key={href} href={href} className={navLink}>
+          <Icon className="size-3.5 text-fg-3" aria-hidden="true" />
+          {label}
         </Link>
       ))}
+    </nav>
+    <nav aria-label="Engines" className="border-t border-line">
+      <div className="mx-auto flex max-w-[90rem] flex-wrap items-center gap-1 px-2 py-1 sm:px-4">
+        {TRACK_ORDER.map((id) => (
+          <Link
+            key={id}
+            href={`/engines/${id}`}
+            className="inline-flex items-center gap-2 rounded-md px-2 py-1 text-[13px] text-fg-2 transition-colors hover:bg-panel-raised hover:text-fg"
+          >
+            <EngineLogo game={id} slot={slots[id] ?? 1} size="sm" />
+            {SHORT_NAME[id]}
+          </Link>
+        ))}
+      </div>
     </nav>
   </header>
 );

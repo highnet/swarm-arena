@@ -58,7 +58,10 @@ const RootLayout = async ({ children }: RootLayoutProps) => {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full`}>
       <body className="flex min-h-full flex-col">
-        <SiteHeader runId={snapshot.run.id} />
+        <SiteHeader
+          runId={snapshot.run.id}
+          slots={Object.fromEntries(snapshot.tracks.map((t) => [t.id, t.color_slot]))}
+        />
         <div id="content" className="flex flex-1 flex-col">
           {children}
         </div>

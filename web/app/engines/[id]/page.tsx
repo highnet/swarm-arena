@@ -3,9 +3,25 @@ import type { Metadata } from 'next';
 import { pageMeta } from '@/lib/site';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, CircleDashed, CircleDot, CircleSlash, GitMerge } from 'lucide-react';
+import {
+  BookOpen,
+  CircleDashed,
+  CircleDot,
+  CircleSlash,
+  Code2,
+  Gamepad2,
+  GitBranch,
+  GitMerge,
+  ListOrdered,
+  ListTodo,
+  ScrollText,
+  Swords,
+  TrendingUp,
+} from 'lucide-react';
 import type { GameId, Task } from '@arena/shared';
 import { BoardFeed } from '@/components/arena/BoardFeed';
+import { EngineLogo } from '@/components/arena/EngineLogo';
+import { EngineTabs } from '@/components/arena/EngineTabs';
 import { Lineage } from '@/components/arena/Lineage';
 import { RaceChart } from '@/components/arena/RaceChart';
 import { SourceViewer } from '@/components/arena/SourceViewer';
@@ -19,8 +35,7 @@ import { lineage, newestFirst, snapshotNow, trackSummaries } from '@/lib/derive'
 import { formatDay, formatElo, formatTime } from '@/lib/format';
 import { getPlaybook } from '@/lib/playbook';
 import { getEngineSource } from '@/lib/source';
-import { SERIES, SHORT_NAME, TRACK_ORDER } from '@/lib/tracks';
-import { cn } from '@/lib/utils';
+import { SHORT_NAME, TRACK_ORDER } from '@/lib/tracks';
 
 type EnginePageProps = {
   params: Promise<{ id: string }>;
@@ -98,16 +113,10 @@ const EngineContent = async ({ params }: EnginePageProps) => {
 
   return (
     <main className="mx-auto w-full max-w-[90rem] px-4 pb-16 pt-6 sm:px-6">
-      <Link
-        href="/engines"
-        className="inline-flex items-center gap-1 text-xs text-fg-3 hover:text-fg"
-      >
-        <ArrowLeft className="size-3" aria-hidden="true" />
-        Engines
-      </Link>
-      <div className="mt-2 pb-5">
-        <div className="flex items-center gap-2">
-          <span className={cn('size-2.5 rounded-full', SERIES[track.colorSlot].bg)} />
+      <EngineTabs current={track.id} view="overview" />
+      <div className="pb-5 pt-5">
+        <div className="flex items-center gap-3">
+          <EngineLogo game={track.id} slot={track.colorSlot} size="lg" />
           <Typography variant="pageTitle">{track.name}</Typography>
           {track.atWork && (
             <span className="inline-flex items-center gap-1.5 text-xs text-good-text">
@@ -128,12 +137,13 @@ const EngineContent = async ({ params }: EnginePageProps) => {
           href={`/engines/${track.id}/play`}
           className={buttonVariants({ variant: 'primary', className: 'mt-4' })}
         >
+          <Gamepad2 className="size-4" aria-hidden="true" />
           Play against it
         </Link>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_23rem]">
-        <Panel title="Rating by version">
+        <Panel icon={TrendingUp} title="Rating by version">
           <div className="px-2 pt-3 sm:px-3">
             <RaceChart
               series={[{ id: track.id, name: SHORT_NAME[track.id], slot: track.colorSlot, points }]}
@@ -146,7 +156,7 @@ const EngineContent = async ({ params }: EnginePageProps) => {
             <TrackLadder tracks={[track]} />
           </div>
         </Panel>
-        <Panel title="Ladder">
+        <Panel icon={ListOrdered} title="Ladder">
           <ol className="divide-y divide-line">
             {[...track.rungs].reverse().map((r) => (
               <li key={r.id} className="flex items-center gap-3 px-4 py-2.5">
@@ -169,10 +179,11 @@ const EngineContent = async ({ params }: EnginePageProps) => {
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[23rem_minmax(0,1fr)]">
-        <Panel title="Lineage">
+        <Panel icon={GitBranch} title="Lineage">
           <Lineage nodes={nodes} beforeFirst={beforeFirst} slot={track.colorSlot} />
         </Panel>
         <Panel
+          icon={BookOpen}
           title="Playbook"
           actions={
             <Typography variant="meta" as="span">
@@ -215,6 +226,7 @@ const EngineContent = async ({ params }: EnginePageProps) => {
 
       <Panel
         id="source"
+        icon={Code2}
         title="Source"
         className="mt-4"
         actions={
@@ -226,7 +238,7 @@ const EngineContent = async ({ params }: EnginePageProps) => {
         <SourceViewer files={source} repoUrl={REPO_URL} />
       </Panel>
 
-      <Panel title="Matches" className="mt-4" bodyClassName="overflow-x-auto">
+      <Panel icon={Swords} title="Matches" className="mt-4" bodyClassName="overflow-x-auto">
         <table className="w-full min-w-[40rem] text-[13px]">
           <thead>
             <tr className="border-b border-line text-left text-xs text-fg-3">
@@ -274,7 +286,7 @@ const EngineContent = async ({ params }: EnginePageProps) => {
       </Panel>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_23rem]">
-        <Panel title="Board">
+        <Panel icon={ScrollText} title="Board">
           <BoardFeed
             records={newestFirst(s.records.filter((r) => r.track_id === track.id))}
             slots={slots}
@@ -282,7 +294,7 @@ const EngineContent = async ({ params }: EnginePageProps) => {
             scoped
           />
         </Panel>
-        <Panel title="Tasks">
+        <Panel icon={ListTodo} title="Tasks">
           {tasks.length === 0 && (
             <Typography variant="small" className="px-4 py-6">
               No tasks yet.

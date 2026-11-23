@@ -37,3 +37,11 @@ export const SHORT_NAME: Record<GameId, string> = {
   othello: 'Othello',
   hex: 'Hex',
 };
+
+/** What each engine is built on and who it climbs against. */
+export const ENGINE_FACTS: Record<GameId, { rules: string; opponents: string }> = {
+  chess: { rules: 'shakmaty', opponents: 'Stockfish' },
+  go9: { rules: 'goban', opponents: 'GNU Go' },
+  othello: { rules: 'othello', opponents: 'Edax' },
+  hex: { rules: 'hexgame', opponents: 'MCTS ladder' },
+};

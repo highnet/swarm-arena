@@ -8,6 +8,8 @@ export const ENGINES_DIR = resolve(ARENA_ROOT, 'engines');
 export const ARENA_HOME = resolve(process.env.ARENA_HOME ?? resolve(ARENA_ROOT, '.arena'));
 export const RUN_ID = process.env.ARENA_RUN ?? 'run-001';
 export const MOVE_MS = Number(process.env.ARENA_MOVE_MS ?? 200);
+/** How far past `go <ms>` a reply may arrive before it forfeits (process and pipe overhead). */
+export const MOVE_SLACK_MS = Number(process.env.ARENA_MOVE_SLACK_MS ?? 300);
 export const GATE_PAIRS = Number(process.env.ARENA_GATE_PAIRS ?? 20);
 
 process.env.ARENA_HOME = ARENA_HOME;

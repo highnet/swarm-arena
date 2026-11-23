@@ -1,6 +1,6 @@
 import { GAMES, performanceElo, playMatch, type GameId, type Match, type Mover, type Rung } from '@arena/shared';
 import { now, post } from './board';
-import { log, MOVE_MS, RUN_ID } from './config';
+import { log, MOVE_MS, MOVE_SLACK_MS, RUN_ID } from './config';
 import { getStore } from './store';
 
 export type MatchSpec = {
@@ -38,7 +38,7 @@ export const runMatch = async (spec: MatchSpec) => {
   log(`match ${id}: ${spec.candidateVersion} vs ${spec.opponentLabel}, ${spec.pairs * 2} games`);
   const forfeits: string[] = [];
   const result = await playMatch(GAMES[spec.track], spec.candidate, spec.opponent, spec.pairs, {
-    moveTimeMs: MOVE_MS * 5 + 1000,
+    moveTimeMs: MOVE_MS + MOVE_SLACK_MS,
     onGame: async (g, i) => {
       const engineFirst = i % 2 === 0;
       if (g.offender !== null && (g.offender === 0) === engineFirst) {

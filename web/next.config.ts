@@ -12,6 +12,7 @@ const nextConfig: NextConfig = {
       '../engines/*/src/**/*',
     ],
     '/skills': ['../.claude/skills/*/SKILL.md'],
+    '/skills/[name]': ['../.claude/skills/*/SKILL.md'],
   },
   async redirects() {
     return [

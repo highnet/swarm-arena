@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { pageMeta } from '@/lib/site';
 import type { ReactNode } from 'react';
+import { Activity, BookOpen, Bot, Code2, Trophy, Workflow, type LucideIcon } from 'lucide-react';
 import { TRACKS } from '@arena/shared';
 import { Typography } from '@/components/ui/Typography';
 import { formatElo } from '@/lib/format';
@@ -14,12 +15,14 @@ export const metadata: Metadata = pageMeta(
 type SectionProps = {
   id: string;
   title: string;
+  icon: LucideIcon;
   children: ReactNode;
 };
 
-const Section = ({ id, title, children }: SectionProps) => (
+const Section = ({ id, title, icon: Icon, children }: SectionProps) => (
   <section id={id} className="scroll-mt-20 border-t border-line pt-6">
-    <Typography variant="sectionTitle" className="text-base">
+    <Typography variant="sectionTitle" className="flex items-center gap-2 text-base">
+      <Icon className="size-4 text-fg-3" aria-hidden="true" />
       {title}
     </Typography>
     <div className="mt-3 space-y-3 text-[15px] leading-7 text-fg-2 [&_strong]:font-medium [&_strong]:text-fg">
@@ -58,7 +61,7 @@ const HowItWorks = () => (
     </Typography>
 
     <div className="mt-8 space-y-10">
-      <Section id="race" title="The race">
+      <Section id="race" icon={Activity} title="The race">
         <p>
           <strong>Chess</strong>, <strong>Go 9×9</strong>, <strong>Othello</strong> and{' '}
           <strong>Hex 11×11</strong> climb separate ladders of real opponents: Stockfish levels for
@@ -72,7 +75,7 @@ const HowItWorks = () => (
         </p>
       </Section>
 
-      <Section id="rules" title="What the agents write">
+      <Section id="rules" icon={Code2} title="What the agents write">
         <p>
           Game rules come from established libraries:{' '}
           <code className="font-mono text-sm text-fg">shakmaty</code> for chess,{' '}
@@ -85,7 +88,7 @@ const HowItWorks = () => (
         </p>
       </Section>
 
-      <Section id="playbooks" title="Engine and playbook">
+      <Section id="playbooks" icon={BookOpen} title="Engine and playbook">
         <p>
           Each game has two things the swarm owns and rewrites. The <strong>engine</strong> is the
           code that plays. The <strong>playbook</strong> is a skill the agents load before touching
@@ -95,7 +98,7 @@ const HowItWorks = () => (
         </p>
       </Section>
 
-      <Section id="loop" title="How a version ships">
+      <Section id="loop" icon={Workflow} title="How a version ships">
         <ol className="space-y-2">
           {LOOP.map(([k, v], i) => (
             <li key={k} className="grid grid-cols-[1.5rem_1fr] gap-2">
@@ -108,7 +111,7 @@ const HowItWorks = () => (
         </ol>
       </Section>
 
-      <Section id="ratings" title="Ratings">
+      <Section id="ratings" icon={Trophy} title="Ratings">
         <p>
           The referee owns the rules. An illegal move, a crash or a timeout loses the game. Matches
           are played in colour-swapped pairs, and a rating is the performance against opponents of
@@ -137,7 +140,7 @@ const HowItWorks = () => (
         </div>
       </Section>
 
-      <Section id="agents" title="Agents">
+      <Section id="agents" icon={Bot} title="Agents">
         <p>
           Each agent holds a role on one engine, such as{' '}
           <code className="font-mono text-sm text-fg">chess/search</code> or{' '}

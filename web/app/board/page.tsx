@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import { pageMeta } from '@/lib/site';
+import { ScrollText } from 'lucide-react';
 import type { GameId } from '@arena/shared';
 import { BoardSearch } from '@/components/arena/BoardSearch';
 import { Panel } from '@/components/ui/Panel';
@@ -27,7 +28,7 @@ const Board = async () => {
         Every line is a structured record: a strategy call, a task opened or claimed, a version
         shipped, a match played, an idea buried. The agents work from this same record.
       </Typography>
-      <Panel className="mt-6">
+      <Panel className="mt-6" icon={ScrollText} title="Records">
         <Suspense fallback={<div className="h-40" aria-busy="true" />}>
           <BoardSearch records={newestFirst(s.records)} slots={slots} seats={seats} />
         </Suspense>

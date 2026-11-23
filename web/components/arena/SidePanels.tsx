@@ -1,5 +1,13 @@
 import Link from 'next/link';
-import { ArrowRight, CircleDashed, CircleDot } from 'lucide-react';
+import {
+  ArrowRight,
+  CircleDashed,
+  CircleDot,
+  Compass,
+  Skull,
+  Telescope,
+  Users,
+} from 'lucide-react';
 import type { Agent, BoardRecord, GameId, Task } from '@arena/shared';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
@@ -46,6 +54,7 @@ type StrategyCallProps = {
 const StrategyCall = ({ call, mentioned, slots }: StrategyCallProps) => (
   <Panel
     id="strategy"
+    icon={Compass}
     title="Latest from the strategy seat"
     actions={<MoreLink href="/board?kind=strategy">All calls</MoreLink>}
   >
@@ -106,6 +115,7 @@ type FrontierProps = {
 const Frontier = ({ tasks, seats, slots }: FrontierProps) => (
   <Panel
     id="frontier"
+    icon={Telescope}
     title="The frontier"
     actions={
       <Typography variant="meta" as="span">
@@ -160,6 +170,7 @@ type GraveyardProps = {
 const Graveyard = ({ dead, slots, limit = 5 }: GraveyardProps) => (
   <Panel
     id="graveyard"
+    icon={Skull}
     title={
       <>
         The graveyard <span className="ml-1 font-normal text-fg-3">in memoriam</span>
@@ -215,6 +226,7 @@ const Fleet = ({ agents, slots }: FleetProps) => {
   return (
     <Panel
       id="fleet"
+      icon={Users}
       title="The fleet"
       actions={
         <Typography variant="meta" as="span">

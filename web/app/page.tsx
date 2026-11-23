@@ -1,7 +1,20 @@
 import Link from 'next/link';
-import { ArrowUpRight } from 'lucide-react';
+import {
+  Activity,
+  ArrowUpRight,
+  Bot,
+  CalendarDays,
+  Cpu,
+  GitMerge,
+  ScrollText,
+  Skull,
+  Swords,
+  Users,
+  type LucideIcon,
+} from 'lucide-react';
 import type { GameId, Snapshot } from '@arena/shared';
 import { BoardFeed } from '@/components/arena/BoardFeed';
+import { EngineCard } from '@/components/arena/EngineCard';
 import { GameReplay } from '@/components/arena/GameReplay';
 import { RaceChart, type RaceSeries } from '@/components/arena/RaceChart';
 import { Fleet, Frontier, Graveyard, MoreLink, StrategyCall } from '@/components/arena/SidePanels';
@@ -54,12 +67,16 @@ const verdict = (s: Snapshot, working: number) => {
 type CounterProps = {
   label: string;
   value: string;
+  icon: LucideIcon;
 };
 
-const Counter = ({ label, value }: CounterProps) => (
+const Counter = ({ label, value, icon: Icon }: CounterProps) => (
   <div className="min-w-0 bg-panel px-4 py-3">
     <dd className="font-mono text-xl font-medium tabular tracking-tight text-fg">{value}</dd>
-    <dt className="mt-0.5 text-xs text-fg-3">{label}</dt>
+    <dt className="mt-0.5 flex items-center gap-1.5 text-xs text-fg-3">
+      <Icon className="size-3.5 shrink-0" aria-hidden="true" />
+      {label}
+    </dt>
   </div>
 );
 
@@ -106,17 +123,33 @@ const Home = async () => {
       </section>
 
       <dl className="mt-8 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-3 lg:grid-cols-6">
-        <Counter label="agent sessions so far" value={formatInt(c.sessions)} />
-        <Counter label="agents working now" value={formatInt(c.working)} />
-        <Counter label="games played" value={formatInt(c.games)} />
-        <Counter label="versions shipped" value={formatInt(c.landed)} />
-        <Counter label="ideas buried" value={formatInt(c.dead)} />
-        <Counter label="started" value={formatDay(s.run.started_at)} />
+        <Counter label="agent sessions so far" icon={Bot} value={formatInt(c.sessions)} />
+        <Counter label="agents working now" icon={Users} value={formatInt(c.working)} />
+        <Counter label="games played" icon={Swords} value={formatInt(c.games)} />
+        <Counter label="versions shipped" icon={GitMerge} value={formatInt(c.landed)} />
+        <Counter label="ideas buried" icon={Skull} value={formatInt(c.dead)} />
+        <Counter label="started" icon={CalendarDays} value={formatDay(s.run.started_at)} />
       </dl>
+
+      <section aria-labelledby="engines-title" className="mt-8">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 id="engines-title" className="flex items-center gap-2 text-sm font-medium text-fg">
+            <Cpu className="size-4 text-fg-3" aria-hidden="true" />
+            The engines
+          </h2>
+          <MoreLink href="/engines">Compare them</MoreLink>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {tracks.map((t) => (
+            <EngineCard key={t.id} track={t} />
+          ))}
+        </div>
+      </section>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_23rem]">
         <Panel
           id="race"
+          icon={Activity}
           title="The race"
           actions={<MoreLink href="/engines">Open any engine</MoreLink>}
         >
@@ -137,6 +170,7 @@ const Home = async () => {
 
         <Panel
           id="latest-game"
+          icon={Swords}
           title="Latest game"
           actions={
             gameMatch && (
@@ -194,6 +228,7 @@ const Home = async () => {
 
       <div id="record" className="mt-4 grid scroll-mt-28 gap-4 lg:grid-cols-[minmax(0,1fr)_23rem]">
         <Panel
+          icon={ScrollText}
           title="Latest from the record"
           actions={<MoreLink href="/board">The whole feed</MoreLink>}
         >

@@ -28,12 +28,17 @@ that playbook.
    - Never copy an open-source engine (Stockfish, GNU Go, Edax, Leela, KataGo, MoHex…): don't read
      their code to reproduce it, don't translate it, don't lift their tables or tuned constants.
      Textbook ideas are fine; implementations must come from you.
+   - Respect the hardware and the clock: one thread, modest memory, and a reply within the `go <ms>`
+     budget (the briefing states both). A stronger engine that misses its time limit forfeits.
+   - No outside compute or help at move time: no network, no other processes or engines, no
+     services, no threads. The referee rejects these and requires the `wasm32-wasip1` build.
    - Prefer the novel. When the spec leaves room, try something you have not seen in an engine:
      a new evaluation feature, an unusual search shape, a learned or self-tuned component built
      here. Write the idea and its outcome into the playbook so the swarm learns either way.
    - Make the one change the spec asks for. Keep it focused.
    - `cargo build --release -p <track>-engine` and `cargo test --release -p <track>-engine` must pass.
      Add tests for anything that can produce an illegal move.
+   - Check the browser build too: `cargo build --release --target wasm32-wasip1 -p <track>-engine`.
    - Quick check before submitting: `npm run arena -- play <track> engines/target/release/<track>-engine random --pairs 2`
      must show no forfeits.
 5. Update the playbook before submitting: correct "Architecture now", add what you learned to

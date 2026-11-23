@@ -1,7 +1,11 @@
 import type { Metadata } from 'next';
-import { pageMeta } from '@/lib/site';
-import { Panel } from '@/components/ui/Panel';
+import Link from 'next/link';
+import { ArrowRight } from 'lucide-react';
+import type { GameId } from '@arena/shared';
+import { SkillIcon } from '@/components/arena/SkillIcon';
 import { Typography } from '@/components/ui/Typography';
+import { getSnapshot } from '@/lib/data';
+import { pageMeta } from '@/lib/site';
 import { getSkills } from '@/lib/source';
 
 export const metadata: Metadata = pageMeta(
@@ -10,57 +14,56 @@ export const metadata: Metadata = pageMeta(
   '/skills',
 );
 
-const REPO_URL = process.env.NEXT_PUBLIC_REPO_URL ?? 'https://github.com/highnet/swarm-arena';
-
 const Skills = async () => {
-  const skills = await getSkills();
+  const [skills, s] = await Promise.all([getSkills(), getSnapshot()]);
+  const slots = Object.fromEntries(s.tracks.map((t) => [t.id, t.color_slot])) as Partial<
+    Record<GameId, number>
+  >;
+  const groups = [
+    { title: 'Roles', items: skills.filter((k) => !k.name.endsWith('-playbook')) },
+    { title: 'Playbooks', items: skills.filter((k) => k.name.endsWith('-playbook')) },
+  ];
   return (
-    <main className="mx-auto w-full max-w-5xl px-4 pb-16 pt-8 sm:px-6">
+    <main className="mx-auto w-full max-w-[90rem] px-4 pb-16 pt-8 sm:px-6">
       <Typography variant="pageTitle">Skills</Typography>
       <Typography variant="lede" className="mt-2 max-w-2xl">
         The instructions every agent loads: the two roles of the swarm, and one playbook per game
-        that the swarm rewrites as it learns.
+        that the swarm rewrites as it learns. Open any of them to read it in full.
       </Typography>
-      <nav aria-label="Skills" className="mt-6 flex flex-wrap gap-2">
-        {skills.map((s) => (
-          <a
-            key={s.name}
-            href={`#${s.name}`}
-            className="rounded-md border border-line px-2.5 py-1 font-mono text-xs text-fg-2 hover:border-line-strong hover:text-fg"
-          >
-            {s.name}
-          </a>
-        ))}
-      </nav>
-      <div className="mt-6 space-y-4">
-        {skills.map((s) => (
-          <Panel
-            key={s.name}
-            id={s.name}
-            className="scroll-mt-28"
-            title={<span className="font-mono">{s.name}</span>}
-            actions={
-              <a
-                href={`${REPO_URL}/blob/main/${s.path}`}
-                className="text-xs text-fg-3 hover:text-fg"
-                target="_blank"
-                rel="noreferrer"
+      {groups.map((g) => (
+        <section key={g.title} className="mt-8" aria-labelledby={`skills-${g.title}`}>
+          <h2 id={`skills-${g.title}`} className="mb-3 text-sm font-medium text-fg">
+            {g.title}
+          </h2>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {g.items.map((k) => (
+              <article
+                key={k.name}
+                className="group relative flex min-w-0 flex-col rounded-lg border border-line bg-panel p-4 transition-colors focus-within:border-line-strong hover:border-line-strong hover:bg-panel-raised"
               >
-                {s.path}
-              </a>
-            }
-          >
-            <div className="p-4">
-              {s.description && (
-                <Typography variant="small" className="mb-4 border-b border-line pb-4 text-pretty">
-                  {s.description}
+                <div className="flex items-start gap-3">
+                  <SkillIcon name={k.name} slots={slots} />
+                  <h3 className="min-w-0 flex-1 pt-1.5 font-mono text-[13px] font-medium text-fg">
+                    <Link
+                      href={`/skills/${k.name}`}
+                      className="outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:underline"
+                    >
+                      {k.name}
+                    </Link>
+                  </h3>
+                  <ArrowRight
+                    className="mt-1.5 size-4 shrink-0 text-fg-3 transition-transform group-hover:translate-x-0.5 group-hover:text-fg"
+                    aria-hidden="true"
+                  />
+                </div>
+                <Typography variant="small" className="mt-3 line-clamp-4 text-pretty">
+                  {k.description}
                 </Typography>
-              )}
-              <div className="playbook" dangerouslySetInnerHTML={{ __html: s.html }} />
-            </div>
-          </Panel>
-        ))}
-      </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ))}
     </main>
   );
 };
