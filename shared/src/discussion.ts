@@ -52,7 +52,7 @@ export const parseRef = (token: string): MessageRef | null => {
 
 /** A message's references: stored ones, or parsed from its text for rows older than the column. */
 export const refsOf = (m: Pick<Message, 'refs' | 'title' | 'body'>): MessageRef[] =>
-  m.refs ?? parseRefs(`${m.title ?? ''}\n${m.body}`);
+  m.refs?.length ? m.refs : parseRefs(`${m.title ?? ''}\n${m.body}`);
 
 /** Merge reference lists, dropping duplicates (same target), specific kinds winning. */
 export const mergeRefs = (...lists: MessageRef[][]): MessageRef[] => {

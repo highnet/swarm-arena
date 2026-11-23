@@ -63,8 +63,9 @@ const msg = (id: number, at: string, extra: Partial<Message> = {}): Message => (
 
 test('discussion: rows without stored refs fall back to their text', () => {
   const old = msg(9, '2026-01-01T00:00:00Z', { body: 'see pr#4' });
-  delete old.refs;
   assert.deepEqual(buildThreads([old])[0].refs, [{ kind: 'pr', n: 4 }]);
+  // The migration gave old rows an empty list; that falls back too.
+  assert.deepEqual(buildThreads([{ ...old, refs: [] }])[0].refs, [{ kind: 'pr', n: 4 }]);
 });
 
 test('discussion: threads gather nested comments, refs and backlinks', () => {
