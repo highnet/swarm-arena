@@ -40,31 +40,37 @@ One thread, modest memory, and every reply within the `go <ms>` budget (200 ms i
 
 ## Architecture now
 
-No search yet. `main.rs` replays the `position` moves into a `Position` (goban `Game` with
-CHINESE rules + own seen-board set for positional superko). `choose`:
+MCTS (UCT) since #29. Three files in `engines/go9/src`:
 
-- If the opponent just passed and Tromp-Taylor area (komi 7.5, `area_score`) already wins for
-  the side to move, pass (ends the game on a win).
-- Otherwise `candidates()` = legal moves that are not own single-point eyes (own 4-neighbour
-  check or goban `check_eye`), weighted 10 normal, 10+40/stone for captures, 1 for self-atari.
-  Weighted random pick (xorshift seeded from moves + SystemTime). Pass when none remain.
-- Budget is ignored; a move takes well under 1 ms.
-- Tests cover coordinates, suicide, capture-not-suicide, ko, superko after passes, eye-filling,
-  scoring and 20 self-play games of legality.
-- vs random (10 pairs, 200 ms): +17 -3, no forfeits.
+- `main.rs`: protocol, `Position` (goban `Game` with CHINESE rules + own seen-board set for
+  positional superko) as the legality oracle at the root, and `choose`:
+  - If the opponent just passed and Tromp-Taylor area (komi 7.5) already wins, pass.
+  - Root moves = goban/superko-legal moves that are not own eyes on the flat board. None:
+    pass. One: play it. Otherwise UCT until 70% of `go <ms>`, play the most-visited child.
+  - Prints `info playouts N winrate W` on stderr.
+- `board.rs`: own flat 81-cell board. Chains are circular linked lists with a head per stone;
+  per-chain pseudo-liberties (one per stone/empty adjacency, zero iff no liberty) and size;
+  simple-ko point; no superko. Eye = all 4 neighbours own and at most one enemy diagonal (none
+  on the edge). Playout: uniform random among empty points that are legal and not own eyes
+  (pick-and-swap-remove over the empty list), until two passes or 243 moves, area-scored.
+- `search.rs`: node arena (`Vec<Node>`, children contiguous, shuffled at expansion), UCB1 with
+  C = 0.6 on win rates, unvisited children first, expand a leaf on its 2nd visit, pass child only
+  when a node has no other move, tree capped at 2M nodes. Binary win/loss backed up.
 
-`candidates()` and `Position::after()` are ready to drive playouts for MCTS.
+Speed: ~25k playouts/s on the empty board natively (about 3.5k per 200 ms move at 140 ms of
+search). Tests: flat board vs goban across 40 random games (stones identical after every move,
+legality equal except where only superko forbids), flat-board suicide/capture/ko, and 20
+self-play games at 200 ms (legal, each reply < 200 ms; takes ~4.5 min in release).
 
 ## Ideas worth trying
 
-- Monte Carlo tree search (UCT) with random playouts that never fill their own eyes.
 - RAVE / AMAF, tree reuse between moves, progressive widening.
 - Playout policy: atari capture/escape, 3×3 patterns, avoid self-atari.
 - Time management: spend more early and in fights; pass when the board is settled.
-- Next step: MCTS on top of `candidates()`. For speed, playouts will want an own flat
-  81-cell board with incremental liberties; goban `Game` clones + `play_for_verification`
-  per candidate are too slow for thousands of playouts in 200 ms. Keep goban as the
-  legality oracle at the root and test the playout board against it.
+- Playout speed: `random_move` rescans all 81 cells per move and `is_suicide` rescans
+  neighbours per chain; an incremental empty list and a cheaper legality test should give
+  2x. More playouts at 200 ms is the cheapest Elo here.
+- Score-aware backup (small bonus for margin) to stop aimless endgames once the result is won.
 
 ## Novel experiments
 
