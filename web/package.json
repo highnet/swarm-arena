@@ -12,6 +12,7 @@
     "@arena/shared": "*",
     "@bjorn3/browser_wasi_shim": "^0.4.2",
     "@lichess-org/chessground": "^10.1.1",
+    "@rallypoint/swarm-graph": "*",
     "@supabase/supabase-js": "^2.119.2",
     "chess.js": "^1.4.0",
     "class-variance-authority": "^0.7.1",
