@@ -231,7 +231,8 @@ node .rallypoint/scripts/lease.mjs --release --role reviewer --pr <N> --agent-id
 ```
 
 They are exclusive, head-bound, and TTL-bounded. Exit `2` means somebody else
-holds it: stand down rather than reviewing alongside them.
+holds it: stand down rather than reviewing alongside them. Acquiring a live
+lease you already hold under the same `--agent-id` is idempotent and exits `0`.
 
 ### Recovering an unreviewable pull request
 
@@ -291,7 +292,11 @@ node .rallypoint/scripts/cleanup.mjs --issue <N>
 node .rallypoint/scripts/clear-status-labels.mjs --issue <N> [--dry-run]
 ```
 
-`cleanup.mjs` refuses to delete a reservation for an open issue by design.
+`cleanup.mjs` refuses to delete a reservation for an open issue by design. On a
+closed issue it also removes a leftover `status:claimed`. A reservation whose tip
+is a `rallypoint: released` marker is already released (cloud sessions cannot
+delete refs; the maintenance workflow deletes them daily), even though a raw
+`gh api` read of the ref still returns it.
 
 ### Deleting the branch after a merge
 
