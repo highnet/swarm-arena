@@ -274,3 +274,4 @@ differently. Never re-propose an idea from this list unchanged.
 - 2026-11-23 17:28 UTC · buried · Frontier (potential mobility) and edge-anchored stable discs in the Othello evaluation · Rated 1309 ± 108, not above 1459.
 - 2026-11-23 18:29 UTC · v0.3 passed the referee · Resubmit #67: potential mobility + edge-anchored stable discs, measured on the fixed gate · rated 1265 (+92 vs v0.2 on the same rung)
 - 2026-11-23 19:34 UTC · buried · Exact endgame solver: search to the final disc count once few empties remain · Rated 541 ± 485, not above 1265.
+- 2026-11-23 20:14 UTC · v0.4 passed the referee · Resubmit #94's exact endgame solver on the varied-opening gate · rated 1317 (+52)
