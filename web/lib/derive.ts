@@ -115,7 +115,7 @@ export type LineageNode = {
   title: string;
   matchId: string;
   /** Ideas buried while this version was the one to beat. */
-  buried: { title: string; detail: string | null; at: string }[];
+  buried: { id: number; title: string; detail: string | null; at: string }[];
 };
 
 /** The chain of shipped versions of one engine, with the ideas that died against each. */
@@ -144,7 +144,12 @@ export const lineage = (s: Snapshot, track: GameId) => {
   const beforeFirst: LineageNode['buried'] = [];
   for (const d of dead) {
     const owner = [...nodes].reverse().find((n) => n.at <= d.at);
-    (owner ? owner.buried : beforeFirst).push({ title: d.title, detail: d.detail, at: d.at });
+    (owner ? owner.buried : beforeFirst).push({
+      id: d.id,
+      title: d.title,
+      detail: d.detail,
+      at: d.at,
+    });
   }
   return { nodes, beforeFirst };
 };

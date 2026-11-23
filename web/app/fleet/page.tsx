@@ -16,6 +16,7 @@ import { Typography } from '@/components/ui/Typography';
 import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { getSnapshot } from '@/lib/data';
 import { formatDay, formatTime } from '@/lib/format';
+import { recordHref } from '@/lib/routes';
 import { getRallypoint, REPO_URL } from '@/lib/github';
 import { pageMeta } from '@/lib/site';
 import { toSwarmInput } from '@/lib/swarmGraph';
@@ -147,7 +148,12 @@ const SeatCard = ({
                   className={cn('mt-px size-3.5 shrink-0', TONE_CLASS[meta.tone])}
                   aria-hidden="true"
                 />
-                <span className="min-w-0 flex-1 text-fg-2 text-pretty">{r.title}</span>
+                <Link
+                  href={recordHref(r)}
+                  className="relative z-10 min-w-0 flex-1 text-fg-2 text-pretty hover:text-fg hover:underline"
+                >
+                  {r.title}
+                </Link>
                 <time dateTime={r.at} className="font-mono tabular text-fg-3">
                   {formatTime(r.at)}
                 </time>

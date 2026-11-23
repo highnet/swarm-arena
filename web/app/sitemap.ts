@@ -2,12 +2,21 @@ import type { MetadataRoute } from 'next';
 import { getSnapshot } from '@/lib/data';
 import { snapshotNow } from '@/lib/derive';
 import { SITE_URL } from '@/lib/site';
-import { getSkills } from '@/lib/source';
+import {
+  conceptHref,
+  gameHref,
+  matchHref,
+  messageHref,
+  recordHref,
+  rungHref,
+  taskHref,
+} from '@/lib/routes';
+import { getConcepts, getSkills } from '@/lib/source';
 import { TRACK_ORDER } from '@/lib/tracks';
 
-/** Every public page: progress, engines (and their play pages), the board, skills, matches. */
+/** Every public page, and every item's own page: records, versions, ideas, tasks, matches, games, messages, concepts, rungs. */
 const sitemap = async (): Promise<MetadataRoute.Sitemap> => {
-  const s = await getSnapshot();
+  const [s, concepts] = await Promise.all([getSnapshot(), getConcepts()]);
   const now = snapshotNow(s);
   const page = (
     path: string,
@@ -17,6 +26,12 @@ const sitemap = async (): Promise<MetadataRoute.Sitemap> => {
     url: `${SITE_URL}${path}`,
     lastModified: now,
     changeFrequency,
+    priority,
+  });
+  const item = (path: string, lastModified: string, priority: number) => ({
+    url: `${SITE_URL}${path}`,
+    lastModified,
+    changeFrequency: 'weekly' as const,
     priority,
   });
   return [
@@ -41,12 +56,18 @@ const sitemap = async (): Promise<MetadataRoute.Sitemap> => {
     page('/how-it-works', 0.5, 'weekly'),
     ...s.matches
       .filter((m) => m.finished_at)
-      .map((m) => ({
-        url: `${SITE_URL}/matches/${m.id}`,
-        lastModified: m.finished_at!,
-        changeFrequency: 'weekly' as const,
-        priority: 0.4,
-      })),
+      .map((m) => item(matchHref(m.id), m.finished_at!, 0.4)),
+    ...s.records.map((r) => item(recordHref(r), r.at, r.kind === 'patch_landed' ? 0.5 : 0.3)),
+    ...s.tasks.map((t) => item(taskHref(t.id), t.closed_at ?? t.created_at, 0.4)),
+    ...s.games.map((g) => item(gameHref(g.id), g.finished_at, 0.2)),
+    ...(s.messages ?? []).filter((m) => !m.reply_to).map((m) => item(messageHref(m.id), m.at, 0.2)),
+    ...s.rungs.map((r) => item(rungHref(r), r.cleared_at ?? now, 0.3)),
+    ...[
+      ...new Set([
+        ...concepts.vocabulary.map((v) => v.name),
+        ...s.tasks.map((t) => t.concept).filter((x): x is string => Boolean(x)),
+      ]),
+    ].map((n) => page(conceptHref(n), 0.5, 'daily')),
   ];
 };
 

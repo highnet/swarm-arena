@@ -16,6 +16,7 @@ import { Typography } from '@/components/ui/Typography';
 import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { getSnapshot } from '@/lib/data';
 import { formatDay, formatTime } from '@/lib/format';
+import { recordHref } from '@/lib/routes';
 import { REPO_URL } from '@/lib/github';
 import { pageMeta } from '@/lib/site';
 import { cn } from '@/lib/utils';
@@ -165,9 +166,11 @@ const AgentContent = async ({ params }: AgentPageProps) => {
                         {formatDay(r.at)} {formatTime(r.at)}
                       </time>
                     </div>
-                    <Typography variant="small" color="primary" className="mt-0.5 text-pretty">
-                      {r.title}
-                    </Typography>
+                    <Link href={recordHref(r)} className="mt-0.5 block hover:underline">
+                      <Typography variant="small" color="primary" as="span" className="text-pretty">
+                        {r.title}
+                      </Typography>
+                    </Link>
                     {r.detail && (
                       <Typography variant="meta" as="p" className="mt-0.5 max-w-prose text-pretty">
                         {r.detail}

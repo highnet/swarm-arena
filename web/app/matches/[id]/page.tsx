@@ -8,6 +8,7 @@ import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
 import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { getMatchGames, getSnapshot } from '@/lib/data';
+import { gameHref } from '@/lib/routes';
 import { formatDay, formatElo, formatTime } from '@/lib/format';
 import { SERIES } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
@@ -87,7 +88,11 @@ const MatchContent = async ({ params }: MatchPageProps) => {
             <Panel
               key={g.id}
               icon={Swords}
-              title={`Game ${i + 1}`}
+              title={
+                <Link href={gameHref(g.id)} className="hover:underline">
+                  Game {i + 1}
+                </Link>
+              }
               actions={
                 <Typography variant="meta" as="span">
                   {firstLabel}: {g.engine_first ? match.engine_version : match.opponent} ·{' '}
