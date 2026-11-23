@@ -144,7 +144,8 @@ if the referee passes it.
   settles under Benson's strict test. The 4 solves that ran all proved a loss. So the gain, if
   any, comes from the forbid mask (no moves inside settled areas in tree and playouts).
 - Local results, 200 ms: vs GNU Go 1 candidate 13–7 and 15–5 (28–12) against main 12–8 in the
-  same run, about noise. Tests: Benson (two eyes, one eye, false eye, seki, dead stone in an
+  same run, about noise; `arena versus go9 --pairs 10` vs main v0.4: **14–6** (no opening
+  seed, so treat as weak evidence). Tests: Benson (two eyes, one eye, false eye, seki, dead stone in an
   eye, big open area, finished board), solver = plain minimax on 30 random endings (full and
   null window, root move), takes the last dame, captures a dead stone before passing.
 - Next: a looser "settled" test that fires earlier (e.g. regions an enemy cannot live in by
