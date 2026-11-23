@@ -12,37 +12,36 @@ SUDO=$([ "$(id -u)" -eq 0 ] && echo "" || echo "sudo")
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# Stockfish: the official prebuilt release (about a second). GNU Go: a small source build
+# (about 20 seconds). Package managers are only a last resort: apt mirrors can take minutes.
+if ! have stockfish && [ "$(uname -s)" = Linux ] && [ "$(uname -m)" = x86_64 ]; then
+  flavour=$(grep -q avx2 /proc/cpuinfo && echo avx2 || echo sse41-popcnt)
+  tmp=$(mktemp -d)
+  if curl -fsSL "https://github.com/official-stockfish/Stockfish/releases/download/sf_17.1/stockfish-ubuntu-x86-64-$flavour.tar" \
+    | tar x -C "$tmp"; then
+    cp "$tmp/stockfish/stockfish-ubuntu-x86-64-$flavour" "$REFS/bin/stockfish"
+  fi
+  rm -rf "$tmp"
+fi
+if ! have gnugo && have cc; then
+  tmp=$(mktemp -d)
+  if curl -fsSL https://ftp.gnu.org/gnu/gnugo/gnugo-3.8.tar.gz | tar xz -C "$tmp" --strip-components 1; then
+    (cd "$tmp" && ./configure -q CFLAGS="-O2 -fcommon" >/dev/null 2>&1 && make -s -j"$(nproc)" >/dev/null 2>&1) \
+      && cp "$tmp/interface/gnugo" "$REFS/bin/gnugo"
+  fi
+  rm -rf "$tmp"
+fi
+
 missing=()
 have stockfish || missing+=(stockfish)
 have gnugo || missing+=(gnugo)
-
 if [ ${#missing[@]} -gt 0 ]; then
-  if have apt-get; then
-    # Package lists are empty in fresh containers: update first, then install only what is missing.
-    $SUDO apt-get update -qq >/dev/null 2>&1 || true
-    $SUDO apt-get install -y -qq --no-install-recommends "${missing[@]}" >/dev/null 2>&1 || true
-  elif have brew; then
+  if have brew; then
     brew install stockfish gnu-go || true
+  elif have apt-get; then
+    $SUDO apt-get install -y -qq --no-install-recommends "${missing[@]}" >/dev/null 2>&1 \
+      || { $SUDO apt-get update -qq >/dev/null 2>&1 && $SUDO apt-get install -y -qq --no-install-recommends "${missing[@]}" >/dev/null 2>&1; } || true
   fi
-fi
-
-# Fallbacks when no package manager could provide them.
-if ! have stockfish; then
-  echo "stockfish: building from source" >&2
-  rm -rf "$REFS/stockfish-src"
-  git -c advice.detachedHead=false clone -q --depth 1 --branch sf_17.1 https://github.com/official-stockfish/Stockfish "$REFS/stockfish-src"
-  (cd "$REFS/stockfish-src/src" && { make -s -j"$(nproc)" build ARCH=x86-64-modern >/dev/null 2>&1 \
-    || make -s -j"$(nproc)" build ARCH=x86-64 >/dev/null; })
-  cp "$REFS/stockfish-src/src/stockfish" "$REFS/bin/stockfish"
-  rm -rf "$REFS/stockfish-src"
-fi
-if ! have gnugo; then
-  echo "gnugo: building from source" >&2
-  rm -rf "$REFS/gnugo-src" && mkdir -p "$REFS/gnugo-src"
-  curl -fsSL https://ftp.gnu.org/gnu/gnugo/gnugo-3.8.tar.gz | tar xz -C "$REFS/gnugo-src" --strip-components 1
-  (cd "$REFS/gnugo-src" && ./configure -q CFLAGS="-O2 -fcommon" >/dev/null 2>&1 && make -s -j"$(nproc)" >/dev/null 2>&1)
-  cp "$REFS/gnugo-src/interface/gnugo" "$REFS/bin/gnugo"
-  rm -rf "$REFS/gnugo-src"
 fi
 
 # Browser builds of the engines (played on the site).
@@ -54,7 +53,7 @@ if [ ! -x "$REFS/edax/bin/lEdax-x86-64" ]; then
   rm -rf "$REFS/edax"
   git clone -q --depth 1 https://github.com/abulmo/edax-reversi "$REFS/edax"
   ARCH=$([ "$(uname -m)" = "arm64" ] || [ "$(uname -m)" = "aarch64" ] && echo armv8 || echo x86-64)
-  (cd "$REFS/edax/src" && make build ARCH="$ARCH" OS=linux CC="${CC:-gcc}" >/dev/null 2>&1)
+  (cd "$REFS/edax/src" && make -j"$(nproc)" build ARCH="$ARCH" OS=linux CC="${CC:-gcc}" >/dev/null 2>&1)
   # The harness looks for lEdax-x86-64; keep that name whatever the arch.
   [ -x "$REFS/edax/bin/lEdax-x86-64" ] || cp "$REFS/edax/bin/"*Edax* "$REFS/edax/bin/lEdax-x86-64"
 fi
