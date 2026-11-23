@@ -173,6 +173,6 @@ export const applyPlan = async (raw: unknown) => {
     log(`opened [${t.track}] ${t.title} (${id})`);
     opened++;
   }
-  await setAgent("strategist", { status: "idle" });
+  await setAgent("strategist", { activity: `Opened ${opened} tasks` });
   return opened;
 };
