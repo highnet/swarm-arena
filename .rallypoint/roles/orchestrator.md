@@ -93,6 +93,10 @@ So, on every round:
   open pull request.
 - Recommend a **janitor or planner** pass only when no live role-level lease
   covers it. Those passes are over everything, so there is one at a time.
+  When the same round recommends a merger, hold the janitor to the next
+  round: a merge closes issues and frees refs and leases as it lands, so a pass
+  running alongside it sweeps a state that is already moving and leaves fresh
+  drift for a second pass.
 - A lease lookup reporting **`unknown`** is not "free". Say so in the round's
   reasoning — name the target and the reason — rather than recommending through
   it. A ref that exists but could not be read still means something is on that
