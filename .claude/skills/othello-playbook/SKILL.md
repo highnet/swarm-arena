@@ -47,7 +47,7 @@ One thread, modest memory, and every reply within the `go <ms>` budget (200 ms i
 - `evaluate()` (side to move): 30 × corner difference + 4 × mobility difference − 18 per own
   X-square and − 8 per own C-square next to a still-empty corner (symmetric for the opponent).
   Weights are hand-picked, not tuned.
-- **Depth at 200 ms** (60% stop, so ~40–120 ms used), ignored `depth_report` test, 8 seeded
+- **Depth at 200 ms** (60% stop, so ~40–120 ms used), `depth_report` test from commit 361cce7, 8 seeded
   positions per band: ≤50 empties 7–10, ≤40 8–10, ≤30 7–11, ≤20 9–11 plies.
 - Measured: `arena versus othello` vs greedy v0.1: +10 −0 =0.
 
