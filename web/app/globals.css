@@ -296,10 +296,10 @@ a {
   color: var(--fg-3);
 }
 
-/* Panels let the board scene behind the page show through, blurred, so the parallax reads
-   everywhere without competing with text. Unlayered so it overrides the utility. */
+/* Panels let the board scene behind the page show through faintly, so the parallax reads
+   everywhere without competing with text. Unlayered so it overrides the utility. No
+   backdrop-filter: a page holds dozens of panels over a canvas that redraws every scroll frame,
+   and re-blurring each of them per frame more than doubled frame time while scrolling. */
 .bg-panel {
-  background-color: oklch(0.185 0.006 265 / 0.82);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
+  background-color: oklch(0.185 0.006 265 / 0.9);
 }
