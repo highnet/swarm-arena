@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -72,19 +72,21 @@ const STORAGE_KEY = 'sidebar';
 /** Runs before paint so a collapsed sidebar never flashes open. */
 const SIDEBAR_INIT_SCRIPT = `try{if(localStorage.getItem('${STORAGE_KEY}')==='collapsed')document.documentElement.dataset.sidebar='collapsed'}catch(e){}`;
 
-const isActive = (pathname: string, href: string) =>
-  href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`);
+/** `pathname` is null while it is unknown (the prerendered shell): nothing is marked active. */
+const isActive = (pathname: string | null, href: string) =>
+  pathname !== null &&
+  (href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`));
 
 type Slots = Partial<Record<GameId, number>>;
 
 type NavLinksProps = {
   slots: Slots;
+  pathname: string | null;
   /** Desktop sidebar: hide labels when the sidebar is collapsed. */
   collapsible?: boolean;
 };
 
-const NavLinks = ({ slots, collapsible = false }: NavLinksProps) => {
-  const pathname = usePathname();
+const NavLinks = ({ slots, pathname, collapsible = false }: NavLinksProps) => {
   const label = collapsible ? 'sidebar-collapsed:sr-only' : undefined;
   const link = (active: boolean) =>
     cn(
@@ -151,6 +153,13 @@ const NavLinks = ({ slots, collapsible = false }: NavLinksProps) => {
   );
 };
 
+type ActiveNavLinksProps = Omit<NavLinksProps, 'pathname'>;
+
+/** Reads the URL, so it must render inside <Suspense> (see Sidebar). */
+const ActiveNavLinks = (props: ActiveNavLinksProps) => (
+  <NavLinks {...props} pathname={usePathname()} />
+);
+
 type SidebarProps = {
   slots: Slots;
 };
@@ -174,7 +183,9 @@ const Sidebar = ({ slots }: SidebarProps) => {
       className="fixed bottom-0 left-0 top-12 z-20 hidden w-56 flex-col border-r border-line bg-bg/90 backdrop-blur-md transition-[width] duration-200 lg:flex sidebar-collapsed:w-14"
     >
       <nav aria-label="Main" className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-2 py-4">
-        <NavLinks slots={slots} collapsible />
+        <Suspense fallback={<NavLinks slots={slots} pathname={null} collapsible />}>
+          <ActiveNavLinks slots={slots} collapsible />
+        </Suspense>
       </nav>
       <div className="border-t border-line p-2">
         <Button
@@ -201,12 +212,11 @@ const Sidebar = ({ slots }: SidebarProps) => {
   );
 };
 
-type MobileNavProps = {
+type MobileNavDrawerProps = {
   slots: Slots;
 };
 
-/** Below lg: a hamburger that opens the same links in a drawer. */
-const MobileNav = ({ slots }: MobileNavProps) => {
+const MobileNavDrawer = ({ slots }: MobileNavDrawerProps) => {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
   const [openedAt, setOpenedAt] = useState(pathname);
@@ -276,7 +286,7 @@ const MobileNav = ({ slots }: MobileNavProps) => {
                 <SearchBox />
               </div>
               <nav aria-label="Main" className="min-h-0 flex-1 overflow-y-auto px-2 py-4">
-                <NavLinks slots={slots} />
+                <NavLinks slots={slots} pathname={pathname} />
               </nav>
             </div>
           </div>,
@@ -285,5 +295,31 @@ const MobileNav = ({ slots }: MobileNavProps) => {
     </>
   );
 };
+
+type MobileNavProps = {
+  slots: Slots;
+};
+
+/**
+ * Below lg: a hamburger that opens the same links in a drawer. The drawer reads the URL, so it
+ * renders inside <Suspense>; the prerendered shell shows the same button, inert until hydration.
+ */
+const MobileNav = ({ slots }: MobileNavProps) => (
+  <Suspense
+    fallback={
+      <Button
+        variant="icon"
+        size="icon"
+        className="-ml-1.5 lg:hidden"
+        aria-label="Open menu"
+        disabled
+      >
+        <Menu className="size-5" aria-hidden="true" />
+      </Button>
+    }
+  >
+    <MobileNavDrawer slots={slots} />
+  </Suspense>
+);
 
 export { Sidebar, MobileNav, SIDEBAR_INIT_SCRIPT };
