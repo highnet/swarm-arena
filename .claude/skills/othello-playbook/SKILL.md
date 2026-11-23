@@ -50,6 +50,21 @@ One thread, modest memory, and every reply within the `go <ms>` budget (200 ms i
 - **Depth at 200 ms** (60% stop, so ~40–120 ms used), `depth_report` test from commit 361cce7, 8 seeded
   positions per band: ≤50 empties 7–10, ≤40 8–10, ≤30 7–11, ≤20 9–11 plies.
 - Measured: `arena versus othello` vs greedy v0.1: +10 −0 =0.
+- **Corner quiescence (task #59, this branch).** At depth 0 `negamax` calls `quiesce()`: stand pat
+  on `evaluate()`; if the side to move has corner placements, search only those (a side forced to
+  pass hands over, and the opponent's corners are followed); hard cap `MAX_QPLY = 4`. `qnodes`
+  counts nodes past the horizon and shares the 1024-node clock check. `search_with(.., qsearch)`
+  toggles it for tests. Unit test `quiescence_sees_a_corner_at_the_horizon`: a 24-empties
+  position where plain depth 2 ties a3 with c1 (−40 each) and plays c1; quiescence scores a3 −26
+  (deep d8: −18 vs c1 −44) and plays a3, as plain depth 8 does.
+  `depth_report` (ignored test, 8 seeded positions per band), plain → quiescence: go-200 depth
+  ≤50 empties 8–9 → 8–9, ≤40 8–9 → 7–9, ≤30 7–10 → 7–10, ≤20 9–11 → 8–11; fixed depth 6
+  nodes +2% / +22% / +28% / +7% with a qnode share of 1% / 8% / 12% / 11%. Most of the extra cost
+  is lost cutoffs from changed leaf scores, not the qnodes themselves.
+  Local `arena versus` vs main (v0.2): +5 −5 over 10 games, +20 −20 over 40: no measurable gain.
+  Why it is weak here: `evaluate()` already counts mobility (which includes corner moves) and the
+  X/C-square penalty, so the "corner on offer" is partly priced in already; and Othello moves are
+  not optional, so standing pat is a loose bound, unlike a quiet move in chess.
 
 ## Ideas worth trying
 
@@ -60,6 +75,10 @@ One thread, modest memory, and every reply within the `go <ms>` budget (200 ms i
 - Tune the eval weights (corner/mobility/X/C) by self-play; add potential mobility and stability.
 - Evaluation: mobility, potential mobility, corners, stable discs, edge patterns.
 - Exact endgame solver once few empties remain.
+- Quiescence follow-ups (if #59's verdict is flat): extend on *new* corner access only (corner
+  became legal on the last ply) instead of any corner on offer; or drop stand-pat when the
+  opponent's only threat is a corner and the mover has fewer than 3 moves; or spend the nodes on
+  an exact endgame solve instead, which is where a horizon really bites in Othello.
 
 ## Novel experiments
 
