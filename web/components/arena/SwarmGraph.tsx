@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Crosshair, History, Square } from 'lucide-react';
 import {
+  agentNodeId,
   buildSwarmGraph,
   createSwarmGraph,
   type SwarmFlow,
@@ -16,6 +17,7 @@ import { Button } from '@/components/ui/Button';
 import { Typography } from '@/components/ui/Typography';
 import { formatDay, formatTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { useFleetHover } from './FleetHover';
 import { agentHref } from './seats';
 
 const TICKER = 5;
@@ -133,10 +135,21 @@ const SwarmGraph = ({ input, seatIds, engineIds, className }: SwarmGraphProps) =
   const [replaying, setReplaying] = useState(false);
 
   // Callbacks read the latest props through a ref so the renderer is created once.
-  const links = useRef({ seatIds: new Set(seatIds), engineIds: new Set(engineIds), router });
+  const { hovered, setHovered } = useFleetHover();
+  const links = useRef({
+    seatIds: new Set(seatIds),
+    engineIds: new Set(engineIds),
+    router,
+    setHovered,
+  });
   useEffect(() => {
-    links.current = { seatIds: new Set(seatIds), engineIds: new Set(engineIds), router };
-  }, [seatIds, engineIds, router]);
+    links.current = {
+      seatIds: new Set(seatIds),
+      engineIds: new Set(engineIds),
+      router,
+      setHovered,
+    };
+  }, [seatIds, engineIds, router, setHovered]);
 
   useEffect(() => {
     const el = host.current;
@@ -145,8 +158,14 @@ const SwarmGraph = ({ input, seatIds, engineIds, className }: SwarmGraphProps) =
     const r = createSwarmGraph(el, {
       title: 'Agents and the sectors of the codebase they are working in',
       reducedMotion: reduced,
-      onHover: (node, point) =>
-        setHover(node && point ? { node, ...point, width: el.clientWidth } : null),
+      onHover: (node, point) => {
+        setHover(node && point ? { node, ...point, width: el.clientWidth } : null);
+        // Mirror the graph's hover onto the fleet's cards.
+        const id = node?.kind === 'agent' ? node.agent?.id : undefined;
+        links.current.setHovered((h) =>
+          id ? { agentId: id, source: 'graph' } : h?.source === 'graph' ? null : h,
+        );
+      },
       onSelect: (node) => {
         const { seatIds: seats, engineIds: engines, router: nav } = links.current;
         if (node.kind === 'agent' && node.agent && seats.has(node.agent.id))
@@ -175,6 +194,12 @@ const SwarmGraph = ({ input, seatIds, engineIds, className }: SwarmGraphProps) =
   useEffect(() => {
     renderer.current?.update(graph);
   }, [graph]);
+
+  // A card under the pointer lights up its agent's node.
+  const fromCard = hovered?.source === 'card' ? hovered.agentId : null;
+  useEffect(() => {
+    renderer.current?.highlight(fromCard ? agentNodeId(fromCard) : null);
+  }, [fromCard, graph]);
 
   const sectors = graph.nodes.filter((n) => n.kind === 'sector');
   const startReplay = () => {
