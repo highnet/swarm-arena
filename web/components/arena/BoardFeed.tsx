@@ -59,9 +59,17 @@ const RecordRow = ({ record, fresh, slot, seat }: RecordRowProps) => {
             <AgentTag id={record.agent_id} seat={seat} size={16} className="text-[11px]" />
           )}
         </div>
-        <Typography variant="small" color="primary" className="mt-0.5 text-pretty">
-          {record.title}
-        </Typography>
+        {record.task_id ? (
+          <Link href={`/tasks/${record.task_id}`} className="mt-0.5 block hover:underline">
+            <Typography variant="small" color="primary" as="span" className="text-pretty">
+              {record.title}
+            </Typography>
+          </Link>
+        ) : (
+          <Typography variant="small" color="primary" className="mt-0.5 text-pretty">
+            {record.title}
+          </Typography>
+        )}
         {record.detail && (
           <Typography variant="meta" as="p" className="mt-0.5 max-w-prose text-pretty">
             {record.detail}

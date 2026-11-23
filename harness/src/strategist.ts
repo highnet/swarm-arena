@@ -1,4 +1,4 @@
-import { TRACKS, type GameId } from "@arena/shared";
+import { TASK_TYPES, TRACKS, type GameId, type TaskType } from "@arena/shared";
 import {
   bumpSessions,
   now,
@@ -20,7 +20,13 @@ import { formatMessages, readMessages } from "./messages";
 
 export type Plan = {
   update: { title: string; detail: string };
-  tasks: { track: GameId; seat: string; title: string; spec: string }[];
+  tasks: {
+    track: GameId;
+    seat: string;
+    type?: TaskType;
+    title: string;
+    spec: string;
+  }[];
 };
 
 const TRACK_IDS = TRACKS.map((t) => t.id) as string[];
@@ -78,9 +84,12 @@ ${board || "- quiet"}
 Write plan.json and run: npm run arena -- plan plan.json
 {
   "update": { "title": "one-line decision", "detail": "one or two sentences of reasoning" },
-  "tasks": [{ "track": "${TRACK_IDS.join("|")}", "seat": "e.g. chess/search", "title": "...", "spec": "..." }]
+  "tasks": [{ "track": "${TRACK_IDS.join("|")}", "seat": "e.g. chess/search", "type": "${TASK_TYPES.join("|")}", "title": "...", "spec": "..." }]
 }
-At most one new task per engine that has nothing open or in progress.`;
+At most one new task per engine that has nothing open or in progress.
+Types: foundation (protocol, rules wiring, legality), search, evaluation, playout (MCTS policy),
+time (clock management), speed (raw nodes per second), tuning (constants, weights), novel (an idea
+no engine is known for), fix (a bug or forfeit), experiment (anything else).`;
 };
 
 const validate = (raw: unknown): Plan => {
@@ -93,6 +102,8 @@ const validate = (raw: unknown): Plan => {
       throw new Error(`unknown track "${t.track}"`);
     if (!t.seat || !t.title || !t.spec)
       throw new Error("each task needs seat, title and spec");
+    if (t.type && !TASK_TYPES.includes(t.type))
+      throw new Error(`task type must be one of: ${TASK_TYPES.join(", ")}`);
   }
   return p;
 };
@@ -122,6 +133,7 @@ export const applyPlan = async (raw: unknown) => {
       id,
       run_id: RUN_ID,
       track_id: t.track,
+      type: t.type ?? "experiment",
       title: t.title,
       spec: t.spec,
       status: "open",

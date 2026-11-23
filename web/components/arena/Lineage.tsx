@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { LineageNode } from '@/lib/derive';
-import { formatDay, formatElo } from '@/lib/format';
+import { formatDay } from '@/lib/format';
+import { VersionChip } from './TaskChips';
 import { SERIES } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
 import { Typography } from '@/components/ui/Typography';
@@ -55,18 +56,22 @@ const Lineage = ({ nodes, beforeFirst, slot }: LineageProps) => {
             />
           )}
           <div className="flex flex-wrap items-baseline gap-x-2">
-            <Link
-              href={`/matches/${n.matchId}`}
-              className="font-mono text-[13px] text-fg hover:underline"
-            >
-              {n.version}
+            <Link href={`/matches/${n.matchId}`} className="hover:opacity-80">
+              <VersionChip version={n.version} elo={n.elo} error={n.eloError} />
             </Link>
-            <span className="font-mono text-xs tabular text-fg-2">{formatElo(n.elo)}</span>
             <span className="text-xs text-fg-3">{formatDay(n.at)}</span>
           </div>
-          <Typography variant="small" className="mt-0.5 text-pretty">
-            {n.title}
-          </Typography>
+          {n.taskId ? (
+            <Link href={`/tasks/${n.taskId}`} className="mt-0.5 block hover:underline">
+              <Typography variant="small" as="span" className="text-pretty">
+                {n.title}
+              </Typography>
+            </Link>
+          ) : (
+            <Typography variant="small" className="mt-0.5 text-pretty">
+              {n.title}
+            </Typography>
+          )}
           <BuriedList items={n.buried} />
         </li>
       ))}

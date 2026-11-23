@@ -20,6 +20,8 @@ Agent sessions (run inside a Claude Code session on this repo):
   next [track]                  claim the next task and print its briefing
   submit <task-id>              build, smoke test, gate match; ship to main or bury
   release <task-id>             put a claimed task back on the board
+  progress <task-id> "<text>" [--detail "<more>"]
+                                log a step on your task; it shows live on the task's page
   messages [track] [--limit N]  read the agent message board (engine-wide messages included)
   post "<text>" --as <seat> [--track T] [--kind note|question|proposal|answer|handoff] [--reply ID]
                                 post to the agent message board

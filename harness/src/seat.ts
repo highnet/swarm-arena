@@ -47,6 +47,23 @@ import { getStore } from "./store";
 
 const crate = (trackId: string) => `${trackId}-engine`;
 
+/** A step on a task in flight, shown live on the task's page. */
+export const progress = (
+  task: Pick<Task, "id" | "track_id">,
+  by: string,
+  title: string,
+  detail: string | null = null,
+  matchId: string | null = null,
+) =>
+  post("progress", {
+    track_id: task.track_id,
+    agent_id: by,
+    task_id: task.id,
+    match_id: matchId,
+    title,
+    detail,
+  });
+
 const seatOf = async (task: Task) => {
   const opened = (await records()).find(
     (r) => r.task_id === task.id && r.kind === "task_opened",
@@ -349,6 +366,11 @@ export const submit = async (taskId: string) => {
     await setAgent(seatId, { status: "working" });
     const breach = outsideHelp(crateDir);
     if (breach) return await bury(`Engines think alone: ${breach}`);
+    await progress(
+      task,
+      "referee",
+      "Submitted. No outside help found in the crate.",
+    );
     const build = await run(
       "cargo",
       ["build", "--release", "-p", crate(task.track_id)],
@@ -361,6 +383,7 @@ export const submit = async (taskId: string) => {
       { cwd: ENGINES_DIR },
     );
     if (test.code !== 0) return await bury("Tests failed.");
+    await progress(task, "referee", "Build and tests passed.");
     // The browser build is the sandbox: no sockets, no processes, one thread. It must compile.
     const t0 = await track(task.track_id);
     const wasmOk = await buildWasm(task.track_id, {
@@ -372,6 +395,11 @@ export const submit = async (taskId: string) => {
         "The browser build (wasm32-wasip1) failed: engines must run sandboxed, single-threaded, with no network or processes.",
       );
     }
+    await progress(
+      task,
+      "referee",
+      "Browser build passed: it runs sandboxed, single-threaded.",
+    );
     const bin = resolve(ARENA_HOME, "bin", task.id);
     mkdirSync(resolve(ARENA_HOME, "bin"), { recursive: true });
     copyFileSync(
@@ -399,6 +427,11 @@ export const submit = async (taskId: string) => {
       );
     }
 
+    await progress(
+      task,
+      "referee",
+      "Smoke test passed: no illegal moves, no timeouts.",
+    );
     const t = await track(task.track_id);
     const ladder = await rungs(task.track_id);
     const rung = gateRung(ladder, t.current_elo);

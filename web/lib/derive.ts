@@ -108,6 +108,8 @@ export const mentions = (s: Snapshot, call: BoardRecord) => {
 export type LineageNode = {
   version: string;
   elo: number;
+  eloError: number | null;
+  taskId: string | null;
   at: string;
   title: string;
   matchId: string;
@@ -130,6 +132,8 @@ export const lineage = (s: Snapshot, track: GameId) => {
     return {
       version,
       elo: point?.elo ?? 0,
+      eloError: point?.elo_error ?? null,
+      taskId: r.task_id,
       at: r.at,
       title: r.title.replace(/^\S+ shipped: /, ''),
       matchId: r.match_id ?? '',

@@ -50,6 +50,20 @@ export type Agent = {
 
 export type TaskStatus = 'open' | 'claimed' | 'landed' | 'dead';
 
+export const TASK_TYPES = [
+  'foundation',
+  'search',
+  'evaluation',
+  'playout',
+  'time',
+  'speed',
+  'tuning',
+  'novel',
+  'fix',
+  'experiment',
+] as const;
+export type TaskType = (typeof TASK_TYPES)[number];
+
 export type Task = {
   id: string;
   run_id: string;
@@ -57,6 +71,8 @@ export type Task = {
   title: string;
   /** One-paragraph spec the strategist wrote. */
   spec: string;
+  /** What kind of work this is; shown as a chip everywhere the task appears. */
+  type: TaskType;
   status: TaskStatus;
   claimed_by: string | null;
   created_at: string;
@@ -67,6 +83,7 @@ export type RecordKind =
   | 'strategy'
   | 'task_opened'
   | 'task_claimed'
+  | 'progress'
   | 'patch_landed'
   | 'patch_rejected'
   | 'match_verdict'

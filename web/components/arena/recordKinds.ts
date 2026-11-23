@@ -4,6 +4,7 @@ import {
   CircleSlash,
   Compass,
   Flag,
+  Footprints,
   GitMerge,
   Swords,
   Undo2,
@@ -22,6 +23,7 @@ export const KINDS: Record<RecordKind, KindMeta> = {
   strategy: { label: 'Strategy', icon: Compass, tone: 'strong' },
   task_opened: { label: 'Opened', icon: CirclePlus, tone: 'neutral' },
   task_claimed: { label: 'Claimed', icon: CircleDot, tone: 'neutral' },
+  progress: { label: 'Progress', icon: Footprints, tone: 'neutral' },
   patch_landed: { label: 'Shipped', icon: GitMerge, tone: 'good' },
   patch_rejected: { label: 'Rejected', icon: Undo2, tone: 'critical' },
   match_verdict: { label: 'Match', icon: Swords, tone: 'strong' },
@@ -45,6 +47,7 @@ export const KIND_FILTERS: { id: string; label: string; kinds: RecordKind[] | nu
     kinds: ['match_verdict', 'patch_landed', 'patch_rejected', 'rung_cleared'],
   },
   { id: 'tasks', label: 'Tasks', kinds: ['task_opened', 'task_claimed'] },
+  { id: 'progress', label: 'Progress', kinds: ['progress'] },
   { id: 'strategy', label: 'Strategy', kinds: ['strategy'] },
   { id: 'dead', label: 'Buried', kinds: ['idea_dead'] },
 ];

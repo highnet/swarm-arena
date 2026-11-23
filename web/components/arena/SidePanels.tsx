@@ -15,6 +15,7 @@ import { formatDay, formatTime } from '@/lib/format';
 import { SERIES, SHORT_NAME } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
 import { AgentTag } from './AgentAvatar';
+import { TaskTypeChip } from './TaskChips';
 
 type Slots = Partial<Record<GameId, number>>;
 
@@ -148,11 +149,14 @@ const Frontier = ({ tasks, seats, slots }: FrontierProps) => (
                 aria-label={t.status === 'claimed' ? 'Agent at work' : 'Queued'}
               />
               <div className="min-w-0 flex-1">
-                <Typography variant="small" color="primary" className="text-pretty">
-                  {t.title}
-                </Typography>
+                <Link href={`/tasks/${t.id}`} className="hover:underline">
+                  <Typography variant="small" color="primary" as="span" className="text-pretty">
+                    {t.title}
+                  </Typography>
+                </Link>
                 <div className="mt-1 flex flex-wrap items-center gap-2">
                   <EngineChip track={t.track_id} slots={slots} />
+                  <TaskTypeChip type={t.type} />
                   {t.claimed_by ? (
                     <AgentTag
                       id={t.claimed_by}

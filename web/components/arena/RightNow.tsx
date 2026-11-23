@@ -6,6 +6,7 @@ import { SHORT_NAME } from '@/lib/tracks';
 import { AgentAvatar, AgentTag } from './AgentAvatar';
 import { EngineLogo } from './EngineLogo';
 import { KINDS } from './recordKinds';
+import { TaskTypeChip } from './TaskChips';
 
 type RightNowProps = {
   s: Snapshot;
@@ -42,32 +43,49 @@ const RightNow = ({ s, slots }: RightNowProps) => {
       </header>
 
       <div className="flex flex-1 flex-col gap-3 p-4">
-        {claimed.length > 0 ? (
-          <ul className="space-y-3">
-            {claimed.slice(0, 3).map((t) => (
-              <li key={t.id} className="flex items-start gap-3">
-                <EngineLogo
-                  game={t.track_id}
-                  slot={slots[t.track_id] ?? 1}
-                  size="sm"
-                  className="mt-0.5"
-                />
-                <div className="min-w-0">
-                  <p className="text-[13px] text-fg text-pretty">{t.title}</p>
-                  {t.claimed_by && (
-                    <AgentTag id={t.claimed_by} size={16} className="mt-1 text-xs text-fg-2" />
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        ) : (
+        {claimed.length === 0 && (
           <p className="text-[13px] text-fg-2 text-pretty">
             No agent is working this minute.{' '}
             {queued.length > 0
-              ? `${queued.length} experiment${queued.length === 1 ? ' is' : 's are'} queued for the next session.`
+              ? 'Up next, for the next session:'
               : 'The strategy seat calls the next experiments when a session starts.'}
           </p>
+        )}
+        {(claimed.length > 0 ? claimed : queued).length > 0 && (
+          <ul className="space-y-1">
+            {(claimed.length > 0 ? claimed : queued).slice(0, 3).map((t) => (
+              <li key={t.id}>
+                <Link
+                  href={`/tasks/${t.id}`}
+                  className="group -mx-2 flex items-start gap-3 rounded-md px-2 py-1.5 hover:bg-panel-raised"
+                >
+                  <EngineLogo
+                    game={t.track_id}
+                    slot={slots[t.track_id] ?? 1}
+                    size="sm"
+                    className="mt-0.5"
+                  />
+                  <div className="min-w-0">
+                    <p className="text-[13px] text-fg text-pretty group-hover:underline">
+                      {t.title}
+                    </p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <TaskTypeChip type={t.type} />
+                      {t.claimed_by ? (
+                        <AgentTag id={t.claimed_by} size={16} className="text-xs text-fg-2" />
+                      ) : (
+                        <span className="text-xs text-fg-3">queued</span>
+                      )}
+                    </div>
+                  </div>
+                  <ArrowRight
+                    className="mt-1 size-3.5 shrink-0 text-fg-3 group-hover:text-fg"
+                    aria-hidden="true"
+                  />
+                </Link>
+              </li>
+            ))}
+          </ul>
         )}
 
         {last && (
@@ -78,7 +96,13 @@ const RightNow = ({ s, slots }: RightNowProps) => {
             </p>
             <p className="mt-0.5 text-[13px] text-fg text-pretty">
               <span className="text-fg-3">{KINDS[last.kind].label}: </span>
-              {last.title}
+              {last.task_id ? (
+                <Link href={`/tasks/${last.task_id}`} className="hover:underline">
+                  {last.title}
+                </Link>
+              ) : (
+                last.title
+              )}
             </p>
           </div>
         )}

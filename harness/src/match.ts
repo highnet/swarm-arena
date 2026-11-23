@@ -46,6 +46,20 @@ export const runMatch = async (spec: MatchSpec) => {
   log(
     `match ${id}: ${spec.candidateVersion} vs ${spec.opponentLabel}, ${spec.pairs * 2} games`,
   );
+  if (spec.taskId) {
+    const what = {
+      calibration: "Smoke test",
+      gate: "Gate match",
+      ladder: "Ladder match",
+    }[spec.purpose];
+    await post("progress", {
+      track_id: spec.track,
+      agent_id: "referee",
+      task_id: spec.taskId,
+      match_id: id,
+      title: `${what} started: ${spec.candidateVersion} vs ${spec.opponentLabel}, ${spec.pairs * 2} games.`,
+    });
+  }
   const forfeits: string[] = [];
   const result = await playMatch(
     GAMES[spec.track],
