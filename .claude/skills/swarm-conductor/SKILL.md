@@ -114,9 +114,10 @@ that a worker opens is reviewed and merged at once instead of waiting hours for 
 to free a slot. Anything cut is simply next tick's work.
 
 Never dispatch for an issue or PR carrying `needs:human`, and never more than one session per
-target. An issue filed by hand (outside `arena plan`) needs a matching arena `tasks` row (or
-`arena adopt <issue>`, once that command exists) before a worker can claim it; until then, report
-it rather than dispatching a worker at it.
+target. An issue filed by hand (outside `arena plan`) has no arena `tasks` row: dispatch its worker
+with `--issue <N>` (`next --issue` adopts an arena issue, and briefs a harness or site issue as a
+normal PR), or run `npm run arena -- adopt <N>` first. A worker for a specific issue always gets
+`--issue <N>` in its dispatch flags.
 
 ### 4. Dispatch
 

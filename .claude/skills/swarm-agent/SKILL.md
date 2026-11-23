@@ -24,12 +24,17 @@ One session = one role. Finishing work beats starting it.
    reads Rallypoint state and prints `ROLE …` with a brief.
 
    **Dispatched by the conductor?** The prompt then names dispatch flags `--role <role> [--pr <N>]
-   [<track>] --agent-id <id>`. Pass those flags through unchanged —
+   [--issue <N>] [<track>] --agent-id <id>`. Pass those flags through unchanged —
    `npm run arena -- next --role <role> [--pr <N>] [<track>] --agent-id <id>` — so `next` re-checks
    that the target still needs you and every later `arena` command signs with the id the
    conductor leased under. `ROLE none` means you were overtaken: stop without a retro. A
    dispatched **janitor** skips `next`: read `.rallypoint/roles/janitor.md` and run
    `node .rallypoint/scripts/janitor-pass.mjs --agent-id <id>`.
+   `next` exits **75** when this checkout lacks harness, shared or protocol commits that
+   `origin/main` has: redo setup (fetch and detach) and run it again. With `--issue <N>` a worker
+   gets that issue: an arena issue is adopted into the store if needed and claimed; a harness or
+   site issue comes with a brief to claim it via `claim.mjs` and deliver a normal PR (no
+   `arena submit`).
 
    Do exactly the role `next` printed:
 
