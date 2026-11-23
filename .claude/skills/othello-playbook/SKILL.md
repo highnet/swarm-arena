@@ -46,19 +46,21 @@ One thread, modest memory, and every reply within the `go <ms>` budget (200 ms i
   No transposition table and no inner-node history (a TT was tried and buried, task #44 below).
 - `evaluate()` (side to move): 30 × corner difference + 4 × mobility difference − 18 per own
   X-square and − 8 per own C-square next to a still-empty corner (symmetric for the opponent).
-  Weights are hand-picked, not tuned.
-- **Depth at 200 ms** (60% stop, so ~40–120 ms used), `depth_report` test from commit 361cce7, 8 seeded
-  positions per band: ≤50 empties 7–10, ≤40 8–10, ≤30 7–11, ≤20 9–11 plies.
+  Weights are hand-picked, not tuned. (Task #67's potential mobility + edge stability was buried
+  on the gate's yardstick despite +35 −4 head-to-head; see "What failed".)
 - Measured: `arena versus othello` vs greedy v0.1: +10 −0 =0.
 
 ## Ideas worth trying
 
-- Resubmit the transposition table (see "What failed" for why its burial may be a rating
-  artefact) once v0.2 has a rating from the same opponent the gate uses.
+- Resubmit the transposition table and #67's potential mobility + stability eval (see "What
+  failed": both burials may be rating artefacts) once v0.2 has a rating from the same opponent
+  the gate uses. #67 has the stronger case (+35 −4 head-to-head).
 - History heuristic or killer moves for move ordering; aspiration windows at the root.
 - Use more of the budget: the 60% cap and the 1/3 "don't start" rule leave much of 200 ms unused.
-- Tune the eval weights (corner/mobility/X/C) by self-play; add potential mobility and stability.
-- Evaluation: mobility, potential mobility, corners, stable discs, edge patterns.
+- Tune the eval weights (corner/mobility/X/C) by self-play. Local matches need opening variety
+  (a few random plies or an opening list) before small weight differences can be read: without
+  one, repeats of the same setting differed by ±10 games out of 40.
+- Evaluation: edge patterns (an edge-configuration table), interior stability, parity.
 - Exact endgame solver once few empties remain.
 - Quiescence follow-ups (#59 was buried flat): extend on *new* corner access only (corner
   became legal on the last ply) instead of any corner on offer; or drop stand-pat when the
@@ -113,6 +115,50 @@ differently. Never re-propose an idea from this list unchanged.
   but here the head-to-head vs v0.2 was also flat, so unlike the TT there is no sign of a gain.
   Chess's quiescence (+65, +82) did not transfer as-is: captures are optional and swing material,
   while an Othello corner is one move among the mandatory ones and the eval already sees it.
+- **Potential mobility + edge-anchored stability in evaluate() (task #67, lesson PR).** Code on
+  branch `agent/67-frontier-potential-mobility-and-edge-ancho`, commit f605788 (feat; the design
+  below is enough to rebuild it). v0.2's eval and search unchanged, plus two terms, symmetric:
+  - **Potential mobility** (chosen over frontier-disc count): empty squares 8-adjacent to the
+    opponent's discs minus those adjacent to ours, `empty & neighbours(other)` with a 3-shift
+    bitboard dilation (column-a/h masks stop wrap-around). Weight 2 × empties / 60, so it fades
+    out as the board fills.
+  - **Edge-anchored stable discs**: from each owned corner, the contiguous run of own discs along
+    both its edges, plus every disc of a completely filled edge; a bitboard flood along rows 1/8
+    and columns a/h. Flat 2 per disc (a corner is 30 + 2). Interior stability is not counted.
+  No disc-count term before the terminal score.
+  Weights tried (local `arena play` vs v0.2, 20 or 40 games each, no opening book so games vary
+  only by timing; a repeat of one setting moved by ±10 games, so read single runs loosely):
+  frontier discs 6×empties/60 + stable 8+(60−e)/4: +5 −8 =7; frontier 3 + same stable: +8 −12;
+  frontier 10 + stable 12+(60−e)/4: +10 −9; stable only 8+(60−e)/4: +14 −24; frontier only 6: +17
+  −23; frontier 2 + stable 4+(60−e)/12: +18 −21; frontier 3 + stable 12+…: +15 −25; frontier 1 +
+  stable 2+(60−e)/12: +23 −15; stable only 2+(60−e)/12: +14 −26; potential mobility 2 + stable
+  2+(60−e)/12: +25 −15; potential mobility 2 alone: +27 −13 and +29 −11; potential mobility 3
+  alone: +9 −28; potential mobility 2 + flat stable 1: +17 −20; **potential mobility 2 + flat
+  stable 2: +36 −3 and +33 −4 (chosen)**. Pattern: potential mobility at a small weight is the
+  gain; stability helps only as a small flat tie-breaker and hurts as soon as it is large or grows
+  with the phase (it then outbids mobility for edge runs).
+  Cost (`depth_report` ignored test, 8 seeded positions per band, wall-clock so ±1 ply noise):
+  go-200 depth v0.2 → #67: ≤50 empties 8–9 → 7–9, ≤40 7–8 → 7–9, ≤30 7–10 → 7–10, ≤20 9–11 → 8–11.
+  Nodes per second about the same (5.6–9.7 M v0.2, 7.2–8.4 M now; the machine is noisy). Fixed
+  depth 7 needs 13–50% more nodes (593 527 → 742 069, 834 477 → 1 248 925, 639 524 → 748 329,
+  267 591 → 354 435): changed leaf scores change cutoffs, not eval cost. Under one ply everywhere.
+  The X-square test allowed an X-square with its corner legal only when the opponent cannot
+  take that corner in reply (a seeded position where g2 next to h1 stays ours to take; depth
+  5–11 all rate g2 ≥ h1).
+  Measured (#67): `arena versus othello --pairs 20` vs v0.2: +35 −4 =1. On the gate's yardstick,
+  locally vs Edax level 4, 10 pairs: v0.2 +8 −12 =0, candidate +10 −7 =3.
+  **Referee:** rated 1309 ± 108 over 40 games vs Edax level 4, "not above 1459". The third
+  Othello idea judged against v0.2's Edax-1 lower bound (±485). This one has the strongest
+  counter-evidence yet: +35 −4 head-to-head vs v0.2 and, locally on the same Edax-4 yardstick,
+  v0.2 +8 −12 vs candidate +10 −7 =3. **Resubmit it unchanged once v0.2 has an Edax-4 rating**
+  (or the gate compares head-to-head); it is not a failed idea, it is an unmeasured one.
+- **Large or phase-growing edge stability (task #67 tuning, not buried; kept small).** Stable
+  discs weighted 8–23 per disc (growing as the board fills) lost to v0.2 alone (+14 −24) and with
+  any frontier term; even 2+(60−e)/12 alone lost (+14 −26). Kept only as a flat 2 per disc.
+  Frontier-disc count (own discs touching an empty square) never beat v0.2 at any weight tried;
+  potential mobility did. Stability being Othello's "material" did not show at search depth 8:
+  the search already sees corner and edge captures, and a big stability bonus makes it trade
+  mobility for edge runs.
 - **TT in Othello vs chess** (for the chess TT task): no repetitions or 50-move rule, so no
   graph-history problems; terminal scores are not ply-relative, so no mate-distance adjustment.
   Discs only get added, so transpositions come from move-order permutations inside a ply band
@@ -126,3 +172,4 @@ differently. Never re-propose an idea from this list unchanged.
 - 2026-11-23 13:35 UTC · v0.2 passed the referee · Alpha-beta with iterative deepening and X/C-square evaluation · rated 1459 (+1218)
 - 2026-11-23 15:00 UTC · buried · Transposition table with stored best move ordering every inner node · Rated 1059 ± 135, not above 1459.
 - 2026-11-23 16:32 UTC · buried · Experiment: corner quiescence at the alpha-beta leaves · Rated 962 ± 163, not above 1459.
+- 2026-11-23 17:28 UTC · buried · Frontier (potential mobility) and edge-anchored stable discs in the Othello evaluation · Rated 1309 ± 108, not above 1459.
