@@ -114,24 +114,35 @@ const toCsv = (s: Snapshot, games: GameRow[]) => {
 
 const pgnDate = (iso: string) => iso.slice(0, 10).replace(/-/g, '.');
 
+/** Replays UCI chess moves into SAN, stopping at the first move the rules reject. */
+export const chessSan = (moves: string[]): { sans: string[]; illegal: string | null } => {
+  const board = new Chess();
+  const sans: string[] = [];
+  for (const uci of moves) {
+    try {
+      sans.push(board.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] }).san);
+    } catch {
+      return { sans, illegal: uci };
+    }
+  }
+  return { sans, illegal: null };
+};
+
+/** How each move reads to a player: SAN for chess (UCI past an illegal move), as stored otherwise. */
+export const moveNotation = (game: GameId, moves: string[]): string[] => {
+  if (game !== 'chess') return moves;
+  const { sans } = chessSan(moves);
+  return [...sans, ...moves.slice(sans.length)];
+};
+
 /** Chess moves are stored as UCI; PGN wants SAN, so replay them. */
 const toPgn = (s: Snapshot, games: GameRow[]) =>
   games
     .filter((g) => g.track_id === 'chess')
     .map((g) => {
       const l = label(s, g);
-      const board = new Chess();
-      const sans: string[] = [];
-      let note = '';
-      for (const uci of g.moves) {
-        try {
-          const m = board.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
-          sans.push(m.san);
-        } catch {
-          note = ` {illegal move ${uci}}`;
-          break;
-        }
-      }
+      const { sans, illegal } = chessSan(g.moves);
+      const note = illegal ? ` {illegal move ${illegal}}` : '';
       const body = sans.map((san, i) => (i % 2 === 0 ? `${i / 2 + 1}. ${san}` : san)).join(' ');
       const tags = [
         ['Event', 'Swarm Arena'],
