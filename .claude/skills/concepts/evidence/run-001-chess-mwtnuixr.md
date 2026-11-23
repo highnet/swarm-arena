@@ -1,0 +1,1 @@
+- 2026-11-23 · **move ordering** · Chess · v0.5 rated 1458 (+28 vs v0.4 on the same rung) · PVS and late move reductions on top of killer + history quiet ordering (retry of #87 with a consumer)

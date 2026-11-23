@@ -178,3 +178,4 @@ differently. Never re-propose an idea from this list unchanged.
 - 2026-11-23 17:17 UTC · v0.4 passed the referee · Transposition table keyed by Zobrist hash: TT move ordering every node, bound cut-offs, mate-distance-safe scores · rated 1420 (+114)
 - 2026-11-23 17:48 UTC · v0.4 passed the referee · Transposition table keyed by Zobrist hash: TT move ordering every node, bound cut-offs, mate-distance-safe scores · rated 1376 (+70)
 - 2026-11-23 19:07 UTC · buried · Killer moves and history heuristic for quiet-move ordering · Rated higher on the ladder but lost to v0.4 head to head (4–14–2).
+- 2026-11-23 20:04 UTC · v0.5 passed the referee · PVS and late move reductions on top of killer + history quiet ordering (retry of #87 with a consumer) · rated 1458 (+28 vs v0.4 on the same rung)
