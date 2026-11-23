@@ -13,12 +13,12 @@ pub const EMPTY: u8 = 0;
 pub const BLACK: u8 = 1;
 pub const WHITE: u8 = 2;
 
-const OFF: u8 = u8::MAX;
+pub(crate) const OFF: u8 = u8::MAX;
 /// How many self-atari picks a random playout move redraws before accepting one.
 const SELF_ATARI_REDRAWS: u32 = 4;
 
 /// Orthogonal neighbours of each point; OFF marks the edge.
-const NEIGH: [[u8; 4]; NN] = build_neigh();
+pub(crate) const NEIGH: [[u8; 4]; NN] = build_neigh();
 /// Diagonal neighbours of each point; OFF marks the edge.
 const DIAG: [[u8; 4]; NN] = build_diag();
 
@@ -80,6 +80,9 @@ pub struct Board {
     empty: [u8; NN],
     epos: [u8; NN],
     n_empty: u8,
+    /// Points no move may go to (bit p = point p): the Benson-settled areas found at the root.
+    /// Playouts, tree expansion and the endgame solver all skip them.
+    pub forbid: u128,
 }
 
 /// Small xorshift RNG.
@@ -116,6 +119,7 @@ impl Board {
             empty: std::array::from_fn(|i| i as u8),
             epos: std::array::from_fn(|i| i as u8),
             n_empty: NN as u8,
+            forbid: 0,
         }
     }
 
@@ -354,7 +358,7 @@ impl Board {
         out.clear();
         let c = self.to_move;
         for p in 0..NN as u8 {
-            if self.cell[p as usize] == EMPTY && !self.is_eye(p, c) && self.is_legal(p) {
+            if self.cell[p as usize] == EMPTY && self.forbid & (1u128 << p) == 0 && !self.is_eye(p, c) && self.is_legal(p) {
                 out.push(p);
             }
         }
@@ -380,7 +384,7 @@ impl Board {
     /// The single liberty of the chain with head `h`, if it is in atari. A lone liberty touches
     /// at most four stones, so more than four pseudo-liberties means at least two liberties.
     #[inline]
-    fn atari_lib(&self, h: u8) -> Option<u8> {
+    pub(crate) fn atari_lib(&self, h: u8) -> Option<u8> {
         if self.libs[h as usize] > 4 {
             return None;
         }
@@ -444,6 +448,18 @@ impl Board {
         }
         mask &= !(1u128 << p);
         mask.count_ones() == 1
+    }
+
+    /// Chain head of the stone on `p`.
+    #[inline]
+    pub(crate) fn head_of(&self, p: u8) -> u8 {
+        self.head[p as usize]
+    }
+
+    /// Stones in the chain with head `h`.
+    #[inline]
+    pub(crate) fn size_of(&self, h: u8) -> u32 {
+        self.size[h as usize] as u32
     }
 
     /// Whether `p` touches a stone of `c`.
@@ -556,7 +572,7 @@ impl Board {
         while len > 0 {
             let j = rng.below(len);
             let p = buf[j];
-            if !self.is_eye(p, c) && self.is_legal(p) {
+            if self.forbid & (1u128 << p) == 0 && !self.is_eye(p, c) && self.is_legal(p) {
                 if redraws < SELF_ATARI_REDRAWS && self.joins_own(p, c) && self.is_self_atari(p, c) {
                     redraws += 1;
                     if fallback == PASS {
@@ -577,8 +593,8 @@ impl Board {
     #[inline]
     pub fn policy_move(&self, rng: &mut Rng, buf: &mut [u8; NN]) -> u8 {
         match self.tactical_move() {
-            Some(m) => m,
-            None => self.random_move(rng, buf),
+            Some(m) if self.forbid & (1u128 << m) == 0 => m,
+            _ => self.random_move(rng, buf),
         }
     }
 
