@@ -2,11 +2,12 @@ import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, ExternalLink } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
 import type { GameId } from '@arena/shared';
 import { SkillIcon } from '@/components/arena/SkillIcon';
 import { Typography } from '@/components/ui/Typography';
 import { PageSkeleton } from '@/components/arena/PageSkeleton';
+import { NextSteps } from '@/components/arena/NextSteps';
 import { getSnapshot } from '@/lib/data';
 import { pageMeta } from '@/lib/site';
 import { getSkills } from '@/lib/source';
@@ -36,13 +37,6 @@ const SkillContent = async ({ params }: SkillPageProps) => {
   const game = name.replace(/-playbook$/, '');
   return (
     <main className="mx-auto w-full max-w-4xl px-4 pb-16 pt-6 sm:px-6">
-      <Link
-        href="/skills"
-        className="inline-flex items-center gap-1 text-xs text-fg-3 hover:text-fg"
-      >
-        <ArrowLeft className="size-3" aria-hidden="true" />
-        Skills
-      </Link>
       <div className="mt-3 flex items-center gap-3">
         <SkillIcon name={skill.name} slots={slots} />
         <Typography variant="pageTitle" className="font-mono text-xl sm:text-2xl">
@@ -77,6 +71,7 @@ const SkillContent = async ({ params }: SkillPageProps) => {
         className="playbook mt-6 rounded-lg border border-line bg-panel p-5"
         dangerouslySetInnerHTML={{ __html: skill.html }}
       />
+      <NextSteps links={['skills', 'concepts', 'protocol', 'engines']} />
     </main>
   );
 };

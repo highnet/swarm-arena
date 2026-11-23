@@ -1,5 +1,5 @@
 #!/usr/bin/env tsx
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import bcrypt from "bcryptjs";
 import { resolve } from "node:path";
 import {
@@ -40,6 +40,7 @@ import {
 } from "./orchestrator";
 import { pinAgentId } from "./rallypoint";
 import { buildWasm } from "./wasm";
+import { buildSuite } from "./openings";
 import { getStore } from "./store";
 import { adopt, applyPlan, brief } from "./strategist";
 
@@ -92,6 +93,10 @@ Operator:
   calibrate <track> [--pairs N] rate each rung against the one below
   versus <track> [--pairs N]    play the engine in this checkout against the version on main
   wasm <track>                  rebuild the browser build of the engine on this checkout
+  openings build <track> [--count N] [--seed S] [--strength X] [--samples K] [--jobs J] [--out file]
+                                rebuild the track's balanced opening suite (shared/src/openings/<track>.txt):
+                                random lines scored by the reference engine, near-even ones kept;
+                                deterministic for a seed
   play <track> <a> <b> [--pairs N]
                                 play references (e.g. stockfish-3, mcts-2000) or engine binaries
 
@@ -440,6 +445,30 @@ Run \`git checkout --detach origin/main\` (or \`npm run arena -- prepare\`, whic
         elo: t?.current_elo ?? null,
       });
       log(ok ? `built web/public/wasm/${args[0]}.wasm` : "wasm build failed");
+      return;
+    }
+    case "openings": {
+      const [sub, game] = args as [string, GameId];
+      if (sub !== "build" || !GAMES[game]) {
+        console.log(USAGE);
+        process.exitCode = 1;
+        return;
+      }
+      const num = (name: string) => {
+        const v = opt(name);
+        return v === undefined ? undefined : Number(v);
+      };
+      const scratch = resolve(ARENA_HOME, "openings");
+      mkdirSync(scratch, { recursive: true });
+      await buildSuite(game, {
+        count: flag("count", 200),
+        seed: flag("seed", 1),
+        strength: num("strength"),
+        samples: num("samples"),
+        jobs: num("jobs"),
+        out: opt("out") ? fromCaller(opt("out")!) : undefined,
+        scratch,
+      });
       return;
     }
     case "play": {

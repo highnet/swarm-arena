@@ -2,13 +2,14 @@ import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, Swords } from 'lucide-react';
+import { Swords } from 'lucide-react';
 import { GameReplay } from '@/components/arena/GameReplay';
+import { NextSteps, engineSteps } from '@/components/arena/NextSteps';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
 import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { getMatchGames, getSnapshot } from '@/lib/data';
-import { gameHref } from '@/lib/routes';
+import { gameHref, rungHref, versionHref, versionOf } from '@/lib/routes';
 import { formatDay, formatElo, formatTime } from '@/lib/format';
 import { SERIES } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
@@ -33,16 +34,14 @@ const MatchContent = async ({ params }: MatchPageProps) => {
   );
   const total = match.wins + match.draws + match.losses;
   const firstLabel = track.id === 'chess' ? 'White' : 'Black';
+  const shipped = s.records.some(
+    (r) =>
+      r.kind === 'patch_landed' && r.track_id === track.id && versionOf(r) === match.engine_version,
+  );
+  const rung = s.rungs.find((r) => r.track_id === track.id && r.label === match.opponent);
 
   return (
     <main className="mx-auto w-full max-w-[90rem] px-4 pb-16 pt-6 sm:px-6">
-      <Link
-        href={`/engines/${track.id}`}
-        className="inline-flex items-center gap-1 text-xs text-fg-3 hover:text-fg"
-      >
-        <ArrowLeft className="size-3" aria-hidden="true" />
-        {track.name}
-      </Link>
       <div className="mt-2 pb-5">
         <div className="flex items-center gap-2 text-[13px] text-fg-2">
           <span className={cn('size-2 rounded-full', SERIES[track.color_slot].bg)} />
@@ -51,7 +50,21 @@ const MatchContent = async ({ params }: MatchPageProps) => {
             ` · ${formatDay(match.finished_at)} ${formatTime(match.finished_at)} UTC`}
         </div>
         <Typography variant="pageTitle" className="mt-1">
-          {match.engine_version} vs {match.opponent}
+          {shipped ? (
+            <Link href={versionHref(track.id, match.engine_version)} className="hover:underline">
+              {match.engine_version}
+            </Link>
+          ) : (
+            match.engine_version
+          )}{' '}
+          vs{' '}
+          {rung ? (
+            <Link href={rungHref(rung)} className="hover:underline">
+              {match.opponent}
+            </Link>
+          ) : (
+            match.opponent
+          )}
         </Typography>
       </div>
 
@@ -111,6 +124,7 @@ const MatchContent = async ({ params }: MatchPageProps) => {
           ))}
         </div>
       )}
+      <NextSteps links={[...engineSteps(track.id), 'versions']} />
     </main>
   );
 };

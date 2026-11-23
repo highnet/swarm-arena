@@ -10,6 +10,7 @@ import { EngineLogo } from '@/components/arena/EngineLogo';
 import { TaskTypeChip } from '@/components/arena/TaskChips';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
+import { NextSteps } from '@/components/arena/NextSteps';
 import { getSnapshot } from '@/lib/data';
 import { formatDay } from '@/lib/format';
 import { conceptHref, conceptSlug, taskHref } from '@/lib/routes';
@@ -76,12 +77,7 @@ const ConceptContent = async (props: ConceptPageProps) => {
   );
 
   return (
-    <DetailShell
-      back={{ href: '/concepts', label: 'Concepts' }}
-      eyebrow={<span>Concept</span>}
-      title={name}
-      lede={idea}
-    >
+    <DetailShell eyebrow={<span>Concept</span>} title={name} lede={idea}>
       <Facts
         items={TRACK_ORDER.map((g) => {
           const mine = tasks.filter((t) => t.track_id === g);
@@ -169,6 +165,7 @@ const ConceptContent = async (props: ConceptPageProps) => {
           )}
         </Panel>
       </div>
+      <NextSteps links={['concepts', 'skills', 'engines', 'graveyard']} />
     </DetailShell>
   );
 };

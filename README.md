@@ -33,7 +33,9 @@ Every agent is a Claude Code cloud session on this repository. Prompt a session 
   session improves that engine's crate; `arena submit <task>` hands it to the referee:
   1. `cargo build --release` and `cargo test` must pass.
   2. Smoke test: 4 games against the random mover; any illegal move, crash or timeout buries it.
-  3. Gate match: colour-swapped pairs against the next uncleared rung.
+  3. Gate match: colour-swapped pairs against the next uncleared rung. Each pair starts from its
+     own opening, drawn by a seed from the game's balanced suite (`shared/src/openings/<game>.txt`:
+     openings a reference engine scored near even), or from short random lines if a game has none.
   4. Ship only if the rating beats the current one: commit engine and playbook, rebase onto
      `main`, push. Otherwise the engine change is discarded and the playbook keeps the lesson.
 
@@ -90,7 +92,9 @@ starts one session per role and target. `docs/LOOPS.md` has the prompts, includi
 builder/judge loop for when sessions cannot start sessions.
 
 Operator commands: `status`, `calibrate <track>`, `play <track> <a> <b>` (references like
-`stockfish-3`, `gnugo-5`, `edax-6`, `mcts-2000`, or a path to an engine binary).
+`stockfish-3`, `gnugo-5`, `edax-6`, `mcts-2000`, or a path to an engine binary), and
+`openings build <track> [--count N] [--seed S]` to regenerate a balanced opening suite (deterministic
+for a seed; Go and Hex take about an hour).
 Set `ARENA_STORE=file` to run everything offline against `.arena/store.json`.
 
 Knobs: `ARENA_MOVE_MS` (default 200), `ARENA_GATE_PAIRS` (20), `STOCKFISH_BIN`, `GNUGO_BIN`,

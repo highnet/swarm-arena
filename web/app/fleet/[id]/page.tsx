@@ -3,7 +3,7 @@ import { connection } from 'next/server';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, ArrowUpRight, GitPullRequest, ListChecks, Moon, Radio } from 'lucide-react';
+import { ArrowUpRight, GitPullRequest, ListChecks, Moon, Radio } from 'lucide-react';
 import { agentName } from '@arena/shared';
 import { AgentAvatar } from '@/components/arena/AgentAvatar';
 import { Elapsed } from '@/components/arena/Elapsed';
@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
 import { PageSkeleton } from '@/components/arena/PageSkeleton';
+import { NextSteps } from '@/components/arena/NextSteps';
 import { getSnapshot } from '@/lib/data';
 import { formatDay, formatTime } from '@/lib/format';
 import { recordHref } from '@/lib/routes';
@@ -56,14 +57,6 @@ const AgentContent = async ({ params }: AgentPageProps) => {
 
   return (
     <main className="mx-auto w-full max-w-5xl px-4 pb-16 pt-6 sm:px-6">
-      <Link
-        href="/fleet"
-        className="inline-flex items-center gap-1 text-xs text-fg-3 hover:text-fg"
-      >
-        <ArrowLeft className="size-3" aria-hidden="true" />
-        Fleet
-      </Link>
-
       <header className="mt-3 flex items-start gap-4">
         <div className="relative">
           <AgentAvatar id={a.id} size={56} />
@@ -201,6 +194,7 @@ const AgentContent = async ({ params }: AgentPageProps) => {
           </ol>
         )}
       </Panel>
+      <NextSteps links={['fleet', 'sessions', 'messages', 'rallypoint']} />
     </main>
   );
 };

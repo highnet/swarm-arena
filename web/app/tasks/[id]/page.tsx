@@ -3,7 +3,6 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import {
-  ArrowLeft,
   ArrowUpRight,
   CircleCheck,
   CircleDashed,
@@ -23,6 +22,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
 import { PageSkeleton } from '@/components/arena/PageSkeleton';
+import { NextSteps } from '@/components/arena/NextSteps';
 import { getSnapshot } from '@/lib/data';
 import { REPO_URL } from '@/lib/github';
 import { formatDay, formatElo, formatTime } from '@/lib/format';
@@ -92,14 +92,6 @@ const TaskContent = async ({ params }: TaskPageProps) => {
 
   return (
     <main className="mx-auto w-full max-w-5xl px-4 pb-16 pt-6 sm:px-6">
-      <Link
-        href={`/engines/${track.id}`}
-        className="inline-flex items-center gap-1 text-xs text-fg-3 hover:text-fg"
-      >
-        <ArrowLeft className="size-3" aria-hidden="true" />
-        {track.name}
-      </Link>
-
       <header className="mt-3 flex items-start gap-3">
         <EngineLogo game={track.id} slot={track.color_slot} size="lg" className="mt-1" />
         <div className="min-w-0">
@@ -326,6 +318,7 @@ const TaskContent = async ({ params }: TaskPageProps) => {
           )}
         </div>
       </div>
+      <NextSteps links={['rallypoint', 'board', 'fleet', 'versions']} />
     </main>
   );
 };

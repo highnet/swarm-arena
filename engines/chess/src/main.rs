@@ -2,6 +2,9 @@
 //! Rules: the `shakmaty` crate. Search and evaluation: written by the swarm.
 //! Protocol and library policy: ../PROTOCOL.md.
 
+mod endgame;
+
+use endgame::Tb;
 use shakmaty::uci::UciMove;
 use shakmaty::zobrist::Zobrist64;
 use shakmaty::{Chess, Color, EnPassantMode, Move, Position, Role};
@@ -361,6 +364,8 @@ struct Search<'a> {
     /// Probes that found this position's entry, and those that cut the node off.
     tt_hits: u64,
     tt_cuts: u64,
+    /// Positions scored exactly by the endgame tables.
+    tb_hits: u64,
     path: Vec<u64>,
     root_turn: Color,
     deadline: Instant,
@@ -378,6 +383,22 @@ impl Search<'_> {
         } else {
             CONTEMPT
         }
+    }
+
+    /// The exact score of a KQK, KRK or KPK position from the engine's own tables, mate-distance
+    /// relative to the root like every mate score. None outside the tables, or when the mate
+    /// would not arrive before the fifty-move rule (then the search decides).
+    fn table_score(&mut self, pos: &Chess, ply: i32) -> Option<i32> {
+        let tb = endgame::probe(pos)?;
+        let room = 100 - pos.halfmoves().min(100);
+        let s = match tb {
+            Tb::Win(d) | Tb::Loss(d) if d >= room => return None,
+            Tb::Win(d) => MATE - (ply + d as i32),
+            Tb::Loss(d) => -(MATE - (ply + d as i32)),
+            Tb::Draw => self.draw(pos.turn()),
+        };
+        self.tb_hits += 1;
+        Some(s)
     }
 
     fn out_of_time(&mut self) -> bool {
@@ -403,6 +424,9 @@ impl Search<'_> {
         }
         if pos.halfmoves() >= 100 || pos.is_insufficient_material() {
             return self.draw(pos.turn());
+        }
+        if let Some(s) = self.table_score(pos, ply) {
+            return s;
         }
         if depth == 0 {
             return self.quiesce(pos, ply, 0, alpha, beta);
@@ -516,6 +540,9 @@ impl Search<'_> {
         if self.out_of_time() {
             return 0;
         }
+        if let Some(s) = self.table_score(pos, ply) {
+            return s;
+        }
         let in_check = pos.is_check();
         if qply >= MAX_QPLY {
             return evaluate(pos);
@@ -606,6 +633,7 @@ struct Outcome {
     qnodes: u64,
     tt_hits: u64,
     tt_cuts: u64,
+    tb_hits: u64,
 }
 
 /// Iterative deepening: depth 1, 2, 3, ... until the clock says stop. Always returns the best move
@@ -676,7 +704,7 @@ fn run(
     let tt_move = if use_tt { tt.probe(hash(pos)).and_then(|e| decode(e.mv, &moves)) } else { None };
     moves.sort_by_key(|m| -order_key(m, tt_move));
     let first = *moves.first()?;
-    let mut out = Outcome { best: first, score: 0, depth: 0, nodes: 0, qnodes: 0, tt_hits: 0, tt_cuts: 0 };
+    let mut out = Outcome { best: first, score: 0, depth: 0, nodes: 0, qnodes: 0, tt_hits: 0, tt_cuts: 0, tb_hits: 0 };
     if moves.len() == 1 {
         return Some(out);
     }
@@ -689,6 +717,7 @@ fn run(
         use_pvs,
         tt_hits: 0,
         tt_cuts: 0,
+        tb_hits: 0,
         path: Vec::with_capacity(MAX_DEPTH as usize + 1),
         root_turn: pos.turn(),
         deadline: start + hard,
@@ -706,7 +735,10 @@ fn run(
         if let Some(i) = moves.iter().position(|x| *x == m) {
             moves[..=i].rotate_right(1);
         }
-        if score.abs() > MATE_BOUND || start.elapsed() >= soft {
+        // A mate inside the searched depth cannot be beaten by searching deeper. A longer one can:
+        // the endgame tables score mates far beyond the horizon, and a shorter mate may still exist.
+        let mate_in = MATE - score.abs();
+        if (score.abs() > MATE_BOUND && mate_in <= depth as i32) || start.elapsed() >= soft {
             break;
         }
     }
@@ -714,6 +746,7 @@ fn run(
     out.qnodes = s.qnodes;
     out.tt_hits = s.tt_hits;
     out.tt_cuts = s.tt_cuts;
+    out.tb_hits = s.tb_hits;
     Some(out)
 }
 
@@ -741,13 +774,14 @@ fn handle(line: &str, moves: &mut Vec<String>) -> (Option<String>, bool) {
             let budget = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1000);
             let reply = match replay(moves).and_then(|(pos, seen)| search(&pos, &seen, budget)) {
                 Some(o) => format!(
-                    "info depth {} score {} nodes {} qnodes {} tthits {} ttcuts {}\nbestmove {}",
+                    "info depth {} score {} nodes {} qnodes {} tthits {} ttcuts {} tbhits {}\nbestmove {}",
                     o.depth,
                     o.score,
                     o.nodes,
                     o.qnodes,
                     o.tt_hits,
                     o.tt_cuts,
+                    o.tb_hits,
                     UciMove::from_standard(o.best)
                 ),
                 None => "bestmove 0000".into(),
@@ -972,6 +1006,7 @@ mod tests {
             use_pvs: false,
             tt_hits: 0,
             tt_cuts: 0,
+            tb_hits: 0,
             path: Vec::new(),
             root_turn: Color::White,
             deadline: Instant::now() + Duration::from_secs(86_400),
@@ -1276,5 +1311,86 @@ mod tests {
             let full = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true, true, true).unwrap();
             println!("go 200 {name}: v0.4 depth {} nodes {} | full depth {} nodes {}", base.depth, base.nodes, full.depth, full.nodes);
         }
+    }
+
+    /// A random three-piece position: White king and `role`, Black king, White to move, or None if
+    /// the rules library rejects it.
+    fn three_pieces(role: Role, rng: &mut u64) -> Option<Chess> {
+        let mut next = || {
+            *rng ^= *rng << 13;
+            *rng ^= *rng >> 7;
+            *rng ^= *rng << 17;
+            (*rng % 64) as u32
+        };
+        let (k, x, w) = (next(), next(), next());
+        if k == x || k == w || x == w || (role == Role::Pawn && !(8..56).contains(&x)) {
+            return None;
+        }
+        let mut board = shakmaty::Board::empty();
+        board.set_piece_at(shakmaty::Square::new(k), shakmaty::Piece { color: Color::White, role: Role::King });
+        board.set_piece_at(shakmaty::Square::new(x), shakmaty::Piece { color: Color::White, role });
+        board.set_piece_at(shakmaty::Square::new(w), shakmaty::Piece { color: Color::Black, role: Role::King });
+        let mut setup = shakmaty::Setup::empty();
+        setup.board = board;
+        use shakmaty::FromSetup;
+        Chess::from_setup(setup, shakmaty::CastlingMode::Standard).ok()
+    }
+
+    #[test]
+    fn tables_convert_against_a_random_mover() {
+        // From random won KQK, KRK and KPK starts, the engine (depth 2) mates a random mover
+        // within the table's distance and inside the fifty-move rule.
+        let mut rng = 0x9E37_79B9_7F4A_7C15u64;
+        for role in [Role::Queen, Role::Rook, Role::Pawn] {
+            let mut games = 0;
+            while games < 25 {
+                let Some(mut pos) = three_pieces(role, &mut rng) else { continue };
+                let Some(Tb::Win(dtm)) = endgame::probe(&pos) else { continue };
+                games += 1;
+                let mut seen = HashSet::from([hash(&pos)]);
+                let mut plies = 0;
+                while !pos.is_game_over() {
+                    let m = if pos.turn() == Color::White {
+                        let out = search_depth(&pos, &seen, 2).unwrap();
+                        assert!(out.score > MATE_BOUND, "{role:?} {}: lost the win", shakmaty::fen::Fen::from_position(&pos, EnPassantMode::Legal));
+                        out.best
+                    } else {
+                        let moves = pos.legal_moves();
+                        rng ^= rng << 13;
+                        rng ^= rng >> 7;
+                        rng ^= rng << 17;
+                        moves[(rng % moves.len() as u64) as usize]
+                    };
+                    pos.play_unchecked(m);
+                    seen.insert(hash(&pos));
+                    plies += 1;
+                    assert!(pos.halfmoves() < 100);
+                }
+                assert!(pos.is_checkmate() && pos.turn() == Color::Black, "{role:?}: no mate");
+                assert!(plies <= dtm, "{role:?}: mate took {plies} plies, table said {dtm}");
+            }
+        }
+    }
+
+    #[test]
+    fn search_reports_the_table_distance() {
+        // KRK, longest-class position: the root score is the table's exact mate distance, and the
+        // defending side's score is the mirror image.
+        let mut rng = 7u64;
+        let mut checked = 0;
+        while checked < 30 {
+            let Some(pos) = three_pieces(Role::Rook, &mut rng) else { continue };
+            let Some(Tb::Win(d)) = endgame::probe(&pos) else { continue };
+            if d < 3 {
+                continue;
+            }
+            let out = search_depth(&pos, &HashSet::new(), 1).unwrap();
+            assert_eq!(out.score, MATE - d as i32);
+            checked += 1;
+        }
+        // Four pieces: KQ vs KR. The search wins the rook through the table (a skewer).
+        let pos = from_fen("3k4/8/3K4/8/8/8/r7/7Q w - - 0 1");
+        let out = search_depth(&pos, &HashSet::new(), 4).unwrap();
+        assert!(out.score > MATE_BOUND, "score {}", out.score);
     }
 }

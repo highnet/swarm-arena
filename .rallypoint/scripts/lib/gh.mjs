@@ -89,7 +89,14 @@ let restTransport = null;
  * @param {string[]} args
  * @returns {string | null} the gh-shaped output, or null when this is not such a write.
  */
-const gitDataWrite = (args) => {
+/**
+ * Which git-data write a `gh api` call is, if any: the pure half of `gitDataWrite`, so the
+ * routing of every ref create, move and delete can be tested without a remote.
+ *
+ * @param {string[]} args
+ * @returns {{ method: string, kind: "refs" | "commits", rest: string | undefined, f: Record<string, string[]> } | null}
+ */
+export const gitDataRequest = (args) => {
   if (args[0] !== "api") return null;
   const method = (args[args.indexOf("--method") + 1] ?? "GET").toUpperCase();
   if (method === "GET" || !args.includes("--method")) return null;
@@ -105,6 +112,19 @@ const gitDataWrite = (args) => {
       (f[k] ??= []).push(args[i + 1].slice(at + 1));
     }
   });
+  return { method, kind: /** @type {"refs" | "commits"} */ (m[1]), rest: m[2], f };
+};
+
+/** The subject every emulated delete leaves on a coordination ref. */
+export const RELEASED_MARK = "rallypoint: released";
+
+/** @param {unknown} message */
+export const isReleasedMessage = (message) => String(message ?? "").startsWith(RELEASED_MARK);
+
+const gitDataWrite = (args) => {
+  const request = gitDataRequest(args);
+  if (!request) return null;
+  const { method, kind, rest, f } = request;
   const run = (...g) => execFileSync("git", g, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   const have = (sha) => {
     try {
@@ -113,7 +133,6 @@ const gitDataWrite = (args) => {
       run("fetch", "--quiet", "origin", sha);
     }
   };
-  const [, kind, rest] = m;
   if (kind === "commits" && method === "POST") {
     for (const parent of f.parents ?? []) have(parent);
     const parents = (f.parents ?? []).flatMap((p) => ["-p", p]);
@@ -121,10 +140,10 @@ const gitDataWrite = (args) => {
     return JSON.stringify({ sha });
   }
   const remoteSha = (ref) => run("ls-remote", "origin", ref).split(/\s+/)[0] || "";
-  const releasedMark = "rallypoint: released";
+  const releasedMark = RELEASED_MARK;
   const isReleased = (sha) => {
     have(sha);
-    return run("log", "-1", "--format=%s", sha).startsWith(releasedMark);
+    return isReleasedMessage(run("log", "-1", "--format=%s", sha));
   };
   if (kind === "refs" && method === "POST") {
     const ref = f.ref[0];
@@ -169,7 +188,12 @@ const gitDataWrite = (args) => {
 
 /** Released coordination refs read as absent, exactly as deleted ones would. */
 const releasedCache = new Map();
-const hideReleased = (args, out) => {
+/**
+ * @param {string[]} args the `gh api` call that produced `out`.
+ * @param {string} out its output.
+ * @param {(...args: string[]) => string} [read] the transport commits are read through.
+ */
+export const hideReleased = (args, out, read = (...a) => restTransport(...a)) => {
   const path = args.find((a, i) => i > 0 && /^\/?repos\//.test(a)) ?? "";
   const listing = /\/git\/matching-refs\/heads\/rallypoint-/.test(path);
   const single = /\/git\/ref\/heads\/rallypoint-/.test(path);
@@ -177,8 +201,8 @@ const hideReleased = (args, out) => {
   const released = (sha) => {
     if (!releasedCache.has(sha)) {
       const repo = /repos\/([^/]+\/[^/]+)\//.exec(path)?.[1];
-      const commit = JSON.parse(restTransport("api", `repos/${repo}/git/commits/${sha}`));
-      releasedCache.set(sha, String(commit.message ?? "").startsWith("rallypoint: released"));
+      const commit = JSON.parse(read("api", `repos/${repo}/git/commits/${sha}`));
+      releasedCache.set(sha, isReleasedMessage(commit.message));
     }
     return releasedCache.get(sha);
   };

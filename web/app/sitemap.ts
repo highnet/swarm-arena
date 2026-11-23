@@ -11,12 +11,13 @@ import {
   rungHref,
   taskHref,
 } from '@/lib/routes';
+import { getNews, newsHref } from '@/lib/news';
 import { getConcepts, getSkills } from '@/lib/source';
 import { TRACK_ORDER } from '@/lib/tracks';
 
 /** Every public page, and every item's own page: records, versions, ideas, tasks, matches, games, messages, concepts, rungs. */
 const sitemap = async (): Promise<MetadataRoute.Sitemap> => {
-  const [s, concepts] = await Promise.all([getSnapshot(), getConcepts()]);
+  const [s, concepts, news] = await Promise.all([getSnapshot(), getConcepts(), getNews()]);
   const now = snapshotNow(s);
   const page = (
     path: string,
@@ -41,6 +42,8 @@ const sitemap = async (): Promise<MetadataRoute.Sitemap> => {
       page(`/engines/${id}`, 0.8, 'hourly'),
       page(`/engines/${id}/play`, 0.7, 'daily'),
     ]),
+    page('/news', 0.8, 'hourly'),
+    ...news.map((a) => item(newsHref(a.slug), a.published, 0.6)),
     page('/board', 0.7, 'hourly'),
     page('/messages', 0.7, 'hourly'),
     page('/fleet', 0.7, 'hourly'),

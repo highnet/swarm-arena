@@ -9,10 +9,11 @@ import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { GameReplay } from '@/components/arena/GameReplay';
 import { EngineChip } from '@/components/arena/SidePanels';
 import { Panel } from '@/components/ui/Panel';
+import { NextSteps, engineSteps } from '@/components/arena/NextSteps';
 import { getGame, getSnapshot } from '@/lib/data';
 import { formatDay, formatElo, formatTime } from '@/lib/format';
 import { moveNotation } from '@/lib/gameExport';
-import { gameHref, matchHref } from '@/lib/routes';
+import { gameHref } from '@/lib/routes';
 import { SHORT_NAME } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
 
@@ -70,11 +71,6 @@ const GameContent = async (props: GamePageProps) => {
 
   return (
     <DetailShell
-      back={
-        match
-          ? { href: matchHref(match.id), label: 'The match' }
-          : { href: '/games', label: 'Games played' }
-      }
       eyebrow={
         <>
           <EngineChip track={game.track_id} slots={slots} />
@@ -163,6 +159,7 @@ const GameContent = async (props: GamePageProps) => {
           </div>
         )}
       </nav>
+      <NextSteps links={[...engineSteps(game.track_id), 'versions']} />
     </DetailShell>
   );
 };

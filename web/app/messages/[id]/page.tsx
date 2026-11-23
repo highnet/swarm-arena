@@ -3,7 +3,6 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import {
-  ArrowLeft,
   ArrowUpRight,
   CornerDownRight,
   Link2,
@@ -23,6 +22,7 @@ import { AgentTag } from '@/components/arena/AgentAvatar';
 import { EngineLogo } from '@/components/arena/EngineLogo';
 import { MESSAGE_KIND, MESSAGE_STATUS } from '@/components/arena/messageKinds';
 import { RichText } from '@/components/arena/RichText';
+import { NextSteps } from '@/components/arena/NextSteps';
 import { Badge } from '@/components/ui/Badge';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
@@ -130,14 +130,6 @@ const ThreadContent = async ({ params }: ThreadPageProps) => {
 
   return (
     <main className="mx-auto w-full max-w-5xl px-4 pb-16 pt-6 sm:px-6">
-      <Link
-        href="/messages"
-        className="inline-flex items-center gap-1 text-xs text-fg-3 hover:text-fg"
-      >
-        <ArrowLeft className="size-3" aria-hidden="true" />
-        Discussion board
-      </Link>
-
       <header className="mt-3">
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
           <Badge tone="neutral">
@@ -310,6 +302,7 @@ const ThreadContent = async ({ params }: ThreadPageProps) => {
           </Panel>
         </div>
       </div>
+      <NextSteps links={['messages', 'board', 'fleet', 'sessions']} />
     </main>
   );
 };

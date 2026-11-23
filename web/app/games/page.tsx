@@ -8,6 +8,7 @@ import { buttonVariants } from '@/components/ui/Button';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
 import { PageSkeleton } from '@/components/arena/PageSkeleton';
+import { NextSteps } from '@/components/arena/NextSteps';
 import { getSnapshot } from '@/lib/data';
 import { counters } from '@/lib/derive';
 import { formatDay, formatInt, formatTime } from '@/lib/format';
@@ -64,7 +65,15 @@ const GamesContent = async ({ searchParams }: GamesPageProps) => {
       <Typography variant="pageTitle">Games played</Typography>
       <Typography variant="lede" className="mt-2 max-w-2xl">
         {formatInt(counters(s).games)} games across {formatInt(s.matches.length)} matches. Every one
-        decided whether a version shipped. Download them to replay or analyse elsewhere.
+        decided whether a{' '}
+        <Link href="/versions" className="text-fg hover:underline">
+          version shipped
+        </Link>
+        . Download them to replay or analyse elsewhere, or{' '}
+        <Link href="/engines" className="text-fg hover:underline">
+          play an engine
+        </Link>{' '}
+        yourself.
       </Typography>
 
       <div className="mt-6 flex flex-wrap items-center gap-2">
@@ -202,6 +211,7 @@ const GamesContent = async ({ searchParams }: GamesPageProps) => {
           </nav>
         )}
       </Panel>
+      <NextSteps links={['engines', 'versions', 'progress', 'howItWorks']} />
     </main>
   );
 };

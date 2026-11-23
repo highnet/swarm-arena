@@ -91,7 +91,32 @@ Negamax alpha-beta with iterative deepening (`engines/chess/src/main.rs`):
 - `evaluate`: material P100 N320 B330 R500 Q900 plus formula-built piece-square terms (centrality
   for N/B/Q, pawn advance and centre pawns, rook on 7th, king shelter in the middlegame vs king
   centralisation in the endgame), tapered by a 24-point phase; bishop pair +30.
-- Prints `info depth <d> score <cp> nodes <n> qnodes <q> tthits <h> ttcuts <c>` before `bestmove`.
+- Endgame tables (#107): KQK, KRK and KPK are solved by the engine's own retrograde analysis at
+  build time and embedded (`build.rs` runs `src/eg_gen.rs`, `src/endgame.rs` probes). The
+  generator has its own three-piece move generator (no shakmaty) and labels mates ply by ply:
+  odd passes find strong-side moves into a weak-side loss in ply-1, even passes find weak-side
+  positions where every move reaches a strong-side win. KPK promotions (queen and rook; knight
+  and bishop only draw) read the solved KQK/KRK tables, so KPK holds true distance-to-mate too.
+  Storage: one byte per position, 0 = draw, n = mate in n-1 plies; pawnless tables fold the
+  strong king into the a1-d1-d4 triangle (10 × 64 × 64 × 2 = 80 KB each), KPK folds the pawn
+  onto files a-d (24 × 64 × 64 × 2 = 192 KB): 360 KB in all; the wasm grows ~955 KB → 1.3 MB.
+  The probe flips colours when Black is strong and skips positions with castling rights.
+  `build.rs` reads `OUT_DIR` (`std::env::var_os`) at compile time only; nothing runs at move time.
+- Probing: `Search::table_score` runs in `negamax` after the repetition/fifty/dead-material checks
+  (before the TT and before depth 0) and at the top of `quiesce`, returning the exact mate score
+  `±(MATE - (ply + dtm))` (or the contempt draw), so table mates mix with searched mates and TT
+  mate-distance handling. A win or loss that would not arrive before the fifty-move counter
+  runs out is left to the search. `tbhits` in the info line counts probes that scored a node.
+- Because a table can report a mate far beyond the horizon at a shallow depth, iterative
+  deepening stops on a mate only if its distance is within the depth searched (KRRK otherwise
+  played a rook-capture line into KRK mate in 19 instead of mate in 5).
+- Verified (`endgame::tests`): every entry of all three tables, both colours, equals a one-ply
+  minimax over shakmaty's legal moves (an oracle independent of the generator's move
+  generator), which with correct terminal positions proves the whole table. KQK longest mate
+  19 plies and KRK 31 plies, the published 10 and 16 moves. KPK: 163,328 legal positions with
+  White to move, 124,960 won, 38,368 drawn, longest mate 55 plies. From 25 random won starts
+  each, depth-2 search mates a random mover within the table's distance, under the fifty-move rule.
+- Prints `info depth <d> score <cp> nodes <n> qnodes <q> tthits <h> ttcuts <c> tbhits <t>` before `bestmove`.
 - Measured at `go 200` with the TT (`tt_report`, native release, 120 ms hard / 60 ms soft; wall
   clock, so ±1 ply between runs): start position depth 6, ~356k nodes, 6.5k TT hits, 4.4k TT cuts
   (TT off: depth 5, ~330k); Italian middlegame after 6.O-O depth 6, ~333k nodes, 9.3k hits, 5.8k
@@ -123,6 +148,13 @@ Negamax alpha-beta with iterative deepening (`engines/chess/src/main.rs`):
   winning nearly every game, and the candidate (which reaches depth 6 at the start and opens
   e2e4 where main opens d2d4 at depth 5) went +2 −16 =2 and +1 −16 =3 while playing identical
   moves at fixed depth. A local verdict needs randomised opening plies before it means anything.
+- More endgame tables: KBNK needs distance-to-mate (64^4/8 bytes ≈ 2 MB raw, too big as
+  bytes; a bitbase cannot guide the mate) — try a 4-bit or on-demand (first-probe) generation, or
+  a KBNK mating-net evaluation instead. KRKP / KQKP / KPKP need 4-piece generation: the
+  generator's ply-by-ply forward passes cost O(passes × positions), so 4 pieces want a real
+  retrograde (un-move) generator, or build them lazily in `game` within a time budget.
+- Use the KPK bitbase in evaluation beyond 3 pieces: e.g. score a pawn ending as won when the
+  king-and-pawn race alone is a table win, to steer trades into won KPK endings.
 - Evaluation: material, piece-square tables with a middlegame/endgame taper, mobility, passed pawns,
   king safety. Tune weights by playing, not by hand-waving.
 
@@ -182,3 +214,4 @@ differently. Never re-propose an idea from this list unchanged.
 - 2026-11-23 17:48 UTC · v0.4 passed the referee · Transposition table keyed by Zobrist hash: TT move ordering every node, bound cut-offs, mate-distance-safe scores · rated 1376 (+70)
 - 2026-11-23 19:07 UTC · buried · Killer moves and history heuristic for quiet-move ordering · Rated higher on the ladder but lost to v0.4 head to head (4–14–2).
 - 2026-11-23 20:04 UTC · v0.5 passed the referee · PVS and late move reductions on top of killer + history quiet ordering (retry of #87 with a consumer) · rated 1458 (+28 vs v0.4 on the same rung)
+- 2026-11-23 21:07 UTC · v0.6 passed the referee · Self-generated endgame bitbases (KPK, KQK, KRK) solved by the engine's own retrograde analysis · rated 1463 (+5)

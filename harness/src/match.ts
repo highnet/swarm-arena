@@ -1,4 +1,5 @@
 import {
+  drawFromSuite,
   GAMES,
   performanceElo,
   playMatch,
@@ -10,6 +11,7 @@ import {
 import { now, post } from "./board";
 import { log, MOVE_MS, MOVE_SLACK_MS, RUN_ID } from "./config";
 import { getStore } from "./store";
+import { loadSuite, suiteName } from "./openings";
 
 export type MatchSpec = {
   track: GameId;
@@ -22,8 +24,10 @@ export type MatchSpec = {
   purpose: Match["purpose"];
   taskId?: string | null;
   /**
-   * Seed for each pair's random opening (`matchOpenings`). Omit to start every game from the
-   * initial position (calibration does). One submit uses one seed for all its gate matches.
+   * Seed for each pair's opening: distinct entries of the track's balanced suite
+   * (shared/src/openings/<track>.txt), or #103's random lines when it has none or too few. Omit to
+   * start every game from the initial position (calibration does). One submit uses one seed for
+   * all its gate matches.
    */
   openingSeed?: number;
 };
@@ -31,10 +35,18 @@ export type MatchSpec = {
 /** Play a match, store every game, and post the verdict. Returns the performance estimate. */
 export const runMatch = async (spec: MatchSpec) => {
   const db = getStore();
+  const suite =
+    spec.openingSeed === undefined ? undefined : loadSuite(spec.track);
+  const fromSuite =
+    suite !== undefined &&
+    spec.openingSeed !== undefined &&
+    drawFromSuite(GAMES[spec.track], suite, spec.pairs, spec.openingSeed) !== null;
   const seedNote =
     spec.openingSeed === undefined
       ? ""
-      : `, random openings from seed ${spec.openingSeed}`;
+      : fromSuite
+        ? `, balanced openings from ${suiteName(spec.track)}, seed ${spec.openingSeed}`
+        : `, random openings from seed ${spec.openingSeed}`;
   const id = `${RUN_ID}-${spec.track}-${Date.now().toString(36)}`;
   await db.insert("matches", {
     id,
@@ -79,6 +91,7 @@ export const runMatch = async (spec: MatchSpec) => {
     {
       moveTimeMs: MOVE_MS + MOVE_SLACK_MS,
       openingSeed: spec.openingSeed,
+      openingSuite: suite,
       onGame: async (g, i) => {
         const engineFirst = i % 2 === 0;
         const s = engineFirst ? g.outcome : 1 - g.outcome;
@@ -138,6 +151,9 @@ export const runMatch = async (spec: MatchSpec) => {
       error: Math.round(est.error),
       forfeits,
       opening_seed: result.openingSeed,
+      opening_source: result.openingSource,
+      // 1-based, in file order: entry n is the n-th opening line of the suite.
+      opening_entries: result.openingEntries?.map((i) => i + 1) ?? null,
     },
   });
   return { matchId: id, est, result, forfeits };
