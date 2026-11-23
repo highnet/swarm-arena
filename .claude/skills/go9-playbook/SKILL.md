@@ -51,8 +51,26 @@ MCTS (UCT) since #29, with RAVE since #86. Three files in `engines/go9/src`:
 - `board.rs`: own flat 81-cell board. Chains are circular linked lists with a head per stone;
   per-chain pseudo-liberties (one per stone/empty adjacency, zero iff no liberty) and size;
   simple-ko point; no superko. Eye = all 4 neighbours own and at most one enemy diagonal (none
-  on the edge). Playout: uniform random among empty points that are legal and not own eyes
-  (pick-and-swap-remove over the empty list), until two passes or 243 moves, area-scored.
+  on the edge). Empty points kept as an incremental list (`empty`/`epos`, swap-remove on
+  `put`, append on capture) so a playout move no longer rescans 81 cells; `last` = last move.
+  **Playout policy (#99)**, `policy_move`: (1) `tactical_move` — for each own chain next to the
+  last move that is in atari, capture an adjacent enemy chain in atari (largest first), else
+  extend on its liberty if that leaves >= 2 liberties (`libs_after`, a capture counts as 2);
+  then (2) capture the last move's chain if it is in atari. Every returned move is legal.
+  (3) Otherwise uniform random among legal non-eye points, redrawing (up to 4 times) a move that
+  **joins an own chain** and leaves it with one liberty without capturing (`is_self_atari`);
+  when only such moves remain the first rejected one is played, never a pass. Exact liberties:
+  `atari_lib` walks the chain only when pseudo-libs <= 4 and stops at the second distinct
+  liberty; `is_self_atari` counts exactly only when p has <= 1 empty neighbour. Playouts go to
+  two passes or 243 moves, area-scored.
+
+  Policy numbers (#99), go 200, 5 runs: playouts empty board v0.3 5.2–5.6k, now 5.2k; after
+  e5 c3 g7 c7 g3 d5 v0.3 5.6–5.9k, now 5.3k (−5..−10%; raw playout bench `board::bench` 44k/s
+  → 39k/s from the empty board, ~105 moves per playout). The policy alone cost ~50% per move
+  before the empty list and the early-exit liberty walks won most of it back.
+  Local `arena play` vs GNU Go level 1, 200 ms: v0.3 10–30 and 9–11; policy rejecting every
+  self-atari (A) 29–31 over 60; joins-own-chain only (B, shipped) 54–26 over 80. `arena versus`
+  vs v0.3 (A): 15–5.
 - `search.rs`: node arena (`Vec<Node>`, children contiguous, shuffled at expansion), UCB1 with
   C = 0.6 on win rates, unvisited children first, expand a leaf on its 2nd visit, pass child only
   when a node has no other move, tree capped at 2M nodes. Binary win/loss backed up.
@@ -85,7 +103,9 @@ self-play games at 200 ms (legal, each reply < 200 ms; takes ~4.5 min in release
 - Tree reuse between moves, progressive widening. RAVE is in (#86).
 - RAVE follow-ups: K between 3000 and 10000 (the curve was still rising at 3000); a
   playout-policy prior once the policy is smarter (AMAF quality follows playout quality).
-- Playout policy: atari capture/escape, 3×3 patterns, avoid self-atari.
+- Playout policy follow-ups (#99 is in): 3×3 patterns around the last move; ladder reading
+  for the escape (extending in a ladder still dies); nakade awareness; a policy prior in the
+  tree (AMAF quality follows playout quality, so revisit RAVE K now).
 - Time management: spend more early and in fights; pass when the board is settled.
 - Playout speed: `random_move` rescans all 81 cells per move and `is_suicide` rescans
   neighbours per chain; an incremental empty list and a cheaper legality test should give
@@ -101,6 +121,9 @@ what it is, why it might work, and its verdict. Never fill this from another eng
 
 ## What failed and why
 
+- Rejecting *every* non-capturing self-atari in playouts (#99, variant A): 29–31 vs GNU Go 1
+  against 54–26 when lone-stone self-ataris (throw-ins, nakade shapes) are allowed. The
+  playouts need those moves to kill eyes; reject only self-atari that grows an own chain.
 - RAVE with a UCB term (#86): C = 0.1 lost 3–7 to C = 0 at K = 1000; small K (300) lost 4–6.
   Same as Hex: AMAF already spreads statistics, the bonus only diverts real visits.
 

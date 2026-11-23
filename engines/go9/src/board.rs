@@ -446,6 +446,12 @@ impl Board {
         mask.count_ones() == 1
     }
 
+    /// Whether `p` touches a stone of `c`.
+    #[inline]
+    fn joins_own(&self, p: u8, c: u8) -> bool {
+        NEIGH[p as usize].iter().any(|&n| n != OFF && self.cell[n as usize] == c)
+    }
+
     /// Liberties `c` would have after playing `p`, counting a capture as two (the stones taken
     /// free at least one point next to `p`, usually more).
     fn libs_after(&self, p: u8, c: u8) -> u32 {
@@ -538,8 +544,10 @@ impl Board {
     }
 
     /// A uniform random move among the empty points that are legal and not own eyes, or PASS.
-    /// Self-atari moves (that capture nothing) are redrawn up to SELF_ATARI_REDRAWS times; when
-    /// only self-ataris remain, the first one rejected is played rather than passing.
+    /// Self-atari moves that join an own chain and capture nothing are redrawn, up to
+    /// SELF_ATARI_REDRAWS times; a lone stone's self-atari (a throw-in or nakade) is kept, since
+    /// rejecting it too was weaker. When only self-ataris remain, the first one rejected is
+    /// played rather than passing.
     pub fn random_move(&self, rng: &mut Rng, buf: &mut [u8; NN]) -> u8 {
         let mut len = self.n_empty as usize;
         buf[..len].copy_from_slice(&self.empty[..len]);
@@ -549,7 +557,7 @@ impl Board {
             let j = rng.below(len);
             let p = buf[j];
             if !self.is_eye(p, c) && self.is_legal(p) {
-                if redraws < SELF_ATARI_REDRAWS && self.is_self_atari(p, c) {
+                if redraws < SELF_ATARI_REDRAWS && self.joins_own(p, c) && self.is_self_atari(p, c) {
                     redraws += 1;
                     if fallback == PASS {
                         fallback = p;
@@ -703,14 +711,24 @@ mod tests {
         // A self-atari that captures is allowed: white 1 has only liberty 0 (black 2, 10).
         let b3 = board(&[(1, WHITE), (2, BLACK), (10, BLACK)], BLACK, 10);
         assert!(!b3.is_self_atari(0, BLACK));
-        // The random policy never picks the self-atari while other moves remain.
+        // Black 9 (liberties 0 and 10) next to white 1 and 18: black 0 joins it and leaves the
+        // pair with liberty 10 alone. The random policy never picks it while other moves remain.
+        let b4 = board(&[(1, WHITE), (18, WHITE), (9, BLACK)], BLACK, 18);
+        assert!(b4.is_self_atari(0, BLACK));
         let mut buf = [0u8; NN];
         for seed in 1..3000u64 {
             let mut rng = Rng(seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1);
-            let m = b.random_move(&mut rng, &mut buf);
+            let m = b4.random_move(&mut rng, &mut buf);
             assert_ne!(m, 0, "seed {seed} chose the self-atari");
-            assert!(b.is_legal(m));
+            assert!(b4.is_legal(m));
         }
+        // A lone stone's self-atari (a throw-in) is left to the random pick: it is not redrawn.
+        let mut seen = false;
+        for seed in 1..3000u64 {
+            let mut rng = Rng(seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1);
+            seen |= b.random_move(&mut rng, &mut buf) == 0;
+        }
+        assert!(seen);
     }
 
     #[test]
