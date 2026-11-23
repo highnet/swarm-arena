@@ -3,12 +3,13 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { ArrowUpRight } from 'lucide-react';
-import type { BoardRecord, GameId } from '@arena/shared';
+import { agentName, type BoardRecord, type GameId } from '@arena/shared';
 import { Button } from '@/components/ui/Button';
 import { Typography } from '@/components/ui/Typography';
 import { formatDay, formatTime } from '@/lib/format';
 import { SERIES, SHORT_NAME, TRACK_ORDER } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
+import { AgentTag } from './AgentAvatar';
 import { KINDS, KIND_FILTERS, TONE_CLASS } from './recordKinds';
 
 type BoardFeedProps = {
@@ -54,7 +55,9 @@ const RecordRow = ({ record, fresh, slot, seat }: RecordRowProps) => {
               {SHORT_NAME[record.track_id]}
             </span>
           )}
-          {seat && <span className="font-mono text-[11px] text-fg-3">{seat}</span>}
+          {record.agent_id && (
+            <AgentTag id={record.agent_id} seat={seat} size={16} className="text-[11px]" />
+          )}
         </div>
         <Typography variant="small" color="primary" className="mt-0.5 text-pretty">
           {record.title}
@@ -102,7 +105,7 @@ const BoardFeed = ({
       (!kinds || kinds.includes(r.kind)) &&
       (track === 'all' || r.track_id === track) &&
       (!needle ||
-        `${r.title} ${r.detail ?? ''} ${r.agent_id ? seats[r.agent_id] : ''}`
+        `${r.title} ${r.detail ?? ''} ${r.agent_id ? `${seats[r.agent_id]} ${agentName(r.agent_id)}` : ''}`
           .toLowerCase()
           .includes(needle)),
   );

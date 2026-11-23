@@ -2,8 +2,9 @@ import { cpus, totalmem } from 'node:os';
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { outsideHelp } from './rules';
 import { buildWasm, wasmPaths } from './wasm';
+import { formatMessages, readMessages } from './messages';
 import { relative, resolve } from 'node:path';
-import { GAMES, randomPlayer, type Task } from '@arena/shared';
+import { agentName, GAMES, randomPlayer, type Task } from '@arena/shared';
 import { agent, bumpSessions, now, post, records, rungs, setAgent, tasks, track } from './board';
 import { ARENA_HOME, ARENA_ROOT, ENGINES_DIR, GATE_PAIRS, log, MOVE_MS, MOVE_SLACK_MS, run, RUN_ID } from './config';
 import { arenaEngine } from './engine';
@@ -33,7 +34,7 @@ const briefing = async (task: Task, seat: string) => {
     .map((r) => `- [${r.kind}] ${r.title}${r.detail ? `: ${r.detail}` : ''}`)
     .join('\n');
   return `TASK ${task.id}
-Seat: ${seat}
+You are ${agentName(seat)}, seat ${seat}. Sign messages with --as ${seat}.
 Engine: ${GAMES[task.track_id].name}, crate ${relative(ARENA_ROOT, resolve(ENGINES_DIR, task.track_id))}
 Title: ${task.title}
 Spec: ${task.spec}
@@ -44,6 +45,9 @@ Time: answer \`go <ms>\` within <ms> (gate matches use ${MOVE_MS} ms, players on
 Ladder: ${ladder.map((r) => `${r.label} (${r.elo})${r.cleared_at ? ' cleared' : ''}`).join(', ')}.
 Recent results:
 ${recent || '- none yet'}
+
+Message board (latest for this engine and engine-wide):
+${formatMessages(await readMessages(task.track_id, 12)) || '- quiet'}
 
 When cargo build --release and cargo test pass in the crate, run:
   npm run arena -- submit ${task.id}
@@ -119,7 +123,7 @@ const commitAndPush = async (paths: string[], message: string) => {
 };
 
 /** Build the engine as it is on origin/main, in a separate worktree, and start it. */
-const currentVersion = async (trackId: Task['track_id'], label: string) => {
+export const currentVersion = async (trackId: Task['track_id'], label: string) => {
   const dir = resolve(ARENA_HOME, 'main-build');
   await git(['fetch', 'origin', 'main']);
   await git(['worktree', 'remove', '--force', dir]);
@@ -216,13 +220,46 @@ export const submit = async (taskId: string) => {
       purpose: 'gate',
       taskId: task.id,
     });
-    await candidate.close?.();
     await opponent.close?.();
 
     const prev = t.current_elo;
-    if (gate.forfeits.length) return await bury(`Forfeited ${gate.forfeits.length} gate games.`, gate.matchId);
+    if (gate.forfeits.length) {
+      await candidate.close?.();
+      return await bury(`Forfeited ${gate.forfeits.length} gate games.`, gate.matchId);
+    }
     if (prev !== null && gate.est.elo <= prev) {
+      await candidate.close?.();
       return await bury(`Rated ${Math.round(gate.est.elo)} ± ${Math.round(gate.est.error)}, not above ${Math.round(prev)}.`, gate.matchId);
+    }
+
+    // Head to head with the version it would replace (built from main). A new version must not
+    // lose to its predecessor, whatever the ladder says. Past the ladder this was the gate itself.
+    if (rung && t.current_version) {
+      const label = `${t.name} ${t.current_version}`;
+      const previous = await currentVersion(task.track_id, label);
+      const h2h = await runMatch({
+        track: task.track_id,
+        candidate,
+        candidateVersion: version,
+        opponent: previous,
+        opponentLabel: label,
+        opponentElo: prev ?? 0,
+        pairs: Math.max(2, Math.round(GATE_PAIRS / 2)),
+        purpose: 'gate',
+        taskId: task.id,
+      });
+      await previous.close?.();
+      await candidate.close?.();
+      const games = h2h.result.wins + h2h.result.draws + h2h.result.losses;
+      if (h2h.forfeits.length) return await bury(`Forfeited ${h2h.forfeits.length} games against ${t.current_version}.`, h2h.matchId);
+      if (h2h.result.score < games / 2) {
+        return await bury(
+          `Rated higher on the ladder but lost to ${t.current_version} head to head (${h2h.result.wins}–${h2h.result.losses}–${h2h.result.draws}).`,
+          h2h.matchId,
+        );
+      }
+    } else {
+      await candidate.close?.();
     }
 
     // Ship: the crate and its playbook go to main together.

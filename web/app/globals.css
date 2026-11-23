@@ -295,3 +295,11 @@ a {
   font-size: 10px;
   color: var(--fg-3);
 }
+
+/* Panels let the board scene behind the page show through, blurred, so the parallax reads
+   everywhere without competing with text. Unlayered so it overrides the utility. */
+.bg-panel {
+  background-color: oklch(0.185 0.006 265 / 0.82);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}

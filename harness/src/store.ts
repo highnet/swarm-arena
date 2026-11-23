@@ -26,6 +26,8 @@ const supabaseStore = (): Store => {
   const apiKeyOnly: typeof fetch = (input, init) => {
     const headers = new Headers(init?.headers);
     headers.delete('Authorization');
+    // The database rejects any API write without the arena password (see the arena_password migration).
+    if (process.env.ARENA_PASSWORD) headers.set('x-arena-password', process.env.ARENA_PASSWORD);
     return fetch(input, { ...init, headers });
   };
   const db: SupabaseClient = createClient(process.env.SUPABASE_URL!, secretKey(), {

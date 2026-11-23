@@ -2,6 +2,7 @@ import { TRACKS, type GameId } from '@arena/shared';
 import { bumpSessions, now, post, records, rungs, setAgent, tasks, tracks } from './board';
 import { log, RUN_ID } from './config';
 import { getStore } from './store';
+import { formatMessages, readMessages } from './messages';
 
 /**
  * The strategist is a Claude Code cloud session too: it runs `arena brief`, decides, writes a
@@ -33,11 +34,15 @@ export const brief = async () => {
     );
   }
   const strategy = recs.filter((r) => r.kind === 'strategy').slice(-3).map((r) => `- ${r.title}`).join('\n');
+  const board = formatMessages(await readMessages(undefined, 25));
   return `Playbooks: ${TRACK_IDS.map((t) => `.claude/skills/${t}-playbook/SKILL.md`).join(', ')}
 
 ${lines.join('\n')}
 Recent strategy:
 ${strategy || '- none'}
+
+Message board (answer questions addressed to the strategist with: npm run arena -- post "..." --as strategist --reply <id>):
+${board || '- quiet'}
 
 Write plan.json and run: npm run arena -- plan plan.json
 {

@@ -14,6 +14,7 @@ import { Typography } from '@/components/ui/Typography';
 import { formatDay, formatTime } from '@/lib/format';
 import { SERIES, SHORT_NAME } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
+import { AgentTag } from './AgentAvatar';
 
 type Slots = Partial<Record<GameId, number>>;
 
@@ -88,7 +89,12 @@ const StrategyCall = ({ call, mentioned, slots }: StrategyCallProps) => (
                   <span className="min-w-0 text-[13px] text-fg-2">
                     {m.title}
                     {m.seat && (
-                      <span className="ml-1.5 font-mono text-[11px] text-fg-3">{m.seat}</span>
+                      <AgentTag
+                        id={m.seat}
+                        seat={m.seat}
+                        size={16}
+                        className="ml-2 align-middle text-xs"
+                      />
                     )}
                   </span>
                 </li>
@@ -147,9 +153,16 @@ const Frontier = ({ tasks, seats, slots }: FrontierProps) => (
                 </Typography>
                 <div className="mt-1 flex flex-wrap items-center gap-2">
                   <EngineChip track={t.track_id} slots={slots} />
-                  <span className="font-mono text-[11px] text-fg-3">
-                    {t.claimed_by ? seats[t.claimed_by] : 'unclaimed'}
-                  </span>
+                  {t.claimed_by ? (
+                    <AgentTag
+                      id={t.claimed_by}
+                      seat={seats[t.claimed_by]}
+                      size={16}
+                      className="text-xs"
+                    />
+                  ) : (
+                    <span className="text-xs text-fg-3">unclaimed</span>
+                  )}
                 </div>
               </div>
             </li>
@@ -246,7 +259,7 @@ const Fleet = ({ agents, slots }: FleetProps) => {
                 className={cn('size-1.5 shrink-0 rounded-full', STATUS_DOT[a.status])}
                 aria-hidden="true"
               />
-              <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{a.seat}</span>
+              <AgentTag id={a.id} seat={a.seat} size={22} className="flex-1 text-[13px]" />
               {a.track_id && slots[a.track_id] && (
                 <span
                   className={cn('size-1.5 shrink-0 rounded-full', SERIES[slots[a.track_id]!].bg)}

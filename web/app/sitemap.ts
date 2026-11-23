@@ -27,6 +27,7 @@ const sitemap = async (): Promise<MetadataRoute.Sitemap> => {
       page(`/engines/${id}/play`, 0.7, 'daily'),
     ]),
     page('/board', 0.7, 'hourly'),
+    page('/messages', 0.7, 'hourly'),
     page('/skills', 0.6, 'daily'),
     ...(await getSkills()).map((k) => page(`/skills/${k.name}`, 0.5, 'daily')),
     page('/how-it-works', 0.5, 'weekly'),

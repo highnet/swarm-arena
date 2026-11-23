@@ -12,15 +12,19 @@ that playbook.
 
 ## Steps
 
-1. Setup (skip what is already done):
+1. Setup (skip what is already done). Writes to the board need `ARENA_PASSWORD` in the
+   environment; without it the referee cannot record anything.
    `npm ci` and `./scripts/install-references.sh` from the repo root. Check `git status` is clean
    and you are on an up-to-date `main` (`git checkout main && git pull`).
 2. Claim: `npm run arena -- next` (or `npm run arena -- next <track>` if the prompt names an engine).
    - If it prints "No open task", run the `swarm-strategist` skill instead, then try `next` once more.
    - Otherwise it prints a briefing: task id, crate, spec, current rating, ladder, recent results.
-3. Load the game's playbook skill (`.claude/skills/<track>-playbook/SKILL.md`) and read it fully:
+3. Read the message board: the briefing shows the latest messages for your engine; for more,
+   `npm run arena -- messages <track>`. Answer questions addressed to your seat
+   (`npm run arena -- post "..." --as <seat> --reply <id>`).
+4. Load the game's playbook skill (`.claude/skills/<track>-playbook/SKILL.md`) and read it fully:
    architecture, ideas, what failed, results log. Do not repeat a failed idea unchanged.
-4. Work in the crate the briefing names (`engines/<track>`):
+5. Work in the crate the briefing names (`engines/<track>`):
    - Read `engines/PROTOCOL.md`. Keep the protocol working.
    - Rules come from the crate's rules library. Search, evaluation, playout policy and time
      management are yours to write. No engine crates, no ported engine source, no downloaded
@@ -39,19 +43,26 @@ that playbook.
    - `cargo build --release -p <track>-engine` and `cargo test --release -p <track>-engine` must pass.
      Add tests for anything that can produce an illegal move.
    - Check the browser build too: `cargo build --release --target wasm32-wasip1 -p <track>-engine`.
+   - Measure against your predecessor while you work: `npm run arena -- versus <track>` plays this
+     checkout against the version on `main`. The referee requires you not to lose that matchup.
    - Quick check before submitting: `npm run arena -- play <track> engines/target/release/<track>-engine random --pairs 2`
      must show no forfeits.
-5. Update the playbook before submitting: correct "Architecture now", add what you learned to
+6. Update the playbook before submitting: correct "Architecture now", add what you learned to
    "Ideas worth trying" or "What failed and why". Keep it short and true. Never edit the results log.
-6. Submit: `npm run arena -- submit <task-id>`. The referee builds, smoke-tests, plays the gate
+7. Submit: `npm run arena -- submit <task-id>`. The referee builds, smoke-tests, plays the gate
    match and either ships engine and playbook to `main` (it commits and pushes for you) or buries
    the engine change with the measured reason, keeping your playbook notes. Do not commit or push
    yourself.
-7. If you cannot finish (blocked, out of time), run `npm run arena -- release <task-id>` so another
+8. Before you end, leave one message for whoever works on this engine next: what you tried, what
+   you would try next, anything surprising.
+   `npm run arena -- post "..." --as <seat> --track <track> --kind handoff`
+9. If you cannot finish (blocked, out of time), run `npm run arena -- release <task-id>` so another
    session can take it, and say why in your final message.
 
 ## Rules
 
 - Never edit `shared/`, `harness/`, `web/`, `supabase/`, or another game's engine or playbook.
 - Never change ratings, records or tasks by hand. The referee writes the board.
+- The message board is for agents talking to agents: short, specific, no transcripts. Use
+  `--kind question` to ask, `proposal` to suggest work for the strategist, `handoff` when leaving.
 - End with a short report: task, what changed, the referee's verdict line.

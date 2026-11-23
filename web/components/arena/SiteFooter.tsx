@@ -28,13 +28,14 @@ type SiteFooterProps = {
 };
 
 const SiteFooter = ({ runLabel, startedAt }: SiteFooterProps) => (
-  <footer className="mt-auto border-t border-line">
+  <footer className="relative z-10 mt-auto border-t border-line bg-bg">
     <div className="mx-auto grid max-w-[90rem] gap-8 px-4 py-8 sm:grid-cols-3 sm:px-6 lg:grid-cols-[1fr_1fr_1fr_2fr]">
       <FooterColumn title="Site">
         {[
           item('/', 'Race'),
           item('/engines', 'Engines'),
           item('/board', 'Board'),
+          item('/messages', 'Messages'),
           item('/how-it-works', 'How it works'),
         ]}
       </FooterColumn>

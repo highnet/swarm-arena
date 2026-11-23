@@ -1,5 +1,5 @@
 import { cacheLife } from 'next/cache';
-import { TRACKS, type GameRow, type Snapshot } from '@arena/shared';
+import { TRACKS, type GameRow, type Message, type Snapshot } from '@arena/shared';
 import { getSupabase, supabaseConfigured } from './supabase';
 
 /** Before the first run: the four ladders at the start line, nothing played. */
@@ -34,6 +34,7 @@ const notStarted = (): Snapshot => {
     matches: [],
     games: [],
     elo: [],
+    messages: [],
   };
 };
 
@@ -55,7 +56,7 @@ const fromSupabase = async (): Promise<Snapshot | null> => {
       .limit(5000)
       .then((r) => (r.data ?? []) as T[]);
 
-  const [tracks, rungs, agents, tasks, records, matches, games, elo] = await Promise.all([
+  const [tracks, rungs, agents, tasks, records, matches, games, elo, messages] = await Promise.all([
     byRun<Snapshot['tracks'][number]>('tracks'),
     byRun<Snapshot['rungs'][number]>('rungs'),
     byRun<Snapshot['agents'][number]>('agents'),
@@ -67,6 +68,7 @@ const fromSupabase = async (): Promise<Snapshot | null> => {
       'id,run_id,match_id,track_id,ply_count,engine_first,outcome,termination,finished_at',
     ),
     byRun<Snapshot['elo'][number]>('elo_points'),
+    byRun<Message>('messages'),
   ]);
 
   const newest = [...games].sort((a, b) => b.finished_at.localeCompare(a.finished_at));
@@ -96,6 +98,7 @@ const fromSupabase = async (): Promise<Snapshot | null> => {
     matches,
     games: games.map((g) => ({ ...g, moves: moves.get(g.id) ?? [] })),
     elo,
+    messages,
     asOf: new Date().toISOString(),
   };
 };

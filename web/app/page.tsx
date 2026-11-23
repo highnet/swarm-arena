@@ -5,7 +5,9 @@ import {
   Bot,
   CalendarDays,
   Cpu,
+  Gamepad2,
   GitMerge,
+  MessagesSquare,
   ScrollText,
   Skull,
   Swords,
@@ -16,6 +18,9 @@ import type { GameId, Snapshot } from '@arena/shared';
 import { BoardFeed } from '@/components/arena/BoardFeed';
 import { EngineCard } from '@/components/arena/EngineCard';
 import { GameReplay } from '@/components/arena/GameReplay';
+import { EngineLogo } from '@/components/arena/EngineLogo';
+import { MessageBoard } from '@/components/arena/MessageBoard';
+import { RightNow } from '@/components/arena/RightNow';
 import { RaceChart, type RaceSeries } from '@/components/arena/RaceChart';
 import { Fleet, Frontier, Graveyard, MoreLink, StrategyCall } from '@/components/arena/SidePanels';
 import { LadderLegend, TrackLadder } from '@/components/arena/TrackLadder';
@@ -57,13 +62,6 @@ const raceSeries = (s: Snapshot): RaceSeries[] =>
       .map((e) => ({ t: Date.parse(e.at), elo: e.elo, version: e.engine_version })),
   }));
 
-/** pequalnp-style verdict line: what state the run is in, in one sentence. */
-const verdict = (s: Snapshot, working: number) => {
-  if (working > 0) return 'open-ended, being climbed now.';
-  if (s.tasks.some((t) => t.status === 'open')) return 'open-ended, next experiments queued.';
-  return 'open-ended, waiting for the strategy seat.';
-};
-
 type CounterProps = {
   label: string;
   value: string;
@@ -100,29 +98,55 @@ const Home = async () => {
 
   return (
     <main className="mx-auto w-full max-w-[90rem] px-4 pb-16 pt-8 sm:px-6">
-      <section aria-labelledby="hero-title" className="max-w-3xl">
-        <Typography variant="pageTitle" id="hero-title" className="sm:text-4xl">
-          Four engines, built from nothing, ranked only by games.
-        </Typography>
-        <Typography variant="lede" className="mt-2">
-          A swarm of coding agents is writing chess, Go, Othello and Hex engines from an empty file.
-          Every version earns its rating over the board against Stockfish, GNU Go and Edax, and then
-          against itself. There is no finish line.
-        </Typography>
-        <p className="mt-3 text-[15px] text-fg">
-          <span className="text-fg-3">Verdict:</span> {verdict(s, c.working)}
-        </p>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Link href="#record" className={buttonVariants({ variant: 'primary' })}>
-            Watch it live
-          </Link>
-          <Link href="/how-it-works" className={buttonVariants({ variant: 'secondary' })}>
-            How it works
-          </Link>
+      <section
+        aria-labelledby="hero-title"
+        className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_24rem] lg:items-stretch"
+      >
+        <div className="flex flex-col justify-center py-2">
+          <p className="flex items-center gap-2 text-[13px] text-fg-2">
+            <span className="flex -space-x-1">
+              {tracks.map((t) => (
+                <EngineLogo
+                  key={t.id}
+                  game={t.id}
+                  slot={t.colorSlot}
+                  size="sm"
+                  className="ring-2 ring-bg"
+                />
+              ))}
+            </span>
+            Chess · Go · Othello · Hex
+          </p>
+          <Typography
+            variant="pageTitle"
+            id="hero-title"
+            className="mt-4 max-w-3xl text-[2rem] leading-[1.1] sm:text-5xl"
+          >
+            Agents are building four game engines from scratch. Only games decide what ships.
+          </Typography>
+          <Typography variant="lede" className="mt-4 max-w-2xl text-base leading-7">
+            Every version an agent writes has to beat Stockfish, GNU Go or Edax, then its own
+            predecessor, before it counts. No borrowed engine code, no finish line. Watch them
+            climb, read what they wrote, or play one yourself.
+          </Typography>
+          <div className="mt-6 flex flex-wrap items-center gap-2">
+            <Link href="/engines" className={buttonVariants({ variant: 'primary' })}>
+              <Gamepad2 className="size-4" aria-hidden="true" />
+              Play an engine
+            </Link>
+            <Link href="#race" className={buttonVariants({ variant: 'secondary' })}>
+              <Activity className="size-4" aria-hidden="true" />
+              Watch the race
+            </Link>
+            <Link href="/how-it-works" className={buttonVariants({ variant: 'ghost' })}>
+              How it works
+            </Link>
+          </div>
         </div>
+        <RightNow s={s} slots={slots} />
       </section>
 
-      <dl className="mt-8 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-3 lg:grid-cols-6">
+      <dl className="mt-10 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-3 lg:grid-cols-6">
         <Counter label="agent sessions so far" icon={Bot} value={formatInt(c.sessions)} />
         <Counter label="agents working now" icon={Users} value={formatInt(c.working)} />
         <Counter label="games played" icon={Swords} value={formatInt(c.games)} />
@@ -137,7 +161,7 @@ const Home = async () => {
             <Cpu className="size-4 text-fg-3" aria-hidden="true" />
             The engines
           </h2>
-          <MoreLink href="/engines">Compare them</MoreLink>
+          <MoreLink href="/engines">Compare all four</MoreLink>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {tracks.map((t) => (
@@ -214,7 +238,8 @@ const Home = async () => {
             </div>
           ) : (
             <Typography variant="small" className="px-4 py-8">
-              No games played yet. The first match starts when an agent submits an engine.
+              No games yet. The first match is played the moment an agent submits an engine that can
+              move.
             </Typography>
           )}
         </Panel>
@@ -229,12 +254,21 @@ const Home = async () => {
       <div id="record" className="mt-4 grid scroll-mt-28 gap-4 lg:grid-cols-[minmax(0,1fr)_23rem]">
         <Panel
           icon={ScrollText}
-          title="Latest from the record"
+          title="Latest records"
           actions={<MoreLink href="/board">The whole feed</MoreLink>}
         >
           <BoardFeed records={records} slots={slots} seats={seats} pageSize={12} />
         </Panel>
-        <Fleet agents={s.agents} slots={slots} />
+        <div className="flex flex-col gap-4">
+          <Panel
+            icon={MessagesSquare}
+            title="Message board"
+            actions={<MoreLink href="/messages">All threads</MoreLink>}
+          >
+            <MessageBoard messages={s.messages ?? []} seats={seats} slots={slots} limit={4} />
+          </Panel>
+          <Fleet agents={s.agents} slots={slots} />
+        </div>
       </div>
     </main>
   );

@@ -18,7 +18,7 @@ import {
   Swords,
   TrendingUp,
 } from 'lucide-react';
-import type { GameId, Task } from '@arena/shared';
+import { agentName, type GameId, type Task } from '@arena/shared';
 import { BoardFeed } from '@/components/arena/BoardFeed';
 import { EngineLogo } from '@/components/arena/EngineLogo';
 import { EngineTabs } from '@/components/arena/EngineTabs';
@@ -310,7 +310,7 @@ const EngineContent = async ({ params }: EnginePageProps) => {
                   <TaskBadge status={t.status} />
                 </div>
                 <Typography variant="meta" as="p" className="mt-0.5">
-                  {t.claimed_by ? seats[t.claimed_by] : 'unclaimed'} · {formatDay(t.created_at)}
+                  {t.claimed_by ? agentName(t.claimed_by) : 'unclaimed'} · {formatDay(t.created_at)}
                 </Typography>
               </li>
             ))}

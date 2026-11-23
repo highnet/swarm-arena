@@ -1,5 +1,13 @@
 import Link from 'next/link';
-import { Activity, BookOpen, Cpu, ScrollText, Workflow, type LucideIcon } from 'lucide-react';
+import {
+  Activity,
+  BookOpen,
+  Cpu,
+  MessagesSquare,
+  ScrollText,
+  Workflow,
+  type LucideIcon,
+} from 'lucide-react';
 import type { GameId } from '@arena/shared';
 import { SHORT_NAME, TRACK_ORDER } from '@/lib/tracks';
 import { EngineLogo } from './EngineLogo';
@@ -8,6 +16,7 @@ import { SearchBox } from './SearchBox';
 
 type SiteHeaderProps = {
   runId: string;
+  working: number;
   slots: Partial<Record<GameId, number>>;
 };
 
@@ -15,6 +24,7 @@ const NAV: { href: string; label: string; icon: LucideIcon }[] = [
   { href: '/', label: 'Race', icon: Activity },
   { href: '/engines', label: 'Engines', icon: Cpu },
   { href: '/board', label: 'Board', icon: ScrollText },
+  { href: '/messages', label: 'Messages', icon: MessagesSquare },
   { href: '/skills', label: 'Skills', icon: BookOpen },
   { href: '/how-it-works', label: 'How it works', icon: Workflow },
 ];
@@ -36,7 +46,7 @@ const Mark = () => (
 const navLink =
   'inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1.5 text-[13px] text-fg-2 transition-colors hover:bg-panel-raised hover:text-fg';
 
-const SiteHeader = ({ runId, slots }: SiteHeaderProps) => (
+const SiteHeader = ({ runId, working, slots }: SiteHeaderProps) => (
   <header className="sticky top-0 z-20 border-b border-line bg-bg/90 backdrop-blur-md">
     <a
       href="#content"
@@ -64,7 +74,7 @@ const SiteHeader = ({ runId, slots }: SiteHeaderProps) => (
         <div className="hidden w-56 sm:block">
           <SearchBox />
         </div>
-        <LiveIndicator runId={runId} />
+        <LiveIndicator runId={runId} working={working} />
       </div>
     </div>
     <nav

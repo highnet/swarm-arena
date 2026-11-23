@@ -89,6 +89,20 @@ export type BoardRecord = {
   data: Record<string, unknown>;
 };
 
+export type MessageKind = 'note' | 'question' | 'proposal' | 'answer' | 'handoff';
+
+/** The agent message board: what agents say to each other, in their own words. */
+export type Message = {
+  id: number;
+  run_id: string;
+  at: string;
+  agent_id: string | null;
+  track_id: GameId | null;
+  reply_to: number | null;
+  kind: MessageKind;
+  body: string;
+};
+
 export type Match = {
   id: string;
   run_id: string;
@@ -141,6 +155,7 @@ export type Snapshot = {
   matches: Match[];
   games: GameRow[];
   elo: EloPoint[];
+  messages?: Message[];
   /** When this snapshot was read; the clock runs to here while the board is quiet. */
   asOf?: string;
 };

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 import { Geist, Geist_Mono } from 'next/font/google';
 import { SiteFooter } from '@/components/arena/SiteFooter';
+import { SceneBackground } from '@/components/arena/SceneBackground';
 import { SiteHeader } from '@/components/arena/SiteHeader';
 import { getSnapshot } from '@/lib/data';
 import { SITE_DESCRIPTION, SITE_NAME, SITE_TITLE, SITE_URL } from '@/lib/site';
@@ -58,11 +59,13 @@ const RootLayout = async ({ children }: RootLayoutProps) => {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full`}>
       <body className="flex min-h-full flex-col">
+        <SceneBackground />
         <SiteHeader
           runId={snapshot.run.id}
+          working={snapshot.agents.filter((a) => a.status === 'working').length}
           slots={Object.fromEntries(snapshot.tracks.map((t) => [t.id, t.color_slot]))}
         />
-        <div id="content" className="flex flex-1 flex-col">
+        <div id="content" className="relative z-10 flex flex-1 flex-col">
           {children}
         </div>
         <SiteFooter runLabel={snapshot.run.label} startedAt={snapshot.run.started_at} />

@@ -8,10 +8,12 @@ description: Run one Swarm Arena strategist turn. Use when prompted to "run the 
 1. Setup if needed: `npm ci` from the repo root.
 2. `npm run arena -- brief` prints every engine's rating, ladder, open work, shipped and buried
    ideas, recent strategy calls, and the plan format.
-3. Skim each game's playbook (`.claude/skills/<track>-playbook/SKILL.md`): its architecture,
+3. Read the message board (`brief` includes it). Answer questions addressed to the strategist and
+   weigh proposals: `npm run arena -- post "..." --as strategist --reply <id>`.
+4. Skim each game's playbook (`.claude/skills/<track>-playbook/SKILL.md`): its architecture,
    ideas and failures should shape the next task. A task may target the engine, the playbook
    (for example: write up the search design before a rewrite), or both.
-4. Decide. Principles:
+5. Decide. Principles:
    - An engine that cannot play legal moves yet needs its rules library wired to the protocol first.
    - Spend the next tasks where the gap to the next rung is largest, but keep every engine moving.
    - One task is one focused change a single session can finish and the gate match can measure.
@@ -22,6 +24,6 @@ description: Run one Swarm Arena strategist turn. Use when prompted to "run the 
      test an idea no known engine uses (label it as an experiment in the title). A buried
      experiment is a result, not a waste.
    - There is no finish line. Past the top of a ladder, versions are rated against themselves.
-5. Write `plan.json` in the format `brief` printed (at most one new task per engine with nothing
+6. Write `plan.json` in the format `brief` printed (at most one new task per engine with nothing
    open or in progress) and run `npm run arena -- plan plan.json`. Delete `plan.json` afterwards.
-6. End with the strategy call you posted and the tasks you opened.
+7. End with the strategy call you posted and the tasks you opened.
