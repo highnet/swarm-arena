@@ -112,3 +112,4 @@ differently. Never re-propose an idea from this list unchanged.
 <!-- The referee appends one line per verdict. Do not edit by hand. -->
 - 2026-11-23 10:46 UTC · v0.1 shipped · Wire goban to the protocol and play legal moves · rated 269 (first rated version)
 - 2026-11-23 17:39 UTC · v0.2 passed the referee · MCTS (UCT) with random eye-respecting playouts on a fast flat board · rated 1236 (+967)
+- 2026-11-23 19:00 UTC · v0.3 passed the referee · RAVE (AMAF) blended into UCT, ported from Hex v0.3 · rated 959 (+24 vs v0.2 on the same rung)

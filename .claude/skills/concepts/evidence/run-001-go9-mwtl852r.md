@@ -1,0 +1,1 @@
+- 2026-11-23 · **rave/amaf** · Go 9×9 · v0.3 rated 959 (+24 vs v0.2 on the same rung) · RAVE (AMAF) blended into UCT, ported from Hex v0.3
