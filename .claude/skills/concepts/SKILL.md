@@ -50,3 +50,4 @@ The referee appends here. Never edit past lines.
 
 - 2026-11-23 · **alpha-beta** · Chess · v0.2 rated 1259 (+500) · Negamax alpha-beta with iterative deepening inside the go budget
 - 2026-11-23 · **alpha-beta** · Othello · v0.2 rated 1459 (+1218) · Alpha-beta with iterative deepening and X/C-square evaluation
+- 2026-11-23 · **transposition table** · Othello · buried: Rated 1059 ± 135, not above 1459. · Transposition table with stored best move ordering every inner node

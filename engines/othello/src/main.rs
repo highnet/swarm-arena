@@ -3,7 +3,6 @@
 //! Protocol and library policy: ../PROTOCOL.md.
 
 use othello::Game;
-use std::cell::RefCell;
 use std::io::{self, BufRead, Write};
 use std::time::{Duration, Instant};
 
@@ -80,85 +79,14 @@ fn terminal(g: &Game) -> i32 {
     d.signum() * WIN + d
 }
 
-/// log2 of the transposition table size: 2^20 entries of 16 bytes = 16 MB, allocated once.
-const TT_BITS: u32 = 20;
-const NO_MOVE: u8 = 64;
-
-#[derive(Clone, Copy, PartialEq, Debug)]
-enum Bound {
-    Exact,
-    Lower,
-    Upper,
-}
-
-#[derive(Clone, Copy)]
-struct Entry {
-    /// Full 64-bit hash, 0 = empty slot.
-    key: u64,
-    score: i32,
-    depth: u8,
-    bound: Bound,
-    best: u8,
-    generation: u8,
-}
-
-const EMPTY: Entry = Entry { key: 0, score: 0, depth: 0, bound: Bound::Exact, best: NO_MOVE, generation: 0 };
-
-/// Fixed-size transposition table, one slot per index. A `Game` is just the
-/// (side to move, opponent) bitboard pair, so that pair is the whole key: a pass swaps
-/// the pair, and the same pair always means the same position with the same mover.
-/// Replacement: depth-preferred within a search, always replace entries from an older one.
-struct Tt {
-    slots: Vec<Entry>,
-    generation: u8,
-}
-
-impl Tt {
-    fn new(bits: u32) -> Tt {
-        Tt { slots: vec![EMPTY; 1 << bits], generation: 0 }
-    }
-
-    fn hash(g: &Game) -> u64 {
-        let [me, opp] = g.get();
-        let mut h = me.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ opp.rotate_left(29).wrapping_mul(0xc2b2_ae3d_27d4_eb4f);
-        h ^= h >> 31;
-        h = h.wrapping_mul(0xbf58_476d_1ce4_e5b9);
-        h ^= h >> 29;
-        h | 1
-    }
-
-    fn index(&self, key: u64) -> usize {
-        (key as usize) & (self.slots.len() - 1)
-    }
-
-    fn probe(&self, key: u64) -> Option<Entry> {
-        let e = self.slots[self.index(key)];
-        (e.key == key).then_some(e)
-    }
-
-    fn store(&mut self, key: u64, depth: u32, score: i32, bound: Bound, best: u8) {
-        let i = self.index(key);
-        let old = &mut self.slots[i];
-        if old.key == key || old.generation != self.generation || depth as u8 >= old.depth {
-            *old = Entry { key, score, depth: depth.min(255) as u8, bound, best, generation: self.generation };
-        }
-    }
-}
-
-thread_local! {
-    /// Reused across `go` commands so a move's search starts from the last move's table.
-    static TT: RefCell<Option<Tt>> = const { RefCell::new(None) };
-}
-
-struct Search<'a> {
+struct Search {
     start: Instant,
     deadline: Duration,
     nodes: u64,
     stopped: bool,
-    tt: Option<&'a mut Tt>,
 }
 
-impl Search<'_> {
+impl Search {
     fn out_of_time(&mut self) -> bool {
         if !self.stopped && self.nodes & 1023 == 0 && self.start.elapsed() >= self.deadline {
             self.stopped = true;
@@ -187,27 +115,8 @@ impl Search<'_> {
         if depth == 0 {
             return evaluate(g);
         }
-        let key = Tt::hash(g);
-        let mut tt_move = None;
-        if let Some(e) = self.tt.as_ref().and_then(|t| t.probe(key)) {
-            if e.depth as u32 >= depth {
-                let cut = match e.bound {
-                    Bound::Exact => true,
-                    Bound::Lower => e.score >= beta,
-                    Bound::Upper => e.score <= alpha,
-                };
-                if cut {
-                    return e.score;
-                }
-            }
-            if e.best != NO_MOVE {
-                tt_move = Some(e.best as usize);
-            }
-        }
-        let alpha0 = alpha;
         let mut best = -INF;
-        let mut best_move = NO_MOVE;
-        for i in ordered(avail, tt_move) {
+        for i in ordered(avail, None) {
             let Some(next) = g.make_move(i) else { continue };
             let v = -self.negamax(&next, depth - 1, -beta, -alpha);
             if self.stopped {
@@ -215,7 +124,6 @@ impl Search<'_> {
             }
             if v > best {
                 best = v;
-                best_move = i as u8;
                 if v > alpha {
                     alpha = v;
                     if alpha >= beta {
@@ -223,16 +131,6 @@ impl Search<'_> {
                     }
                 }
             }
-        }
-        if let Some(t) = self.tt.as_mut() {
-            let bound = if best <= alpha0 {
-                Bound::Upper
-            } else if best >= beta {
-                Bound::Lower
-            } else {
-                Bound::Exact
-            };
-            t.store(key, depth, best, bound, best_move);
         }
         best
     }
@@ -269,35 +167,23 @@ fn ordered(avail: u64, first: Option<usize>) -> Vec<usize> {
 /// Iterative-deepening alpha-beta. Stops on a clock check at ~60% of the budget and plays
 /// the best move of the last completed depth. Returns (move, depth completed).
 fn search(g: &Game, budget_ms: u64) -> (usize, u32) {
-    TT.with(|cell| {
-        let mut slot = cell.borrow_mut();
-        let tt = slot.get_or_insert_with(|| Tt::new(TT_BITS));
-        let (m, d, _, _) = search_limited(g, u32::MAX, Duration::from_millis(budget_ms * 6 / 10), Some(tt));
-        (m, d)
-    })
+    search_limited(g, u32::MAX, Duration::from_millis(budget_ms * 6 / 10))
 }
 
 /// Iterative deepening up to `max_depth` plies or until `deadline` passes, whichever is first.
-/// Returns (move, depth completed, score of that depth, nodes searched). `tt: None` searches without a table.
-fn search_limited(g: &Game, max_depth: u32, deadline: Duration, tt: Option<&mut Tt>) -> (usize, u32, i32, u64) {
+fn search_limited(g: &Game, max_depth: u32, deadline: Duration) -> (usize, u32) {
     let avail = g.available_moves();
     let order = ordered(avail, None);
     let mut best = order[0];
     if order.len() == 1 {
-        return (best, 0, 0, 0);
+        return (best, 0);
     }
-    let tt = tt.map(|t| {
-        t.generation = t.generation.wrapping_add(1);
-        t
-    });
     let mut s = Search {
         start: Instant::now(),
         deadline,
         nodes: 0,
         stopped: false,
-        tt,
     };
-    let mut score = 0;
     let empties = (!(g.get()[0] | g.get()[1])).count_ones();
     let mut done = 0;
     for depth in 1..=empties.min(max_depth) {
@@ -318,14 +204,13 @@ fn search_limited(g: &Game, max_depth: u32, deadline: Duration, tt: Option<&mut 
             break;
         }
         best = iter_best.unwrap_or(best);
-        score = alpha;
         done = depth;
         // A deeper iteration costs several times this one: do not start what cannot finish.
         if s.start.elapsed() * 3 >= s.deadline {
             break;
         }
     }
-    (best, done, score, s.nodes)
+    (best, done)
 }
 
 /// Picks a move for the side to move. Passes only with no placement.
@@ -490,7 +375,7 @@ mod tests {
                 let empties = (!(g.get()[0] | g.get()[1])).count_ones();
                 for &(x, corner) in &X_SQUARES {
                     if empties >= 20 && avail >> corner & 1 == 1 && avail >> x & 1 == 1 {
-                        let (m, depth, _, _) = search_limited(&g, 3, Duration::from_secs(60), None);
+                        let (m, depth) = search_limited(&g, 3, Duration::from_secs(60));
                         assert_eq!(depth, 3, "search did not complete depth 3");
                         assert_ne!(m, x, "played {} with its corner {} legal: {moves:?}", square_name(x), square_name(corner));
                         checked += 1;
@@ -515,7 +400,7 @@ mod tests {
         let mut p = g.clone();
         p.pass_move();
         assert_ne!(p.available_moves(), 0);
-        let mut s = Search { start: Instant::now(), deadline: Duration::from_secs(5), nodes: 0, stopped: false, tt: None };
+        let mut s = Search { start: Instant::now(), deadline: Duration::from_secs(5), nodes: 0, stopped: false };
         // White plays c1 and wins 3-0: from Black's view the game is lost.
         assert!(s.negamax(&g, 4, -INF, INF) <= -WIN);
         // Neither side can move: scored by disc difference.
@@ -573,121 +458,5 @@ mod tests {
         }
         assert!(colours[0] > 5 && colours[1] > 5);
     }
-
-    /// Seeded pseudo-random positions with at least `min_empties` empties and 2+ moves.
-    fn seeded_positions(count: u64, min_empties: u32) -> Vec<Game> {
-        let mut out = Vec::new();
-        for game in 0..count {
-            let mut seed = 0x5eed_0000 ^ game.wrapping_mul(0x9e37_79b9);
-            let mut moves: Vec<String> = Vec::new();
-            let stop_at = 10 + (game as u32 * 7) % 30;
-            loop {
-                let g = replay(&moves).unwrap();
-                let avail = g.available_moves();
-                let empties = (!(g.get()[0] | g.get()[1])).count_ones();
-                if empties < min_empties {
-                    break;
-                }
-                if moves.len() as u32 >= stop_at && avail.count_ones() > 1 {
-                    out.push(g);
-                    break;
-                }
-                if avail == 0 {
-                    let mut o = g.clone();
-                    o.pass_move();
-                    if o.available_moves() == 0 {
-                        break;
-                    }
-                    moves.push("pass".into());
-                    continue;
-                }
-                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-                let k = (seed >> 33) as u32 % avail.count_ones();
-                let i = (0..64).filter(|i| avail >> i & 1 == 1).nth(k as usize).unwrap();
-                moves.push(square_name(i));
-            }
-        }
-        out
-    }
-
-    #[test]
-    fn tt_search_matches_plain_search_at_fixed_depth() {
-        // Fixed depth, a 60 s deadline that is never reached: no clock in play.
-        let positions = seeded_positions(12, 14);
-        assert!(positions.len() >= 10);
-        let (mut plain_nodes, mut tt_nodes) = (0, 0);
-        for (n, g) in positions.iter().enumerate() {
-            for depth in [3, 4, 6] {
-                let mut tt = Tt::new(16);
-                let a = search_limited(g, depth, Duration::from_secs(60), None);
-                let b = search_limited(g, depth, Duration::from_secs(60), Some(&mut tt));
-                assert_eq!((a.1, b.1), (depth, depth), "position {n}: depth not completed");
-                assert_eq!(a.2, b.2, "position {n} depth {depth}: score differs");
-                assert_eq!(a.0, b.0, "position {n} depth {depth}: best move differs");
-                plain_nodes += a.3;
-                tt_nodes += b.3;
-            }
-        }
-        println!("fixed-depth nodes: plain {plain_nodes}, with TT {tt_nodes}");
-        assert!(tt_nodes < plain_nodes, "TT searched {tt_nodes} nodes, plain {plain_nodes}");
-    }
-
-    #[test]
-    fn tt_keys_and_bounds_round_trip() {
-        let g = replay(&mv(&["d3", "c3"])).unwrap();
-        let h = Tt::hash(&g);
-        assert_eq!(h, Tt::hash(&g.clone()));
-        let mut swapped = g.clone();
-        swapped.pass_move();
-        assert_ne!(h, Tt::hash(&swapped), "side to move must change the key");
-        let mut tt = Tt::new(8);
-        tt.store(h, 4, 17, Bound::Lower, 19);
-        let e = tt.probe(h).unwrap();
-        assert_eq!((e.depth, e.score, e.bound, e.best), (4, 17, Bound::Lower, 19));
-        // Depth-preferred within one search: a shallower result for a colliding slot does not
-        // evict it; a new search (generation) may.
-        let other = h ^ (1 << 40);
-        tt.store(other, 2, 0, Bound::Exact, NO_MOVE);
-        assert!(tt.probe(h).is_some());
-        tt.generation += 1;
-        tt.store(other, 2, 0, Bound::Exact, NO_MOVE);
-        assert!(tt.probe(h).is_none() && tt.probe(other).is_some());
-    }
-
-    /// Not a check: prints the depth `search` completes at `go 200` on seeded positions.
-    /// Run with `cargo test --release -p othello-engine depth_report -- --ignored --nocapture`.
-    #[test]
-    #[ignore]
-    fn depth_report() {
-        for empties_target in [50u32, 40, 30, 20] {
-            let mut depths = Vec::new();
-            for game in 0..8u64 {
-                let mut seed = 0xabcdef ^ game;
-                let mut moves: Vec<String> = Vec::new();
-                loop {
-                    let g = replay(&moves).unwrap();
-                    let avail = g.available_moves();
-                    let empties = (!(g.get()[0] | g.get()[1])).count_ones();
-                    if empties <= empties_target && avail.count_ones() > 1 {
-                        depths.push(search(&g, 200).1);
-                        break;
-                    }
-                    if avail == 0 {
-                        let mut o = g.clone();
-                        o.pass_move();
-                        if o.available_moves() == 0 {
-                            break;
-                        }
-                        moves.push("pass".into());
-                        continue;
-                    }
-                    seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-                    let k = (seed >> 33) as u32 % avail.count_ones();
-                    let i = (0..64).filter(|i| avail >> i & 1 == 1).nth(k as usize).unwrap();
-                    moves.push(square_name(i));
-                }
-            }
-            println!("empties<={empties_target}: depths {depths:?}");
-        }
-    }
 }
+
