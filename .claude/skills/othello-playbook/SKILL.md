@@ -60,6 +60,10 @@ One thread, modest memory, and every reply within the `go <ms>` budget (200 ms i
 - Tune the eval weights (corner/mobility/X/C) by self-play; add potential mobility and stability.
 - Evaluation: mobility, potential mobility, corners, stable discs, edge patterns.
 - Exact endgame solver once few empties remain.
+- Quiescence follow-ups (#59 was buried flat): extend on *new* corner access only (corner
+  became legal on the last ply) instead of any corner on offer; or drop stand-pat when the
+  opponent's only threat is a corner and the mover has fewer than 3 moves; or spend the nodes on
+  an exact endgame solve instead, which is where a horizon really bites in Othello.
 
 ## Novel experiments
 
@@ -87,6 +91,28 @@ differently. Never re-propose an idea from this list unchanged.
   from different opponents, not that the TT is weaker than v0.2. Before retrying unchanged, get
   v0.2's own rating against Edax 4 (or a head-to-head gate); if v0.2 also lands near 1050, the
   TT is a gain and should be resubmitted with that evidence.
+- **Corner quiescence at the leaves (task #59, PR #61 lesson).** Code: commit 8c8d920 on
+  branch `agent/59-experiment-corner-quiescence-at-the-alpha-` (may vanish when the branch is
+  deleted; the design below is enough to rebuild it). At depth 0 `negamax` calls `quiesce()`: stand pat
+  on `evaluate()`; if the side to move has corner placements, search only those (a side forced to
+  pass hands over, and the opponent's corners are followed); hard cap `MAX_QPLY = 4`. `qnodes`
+  counts nodes past the horizon and shares the 1024-node clock check. `search_with(.., qsearch)`
+  toggles it for tests. Unit test `quiescence_sees_a_corner_at_the_horizon`: a 24-empties
+  position where plain depth 2 ties a3 with c1 (−40 each) and plays c1; quiescence scores a3 −26
+  (deep d8: −18 vs c1 −44) and plays a3, as plain depth 8 does.
+  `depth_report` (ignored test, 8 seeded positions per band), plain → quiescence: go-200 depth
+  ≤50 empties 8–9 → 8–9, ≤40 8–9 → 7–9, ≤30 7–10 → 7–10, ≤20 9–11 → 8–11; fixed depth 6
+  nodes +2% / +22% / +28% / +7% with a qnode share of 1% / 8% / 12% / 11%. Most of the extra cost
+  is lost cutoffs from changed leaf scores, not the qnodes themselves.
+  Local `arena versus` vs main (v0.2): +5 −5 over 10 games, +20 −20 over 40: no measurable gain.
+  Why it is weak here: `evaluate()` already counts mobility (which includes corner moves) and the
+  X/C-square penalty, so the "corner on offer" is partly priced in already; and Othello moves are
+  not optional, so standing pat is a loose bound, unlike a quiet move in chess.
+  **Referee:** rated 962 ± 163 over 40 games vs Edax level 4, "not above 1459". Same caveat as
+  the TT above: v0.2 was never rated against Edax 4, so the gate compares different opponents;
+  but here the head-to-head vs v0.2 was also flat, so unlike the TT there is no sign of a gain.
+  Chess's quiescence (+65, +82) did not transfer as-is: captures are optional and swing material,
+  while an Othello corner is one move among the mandatory ones and the eval already sees it.
 - **TT in Othello vs chess** (for the chess TT task): no repetitions or 50-move rule, so no
   graph-history problems; terminal scores are not ply-relative, so no mate-distance adjustment.
   Discs only get added, so transpositions come from move-order permutations inside a ply band
@@ -99,3 +125,4 @@ differently. Never re-propose an idea from this list unchanged.
 - 2026-11-23 11:51 UTC · v0.1 passed the referee · Wire the othello crate to the protocol and play legal moves · rated 241 (first rated version)
 - 2026-11-23 13:35 UTC · v0.2 passed the referee · Alpha-beta with iterative deepening and X/C-square evaluation · rated 1459 (+1218)
 - 2026-11-23 15:00 UTC · buried · Transposition table with stored best move ordering every inner node · Rated 1059 ± 135, not above 1459.
+- 2026-11-23 16:32 UTC · buried · Experiment: corner quiescence at the alpha-beta leaves · Rated 962 ± 163, not above 1459.
