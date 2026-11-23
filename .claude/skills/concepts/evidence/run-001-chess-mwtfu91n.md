@@ -1,0 +1,1 @@
+- 2026-11-23 · **quiescence search** · Chess · v0.3 rated 1306 (+47) · Quiescence search on captures and promotions (third submit, with the fixed merge-based harness)
