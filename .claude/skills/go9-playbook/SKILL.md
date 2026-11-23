@@ -101,6 +101,55 @@ search). Tests: flat board vs goban across 40 random games (stones identical aft
 legality equal except where only superko forbids), flat-board suicide/capture/ko, and 20
 self-play games at 200 ms (legal, each reply < 200 ms; takes ~4.5 min in release).
 
+## Candidate (not shipped): Benson-settled regions + exact endgame solve (#116)
+
+Branch `agent/116-go-9-9-exact-endgame-without-tablebases-be`. Moves to "Architecture now" only
+if the referee passes it.
+
+- `benson.rs`: Benson's unconditional life per colour on the flat cells (u128 masks; chains and
+  regions by flood fill; drop chains with < 2 vital regions among regions enclosed by kept
+  chains until stable). **Settled** area = a region with no stones at all, all bordering chains
+  alive, every point touching them. Regions holding dead enemy stones stay unsettled on purpose:
+  the referee scores Tromp-Taylor with no dead-stone removal, so those stones must be captured.
+  `unsettled_points` = 81 − alive stones − settled points (stones of non-alive chains count:
+  capturing them opens new points; counting only empties made the solver explode).
+- `Board::forbid` = settled points of both colours. Root moves, tree expansion
+  (`playout_moves`), `random_move` and the tactical reply all skip it, so settled points also
+  score exactly in every playout at no cost.
+- `solve.rs`: negamax alpha-beta to two passes on the TT area score (half points, komi 7.5),
+  moves = non-forbidden legal non-own-eye points + pass (last); ordering: TT move, captures
+  (by size), saving an own chain in atari, next to the last move, self-atari last. TT 2^18
+  × 16 B (4 MB) keyed on stones/side/ko/passes with bounds and plies-left. Ply cap
+  3·unsettled + 20. Superko beyond simple ko not modelled (root moves come from the oracle).
+- `main.rs`: when `unsettled_points` ≤ 16 (18 from `go 1000`), a **null-window win/loss solve**
+  (−1, 1) until 50% of the budget; a proven win plays that move (pass included); a proven loss
+  or timeout falls back to MCTS to 70% (swindles vs an imperfect opponent). No legal
+  non-settled move → pass.
+- Solve-time table (`solve_report` ignored test, 8 random endings per row from a settled
+  top/bottom base, release, 2 s cap; "≤100" = within half a go-200 budget):
+
+  | unsettled ≤ | full window median / max | win/loss median / max (shipped) | win/loss ≤100 ms |
+  | --- | --- | --- | --- |
+  | 10 | 0.6 / 6.3 ms | 0.4 / 1.3 ms | 8/8 |
+  | 12 | 1.4 / 11.5 ms | 0.7 / 4.8 ms | 8/8 |
+  | 14 | 21.7 / 1226 ms | 5.2 / 16.1 ms | 8/8 |
+  | 16 | 13.5 / >2000 ms | 4.6 / 58.5 ms | 8/8 |
+  | 18 | 109 / >2000 ms | 11.9 / 265 ms | 7/8 |
+  | 20 | >2000 / >2000 ms | 77 / 680 ms | 5/8 |
+  | 24 | timeouts | 2000 / 2000 ms | 2/8 |
+
+  Null-window is 5–30× cheaper than the exact margin; only the result matters for rating.
+- How often it fires: in 20 local games vs GNU Go 1 at 200 ms, only 8 of ~730 moves had
+  ≤ 16 unsettled points (85% of moves > 60): GNU Go resigns or the game ends before the board
+  settles under Benson's strict test. The 4 solves that ran all proved a loss. So the gain, if
+  any, comes from the forbid mask (no moves inside settled areas in tree and playouts).
+- Local results, 200 ms: vs GNU Go 1 candidate 13–7 and 15–5 (28–12) against main 12–8 in the
+  same run, about noise. Tests: Benson (two eyes, one eye, false eye, seki, dead stone in an
+  eye, big open area, finished board), solver = plain minimax on 30 random endings (full and
+  null window, root move), takes the last dame, captures a dead stone before passing.
+- Next: a looser "settled" test that fires earlier (e.g. regions an enemy cannot live in by
+  size/shape, or Benson plus one-move safety), so the exact solve reaches real gate endgames.
+
 ## Ideas worth trying
 
 - Tree reuse between moves, progressive widening. RAVE is in (#86).
