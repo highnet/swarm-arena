@@ -58,15 +58,8 @@ MCTS (UCT) since #42, with RAVE since #50. Three files in `engines/hex/src`:
   stone, offsets +12/+21/+9 with column masks, as bitboard ANDs), visits them in random order and,
   when both carrier cells are still unassigned, gives one (at random) to each colour. The rest
   are split ⌈k/2⌉/⌊k/2⌋ as before (k keeps the parity of all empties, so the per-colour counts
-  match the uniform fill). `fill_uniform` is kept for the switch and the tests.
-  **Edge-template pairing (#73, `EDGE_PAIRING = true`):** `edge_templates` appends the simplest
-  edge template to the same list: a stone one row/column from one of its **own** edges with both
-  edge cells empty (Black (1, c) → (0, c), (0, c+1) and (9, c) → (10, c−1), (10, c); White
-  (r, 1) → (r, 0), (r+1, 0) and (r, 9) → (r−1, 10), (r, 10)). Origin masks drop the second-row
-  corner cell that has only one edge neighbour (Black k2/a10, White b11/j1), so nothing wraps.
-  Bridges and templates share one random order; an edge cell that carries two pairs goes to the
-  first one visited. Test `edge_templates_match_the_library_on_every_cell` checks every cell and
-  both colours against `hexgame`'s neighbours. No larger templates (IIIa and up), no ladders.
+  match the uniform fill). `fill_uniform` is kept for the switch and the tests. Only interior
+  bridges: edge templates were tried and buried (#73, below), no ladders.
 - `search.rs`: node arena (`Vec<Node>`, 24 bytes a node, children contiguous and shuffled at
   expansion), expand a leaf on its 2nd visit, tree capped at 2M nodes (48 MB), clock checked
   every 64 playouts. `Limit::Playouts(n)` makes it deterministic for tests; `Limit::Time` is
@@ -84,12 +77,6 @@ Bridge pairing (#60) at f6 e7 g5, 3 runs each on the shared machine: `go 200` ma
 pairing 41–49k playouts; `go 1000` main 265–296k, pairing 247–304k. The bridge scan costs a few
 percent at most. Strength: `arena versus hex` (pairing vs v0.3) **19–1** at 200 ms; with pairing,
 K = 3000 lost 4–6 to K = 1000, so K stays 1000 and C stays 0.
-
-Edge pairing (#73) at f6 e7 g5, 3 runs each: `go 200` on 39–51k, off 38–51k; `go 1000` on
-255–294k, off 221–318k playouts: no measurable cost (the machine's noise is larger).
-`arena versus hex` (edge pairing vs v0.4, 200 ms, 20 games): **14–6**. Many games share a length
-(eight of 44–48 plies: the search is seeded by the move list, so pairs tend to repeat), so the
-margin is less certain than 20 games suggest.
 
 Speed (native release, shared 4-core machine, position f6 e7 g5): plain UCT (v0.2) ~100k
 playouts per `go 200` and ~460k per `go 1000`; with RAVE ~41k and ~320k. At C = 0.3 the naive AMAF
@@ -126,8 +113,8 @@ order-dependent, so expect a smaller gain there; start its sweep at C = 0 too.
 - Heuristic prior (the old one-ply score: centre distance, neighbours, bridges) as virtual
   wins on new nodes; the issue left it optional and it was not measured.
 - Tree reuse between moves (the next position's subtree is already searched).
-- Bridge pairing worked (#60, 19–1 vs v0.3); edge templates in the same pass are #73. Next:
-  K = 300–500 (only 1000 vs 3000 was tried with pairing); a template stone on row 3 (IIIa,
+- Bridge pairing worked (#60, 19–1 vs v0.3); second-row edge templates in the same pass did
+  not (#73, under 'What failed'). Next: K = 300–500 (only 1000 vs 3000 was tried with pairing); a template stone on row 3 (IIIa,
   needs a 4-cell carrier: pair it as "respond inside the carrier" rather than a fixed split);
   two-distance or resistance evaluation as priors.
 - Dead-cell and captured-cell pruning; parallel root search within the time budget.
@@ -146,6 +133,19 @@ Never re-propose an idea from this list unchanged.
 
 - RAVE with a UCB term (#50): C = 0.3 lost 1–7 to plain UCT, C = 0.1 3–5. AMAF already spreads
   statistics over all children; the exploration bonus just diverts real visits. Use C = 0.
+- Second-row edge-template pairing in the fill-in (#73, buried at 2607 ± 108, i.e. no gain over
+  v0.4 in the referee's 40 games vs v0.4). Design: a stone one row/column from its **own** edge
+  with both edge cells empty (Black (1, c) → (0, c), (0, c+1); (9, c) → (10, c−1), (10, c);
+  White (r, 1) → (r, 0), (r+1, 0); (r, 9) → (r−1, 10), (r, 10); corner cells k2/a10 and b11/j1
+  excluded) appended to the bridge list, one random order, one edge cell to each colour.
+  Detection was checked cell by cell against `hexgame`'s neighbours and the playout test held
+  5000/5000 per edge; playout rate unchanged (go 200: 39–51k on vs 38–51k off; go 1000:
+  255–294k vs 221–318k). Local `arena versus hex` said 14–6 over 20 games, but the referee's 40
+  did not confirm it: local matches have no opening variety and repeat. Likely why it adds
+  little: with uniform fill a lone second-row stone already reaches its edge ~94% of the time
+  (the uniform fill cut it in only 6.5% of 5000 fills in the test), so the pairing corrects few
+  playouts, unlike interior bridges. Try instead: larger templates (IIIa, row 3) whose uniform
+  cut rate is far higher, or count templates only when the stone also matters (part of a chain).
 
 ## Results log
 
