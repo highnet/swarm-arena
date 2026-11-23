@@ -11,7 +11,14 @@ import { outsideHelp } from "./rules";
 import { buildWasm, wasmPaths } from "./wasm";
 import { boardDigest } from "./messages";
 import { relative, resolve } from "node:path";
-import { agentName, GAMES, randomPlayer, type Task } from "@arena/shared";
+import {
+  agentName,
+  GAMES,
+  newOpeningSeed,
+  OPENING_PLIES,
+  randomPlayer,
+  type Task,
+} from "@arena/shared";
 import {
   agent,
   bumpSessions,
@@ -608,6 +615,9 @@ export const submit = async (taskId: string) => {
     const version = `v0.${shipped + 1}`;
     // Past the top of the ladder there is no finish line: play the current version instead.
     const seed = Date.now() % 1e9;
+    // Every gate match of this submit starts its pairs from the same seeded random openings, so
+    // deterministic engines meet a different position each pair and the run can be replayed.
+    const openingSeed = newOpeningSeed();
     const opponent = rung
       ? await reference(rung.opponent, task.track_id, MOVE_MS, seed)
       : await currentVersion(task.track_id, t.current_version ?? "current");
@@ -621,6 +631,7 @@ export const submit = async (taskId: string) => {
       pairs: GATE_PAIRS,
       purpose: "gate",
       taskId: task.id,
+      openingSeed,
     });
     await opponent.close?.();
 
@@ -656,6 +667,7 @@ export const submit = async (taskId: string) => {
         pairs: GATE_PAIRS,
         purpose: "gate",
         taskId: task.id,
+        openingSeed,
       });
       await yardstick.close?.();
       await main.close?.();
@@ -696,6 +708,7 @@ export const submit = async (taskId: string) => {
         pairs: Math.max(2, Math.round(GATE_PAIRS / 2)),
         purpose: "gate",
         taskId: task.id,
+        openingSeed,
       });
       await previous.close?.();
       await candidate.close?.();
@@ -776,6 +789,7 @@ export const submit = async (taskId: string) => {
 - Gate: ${version} vs ${result.opponent}: ${gate.result.wins}–${gate.result.losses}–${gate.result.draws}, rated **${result.elo} ± ${result.error}** (${delta}).${sameRung ? `\n- Yardstick: ${t.current_version}'s stored ${Math.round(prev ?? 0)} came from another rung, so main was re-rated vs ${result.opponent}: **${Math.round(sameRung.elo)} ± ${Math.round(sameRung.error)}**.` : ""}
 - Checks passed: no outside help, build and tests, browser build (wasm32-wasip1), smoke test, head-to-head with the version on main.
 - Games: https://swarm-arena-race.vercel.app/matches/${gate.matchId}
+- Openings: each pair started from its own random ${OPENING_PLIES[task.track_id]}-ply opening, seed \`${openingSeed}\` (gate and head-to-head alike; same seed, same openings).
 
 ## For the reviewer
 Judge the change against the issue and the arena rules: original search and evaluation (nothing ported from open-source engines), one thread, no network or processes, tests for anything that could make an illegal move, playbook updated truthfully.

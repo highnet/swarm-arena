@@ -1,4 +1,5 @@
 import type { GameRules, Outcome } from './games/types';
+import { matchOpenings } from './openings';
 import type { Mover } from './players';
 
 export type Termination = 'rules' | 'adjudicated' | 'illegal-move' | 'crash' | 'timeout';
@@ -100,16 +101,39 @@ export type MatchResult = {
   wins: number;
   draws: number;
   losses: number;
+  /** The opening each pair started from (both games of pair k used openings[k]). */
+  openings: string[][];
+  /** The seed the openings came from, or null when every game started from `options.opening`. */
+  openingSeed: number | null;
 };
 
-/** Plays `pairs` colour-swapped pairs: candidate first in even games, second in odd ones. */
+export type MatchOptions = PlayOptions & {
+  /**
+   * Give each pair its own random opening, derived from this seed (see `matchOpenings`). Both
+   * games of a pair share it, colours swapped. Without a seed every game uses `opening`.
+   */
+  openingSeed?: number;
+  /** Override the per-game opening length (`OPENING_PLIES`). */
+  openingPlies?: number;
+  onGame?: (g: GameRecord, index: number) => void;
+};
+
+/**
+ * Plays `pairs` colour-swapped pairs: candidate first in even games, second in odd ones.
+ * With `openingSeed`, pair k starts from its own seeded random opening.
+ */
 export const playMatch = async <S>(
   rules: GameRules<S>,
   candidate: Mover,
   opponent: Mover,
   pairs: number,
-  options: PlayOptions & { onGame?: (g: GameRecord, index: number) => void } = {},
+  options: MatchOptions = {},
 ): Promise<MatchResult> => {
+  const seed = options.openingSeed ?? null;
+  const openings =
+    seed === null
+      ? Array.from({ length: pairs }, () => options.opening ?? [])
+      : matchOpenings(rules, pairs, seed, options.openingPlies);
   const games: GameRecord[] = [];
   let score = 0;
   let wins = 0;
@@ -117,7 +141,10 @@ export const playMatch = async <S>(
   let losses = 0;
   for (let i = 0; i < pairs * 2; i++) {
     const candidateFirst = i % 2 === 0;
-    const g = await playGame(rules, candidateFirst ? [candidate, opponent] : [opponent, candidate], options);
+    const g = await playGame(rules, candidateFirst ? [candidate, opponent] : [opponent, candidate], {
+      ...options,
+      opening: openings[Math.floor(i / 2)],
+    });
     const s = candidateFirst ? g.outcome : 1 - g.outcome;
     score += s;
     if (s === 1) wins++;
@@ -126,5 +153,5 @@ export const playMatch = async <S>(
     games.push(g);
     options.onGame?.(g, i);
   }
-  return { games, score, wins, draws, losses };
+  return { games, score, wins, draws, losses, openings, openingSeed: seed };
 };
