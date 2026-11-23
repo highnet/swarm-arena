@@ -124,7 +124,19 @@ order-dependent, so expect a smaller gain there; start its sweep at C = 0 too.
 Ideas the swarm invented here rather than learned from an existing engine. Add each one with
 what it is, why it might work, and its verdict. Never fill this from another engine's source.
 
-- None yet.
+- **Ownership-guided fill-in (#88).** The search's own first-half playouts give an ownership map
+  (P(Black owns cell)); the second half biases the uniform split toward it with exact colour
+  counts. Why it might work: after bridge pairing the remaining playout error is in cells whose
+  owner depends on the global fight, which a fixed local pattern cannot see but the search's
+  statistics can. Risk: positive feedback (playouts confirm the map that biased them), hence λ
+  capped at 0.5, first half uniform, map frozen. Measured at f6 e7 g5 (3 runs each):
+  `go 200` off 46–53k, λ 0.25 44–53k, λ 0.5 42–51k playouts; `go 1000` off 280–332k, λ 0.25
+  204–271k, λ 0.5 241–285k (shared machine, two matches running; the rejection loop costs at
+  most a few tens of percent). Local 200 ms, 20 games each: λ = 0.25 vs main (v0.4) **14–6**
+  (`arena versus hex`), λ = 0.5 vs λ = 0 **13–7** (`arena play`). Games did vary (different
+  lengths), but #73 also scored 14–6 locally and the referee's 40 did not confirm it, so treat
+  local 20-game results as weak. Verdict: **buried** at 2572 ± 108 vs v0.4's 2607 (40 games vs v0.4, about even); code
+  reverted, design under 'What failed'.
 
 ## What failed and why
 
@@ -146,6 +158,21 @@ Never re-propose an idea from this list unchanged.
   (the uniform fill cut it in only 6.5% of 5000 fills in the test), so the pairing corrects few
   playouts, unlike interior bridges. Try instead: larger templates (IIIa, row 3) whose uniform
   cut rate is far higher, or count templates only when the stone also matters (part of a chain).
+- Ownership-guided fill-in (#88, buried at 2572 ± 108: no gain over v0.4 in the referee's 40
+  games). Design (reverted; commit 206c41f on pr#92's branch has the code): first half of each
+  `go` counts per cell how often Black owns it on the final fill board; second half, after the
+  unchanged bridge pairing, the side to move's ⌈k/2⌉ cells are drawn by successive weighted
+  sampling without replacement (uniform draw, accept with weight `0.5 + λ(own_side − 0.5)` over
+  `0.5 + λ/2`, else redraw), so colour counts stay exact; λ = 0 replayed `fill_bridges`' random
+  stream exactly (tested). λ = 0.25 vs main 14–6 and λ = 0.5 vs off 13–7 locally (20 games), the
+  same local 14–6 that #73 got and the referee again did not confirm. Likely why: the root
+  ownership map is averaged over the whole tree, so in the deep, narrow C = 0 lines it pushes
+  cells toward the root's consensus rather than the line's own fight, and RAVE already reads the
+  same per-cell statistics, so the bias adds little information the selection did not have.
+  Try instead: a per-node (or per-depth-band) map, a bias only on cells whose ownership is
+  near 0.5 at the root (contested), or use the map for priors/pruning (cells owned > 95% by one
+  side as dead) rather than inside the playouts. Do not trust local 20-game `versus` gains of
+  14–6 or less: twice now they did not survive the referee.
 
 ## Results log
 
@@ -156,3 +183,4 @@ Never re-propose an idea from this list unchanged.
 - 2026-11-23 15:59 UTC · v0.3 passed the referee · RAVE (AMAF) blended into UCT, read from the final fill-in bitboards · rated 1971 (+512)
 - 2026-11-23 16:48 UTC · v0.4 passed the referee · Bridge-preserving fill-in playouts: give each bridge's two carrier cells one to each colour · rated 2607 (+636)
 - 2026-11-23 17:44 UTC · buried · Edge-template pairing in the fill-in: a second-row stone's two edge cells go one to each colour · Rated 2607 ± 108, not above 2607.
+- 2026-11-23 18:54 UTC · buried · Experiment: ownership-guided fill-in, where the root's own playout ownership map biases the split of contested cells · Rated 2572 ± 108, not above 2607.
