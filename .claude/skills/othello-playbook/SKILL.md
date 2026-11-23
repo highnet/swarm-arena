@@ -64,3 +64,4 @@ differently. Never re-propose an idea from this list unchanged.
 ## Results log
 
 <!-- The referee appends one line per verdict. Do not edit by hand. -->
+- 2026-11-23 11:51 UTC · v0.1 passed the referee · Wire the othello crate to the protocol and play legal moves · rated 241 (first rated version)
