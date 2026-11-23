@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Pause, Play } from 'lucide-react';
 import { replayBoards, type GameId } from '@arena/shared';
 import { Button } from '@/components/ui/Button';
 import { Typography } from '@/components/ui/Typography';
 import { cn } from '@/lib/utils';
 import { BoardView } from './BoardView';
+import { ReplayHoldContext } from './ReplayHold';
 
 type GameReplayProps = {
   game: GameId;
@@ -35,6 +36,13 @@ const GameReplay = ({
   const last = boards.length - 1;
   const [ply, setPly] = useState(autoplay ? 0 : last);
   const [playing, setPlaying] = useState(autoplay);
+
+  // Inside a ReplayHold, say where the replay is, so a newer game waits until this one ends.
+  const hold = useContext(ReplayHoldContext);
+  const stage = ply >= last ? 'end' : ply === 0 && !playing ? 'idle' : 'mid';
+  useEffect(() => {
+    hold?.report(stage);
+  }, [hold, stage]);
 
   useEffect(() => {
     if (!playing) return;
@@ -137,7 +145,7 @@ const GameReplay = ({
           className="h-1 min-w-0 flex-1 cursor-pointer accent-fg"
         />
         <Typography variant="data" as="span" className="shrink-0 text-right text-fg-2">
-          {ply}/{last}
+          {Math.min(ply, last)}/{last}
           {move ? ` ${move}` : ''}
         </Typography>
       </div>

@@ -18,6 +18,7 @@ import type { GameId, Snapshot } from '@arena/shared';
 import { BoardFeed } from '@/components/arena/BoardFeed';
 import { EngineCard } from '@/components/arena/EngineCard';
 import { GameReplay } from '@/components/arena/GameReplay';
+import { ReplayHold } from '@/components/arena/ReplayHold';
 import { EngineLogo } from '@/components/arena/EngineLogo';
 import { MessageBoard } from '@/components/arena/MessageBoard';
 import { RightNow } from '@/components/arena/RightNow';
@@ -221,68 +222,70 @@ const HomeContent = async () => {
           </div>
         </Panel>
 
-        <Panel
-          id="latest-game"
-          icon={Swords}
-          title="Latest game"
-          actions={
-            gameMatch && (
-              <>
-                {game && (
+        <ReplayHold id={game?.id ?? 'none'}>
+          <Panel
+            id="latest-game"
+            icon={Swords}
+            title="Latest game"
+            actions={
+              gameMatch && (
+                <>
+                  {game && (
+                    <Link
+                      href={gameHref(game.id)}
+                      className="inline-flex items-center gap-0.5 text-xs text-fg-2 hover:text-fg"
+                    >
+                      Game
+                      <ArrowUpRight className="size-3" aria-hidden="true" />
+                    </Link>
+                  )}
                   <Link
-                    href={gameHref(game.id)}
+                    href={matchHref(gameMatch.id)}
                     className="inline-flex items-center gap-0.5 text-xs text-fg-2 hover:text-fg"
                   >
-                    Game
+                    Match
                     <ArrowUpRight className="size-3" aria-hidden="true" />
                   </Link>
-                )}
-                <Link
-                  href={matchHref(gameMatch.id)}
-                  className="inline-flex items-center gap-0.5 text-xs text-fg-2 hover:text-fg"
-                >
-                  Match
-                  <ArrowUpRight className="size-3" aria-hidden="true" />
-                </Link>
-              </>
-            )
-          }
-        >
-          {game && gameTrack ? (
-            <div className="flex flex-col gap-3 p-4">
-              <div className="flex items-center justify-between gap-2">
-                <span className="inline-flex items-center gap-1.5 text-[13px] text-fg">
-                  <span className={cn('size-2 rounded-full', SERIES[gameTrack.color_slot].bg)} />
-                  {gameTrack.name}
-                </span>
-                <span className="text-xs text-fg-3">
-                  {game.ply_count} plies
-                  {game.termination !== 'rules' &&
-                    ` · ${TERMINATION[game.termination] ?? game.termination}`}
-                </span>
+                </>
+              )
+            }
+          >
+            {game && gameTrack ? (
+              <div className="flex flex-col gap-3 p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1.5 text-[13px] text-fg">
+                    <span className={cn('size-2 rounded-full', SERIES[gameTrack.color_slot].bg)} />
+                    {gameTrack.name}
+                  </span>
+                  <span className="text-xs text-fg-3">
+                    {game.ply_count} plies
+                    {game.termination !== 'rules' &&
+                      ` · ${TERMINATION[game.termination] ?? game.termination}`}
+                  </span>
+                </div>
+                <GameReplay
+                  game={game.track_id}
+                  moves={game.moves}
+                  autoplay
+                  label={`${gameTrack.name} replay`}
+                />
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[13px]">
+                  <dt className="text-fg-3">{gameTrack.id === 'chess' ? 'White' : 'Black'}</dt>
+                  <dd className="truncate text-fg">{first}</dd>
+                  <dt className="text-fg-3">{gameTrack.id === 'chess' ? 'Black' : 'White'}</dt>
+                  <dd className="truncate text-fg">{second}</dd>
+                  <dt className="text-fg-3">Result</dt>
+                  <dd className="text-fg">{resultText(game.outcome, first, second)}</dd>
+                </dl>
               </div>
-              <GameReplay
-                game={game.track_id}
-                moves={game.moves}
-                autoplay
-                label={`${gameTrack.name} replay`}
-              />
-              <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[13px]">
-                <dt className="text-fg-3">{gameTrack.id === 'chess' ? 'White' : 'Black'}</dt>
-                <dd className="truncate text-fg">{first}</dd>
-                <dt className="text-fg-3">{gameTrack.id === 'chess' ? 'Black' : 'White'}</dt>
-                <dd className="truncate text-fg">{second}</dd>
-                <dt className="text-fg-3">Result</dt>
-                <dd className="text-fg">{resultText(game.outcome, first, second)}</dd>
-              </dl>
-            </div>
-          ) : (
-            <Typography variant="small" className="px-4 py-8">
-              No games yet. The first match is played the moment an agent submits an engine that can
-              move.
-            </Typography>
-          )}
-        </Panel>
+            ) : (
+              <Typography variant="small" className="px-4 py-8">
+                No games yet. The first match is played the moment an agent submits an engine that
+                can move.
+              </Typography>
+            )}
+          </Panel>
+        </ReplayHold>
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
