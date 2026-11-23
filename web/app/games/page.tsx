@@ -124,11 +124,17 @@ const GamesContent = async ({ searchParams }: GamesPageProps) => {
                   const score = g.engine_first ? g.outcome : 1 - g.outcome;
                   const result = score === 1 ? 'Won' : score === 0 ? 'Lost' : 'Draw';
                   return (
-                    <tr key={g.id}>
+                    <tr key={g.id} className="relative hover:bg-panel-raised">
                       <td className="whitespace-nowrap px-4 py-2 text-fg-3">
-                        <time dateTime={g.finished_at}>
-                          {formatDay(g.finished_at)}, {formatTime(g.finished_at)}
-                        </time>
+                        <Link
+                          href={`/games/${g.id}`}
+                          aria-label={`Game ${m?.engine_version ?? ''} vs ${m?.opponent ?? 'opponent'}, ${result}`}
+                          className="after:absolute after:inset-0 hover:text-fg"
+                        >
+                          <time dateTime={g.finished_at}>
+                            {formatDay(g.finished_at)}, {formatTime(g.finished_at)}
+                          </time>
+                        </Link>
                       </td>
                       <td className="whitespace-nowrap px-2 py-2">
                         <span className="inline-flex items-center gap-2">
@@ -154,7 +160,10 @@ const GamesContent = async ({ searchParams }: GamesPageProps) => {
                         {g.ply_count}
                       </td>
                       <td className="px-4 py-2">
-                        <Link href={`/matches/${g.match_id}`} className="text-fg-2 hover:text-fg">
+                        <Link
+                          href={`/matches/${g.match_id}`}
+                          className="relative z-1 text-fg-2 hover:text-fg"
+                        >
                           {m?.purpose ?? 'match'}
                         </Link>
                       </td>
