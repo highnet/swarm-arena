@@ -7,6 +7,8 @@ import {
   CHANGES,
   ghApi,
   hasLabel,
+  BRANCH_PREFIX,
+  isRallypointPull,
   openPulls,
   REPO,
   reviewState,
@@ -146,6 +148,7 @@ You are ${agentName("fixer")}. Review sent back ${prLine(p)}.
 
 const reviewerBrief = async (p: Pull) => {
   const taskId = taskOf(p.body);
+  const arena = hasLabel(p, "arena");
   const id = await fleet("reviewer", "reviewer", {
     rp_role: "reviewer",
     pr: p.number,
@@ -156,8 +159,8 @@ const reviewerBrief = async (p: Pull) => {
 You are ${agentName("reviewer")}. Review ${prLine(p)}.
 Your Rallypoint agent id: ${sessionAgentId("reviewer")}
 1. Read .rallypoint/roles/reviewer.md and docs/AGENT_LOOP.md (Review).
-2. Read the issue it closes, the diff (gh api repos/${REPO}/pulls/${p.number}/files), and the referee evidence in the PR body.
-3. Judge against the issue and the arena rules:${hasLabel(p, "arena:lesson") ? " this is a lesson-only PR: the playbook entry must be true and useful;" : " original search and evaluation (nothing ported or translated from open-source engines), one thread, no network or processes, tests for anything that could produce an illegal move, the playbook updated truthfully, the change scoped to the issue;"}${hasLabel(p, "loop:improvement") ? " a protocol change must stay inside the improver paths and keep the harness typechecking (npm test);" : ""}
+2. Read the issue it closes, the diff (gh api repos/${REPO}/pulls/${p.number}/files)${arena ? ", and the referee evidence in the PR body" : ", and the validation the PR body reports"}.
+3. Judge against the issue${arena ? ` and the arena rules:${hasLabel(p, "arena:lesson") ? " this is a lesson-only PR: the playbook entry must be true and useful;" : " original search and evaluation (nothing ported or translated from open-source engines), one thread, no network or processes, tests for anything that could produce an illegal move, the playbook updated truthfully, the change scoped to the issue;"}` : ": not engine work, so there is no referee evidence; the change must be scoped to the issue and keep the repository green (npm test);"}${hasLabel(p, "loop:improvement") ? " a protocol change must stay inside the improver paths and keep the harness typechecking (npm test);" : ""}
 4. Record exactly one verdict:
    npm run arena -- verdict ${p.number} approve "<one line>"
    npm run arena -- verdict ${p.number} request-changes "<the one actionable point>"
@@ -187,11 +190,11 @@ No open arena task. Run the swarm-strategist skill: \`npm run arena -- brief\`, 
 \`npm run arena -- plan plan.json\` (each task becomes a GitHub issue), then \`npm run arena -- next\` once more.`;
 };
 
-const arenaPulls = async () =>
-  (await openPulls()).filter(
-    (p) =>
-      !p.draft && (hasLabel(p, "arena") || hasLabel(p, "loop:improvement")),
-  );
+/**
+ * Open pull requests a merger, fixer or reviewer can act on. Not only `arena`-labelled ones: a
+ * Rallypoint or harness fix delivered from an `agent/` branch needs the same review (issue #10).
+ */
+const loopPulls = async () => (await openPulls()).filter(isRallypointPull);
 
 /** A role a conductor dispatched: re-check that its target still needs it, then brief it. */
 const dispatched = async ({
@@ -209,7 +212,7 @@ const dispatched = async ({
     );
   if (role === "planner") return plannerBrief();
   if (role === "improver") {
-    if ((await arenaPulls()).some((p) => hasLabel(p, "loop:improvement")))
+    if ((await loopPulls()).some((p) => hasLabel(p, "loop:improvement")))
       return overtaken(
         "improver",
         "an improvement pull request is already open",
@@ -217,9 +220,18 @@ const dispatched = async ({
     return improverBrief(await retrosSinceLastProtocol());
   }
   if (!pr) throw new Error(`--role ${role} needs --pr <n>`);
-  const p = (await arenaPulls()).find((x) => x.number === pr);
-  if (!p)
-    return overtaken(role, `#${pr} is no longer an open arena pull request`);
+  const p = (await loopPulls()).find((x) => x.number === pr);
+  if (!p) {
+    const any = (await openPulls()).find((x) => x.number === pr);
+    return overtaken(
+      role,
+      !any
+        ? `#${pr} is no longer open`
+        : any.draft
+          ? `#${pr} is a draft`
+          : `#${pr} is not a Rallypoint pull request (head \`${any.head.ref}\` is not an \`${BRANCH_PREFIX}\` branch), so review.mjs cannot bind a verdict to it; it is the operator's`,
+    );
+  }
   const s = await reviewState(pr);
   if (role === "merger")
     return APPROVED.has(s.code)
@@ -252,7 +264,7 @@ const dispatched = async ({
 export const next = async (opts: NextOptions = {}) => {
   if (opts.role) return dispatched({ ...opts, role: opts.role });
   const may = (r: Role) => !opts.only || opts.only.includes(r);
-  const pulls = await arenaPulls();
+  const pulls = await loopPulls();
   const states = await Promise.all(
     pulls.map(async (p) => ({ p, s: await reviewState(p.number) })),
   );

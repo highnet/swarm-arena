@@ -148,10 +148,37 @@ export type Pull = {
   labels: { name: string }[];
   html_url: string;
   draft: boolean;
+  user?: { login: string } | null;
 };
 
 export const openPulls = () =>
   ghApi<Pull[]>("GET", `repos/${REPO}/pulls?state=open&per_page=50`);
+
+/** The branch prefix `claim.mjs` prescribes (`agent/` unless `.rallypoint/config.json` says otherwise). */
+export const BRANCH_PREFIX: string = (() => {
+  try {
+    const config = JSON.parse(
+      readFileSync(resolve(ARENA_ROOT, ".rallypoint/config.json"), "utf8"),
+    ) as { branchPrefix?: string };
+    return config.branchPrefix || "agent/";
+  } catch {
+    return "agent/";
+  }
+})();
+
+/**
+ * A pull request the Rallypoint loop owns: delivered from a claimed `agent/<issue>-…` branch, or
+ * opened by Dependabot (review.mjs's promotion path). These are the PRs `review.mjs record` can
+ * bind a verdict to, whatever their labels; an operator's own branch (`claude/…`) has no claim
+ * behind it, so it is left to the operator. `arena` and `loop:improvement` still count, so a
+ * labelled delivery is never dropped.
+ */
+export const isRallypointPull = (p: Pull) =>
+  !p.draft &&
+  (p.head.ref.startsWith(BRANCH_PREFIX) ||
+    p.user?.login === "dependabot[bot]" ||
+    hasLabel(p, "arena") ||
+    hasLabel(p, "loop:improvement"));
 
 export const hasLabel = (p: { labels: { name: string }[] }, name: string) =>
   p.labels.some((l) => l.name === name);
