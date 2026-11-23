@@ -27,6 +27,10 @@ export const rp = (script: string, args: string[]) =>
     env: rpEnv,
   });
 
+/** A released coordination ref's tip: what `lib/gh.mjs` leaves instead of a delete it may not make. */
+export const isReleasedMarker = (message: string | null | undefined) =>
+  String(message ?? "").startsWith("rallypoint: released");
+
 /** One GitHub REST call through the `gh` binary (REST works in every session; GraphQL does not). */
 export const ghApi = async <T = unknown>(
   method: string,
