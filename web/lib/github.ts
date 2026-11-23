@@ -1,4 +1,4 @@
-import { cacheLife } from 'next/cache';
+import { cacheLife, cacheTag } from 'next/cache';
 
 /** Rallypoint state, read from GitHub: the issues and pull requests the swarm coordinates through. */
 
@@ -96,8 +96,12 @@ export type RallypointState = {
  * and merge state. Cached for two minutes so the site stays well inside GitHub's unauthenticated
  * rate limit; set GITHUB_TOKEN to raise it.
  */
+/** Expired by `refreshLive` too, at most once a minute (GitHub rate limits). */
+export const GITHUB_TAG = 'github';
+
 export const getRallypoint = async (): Promise<RallypointState> => {
   'use cache';
+  cacheTag(GITHUB_TAG);
   cacheLife({ stale: 60, revalidate: 120, expire: 3600 });
   const asOf = new Date().toISOString();
   try {
