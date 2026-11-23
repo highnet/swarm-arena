@@ -1,0 +1,1 @@
+- 2026-11-23 · **inferior-move pruning** · Hex 11×11 · v0.5 rated 2734 (+127) · Inferior-cell pruning: drop dead cells from the tree and settle captured cells in the fill-in
