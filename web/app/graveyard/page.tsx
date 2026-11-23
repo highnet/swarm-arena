@@ -6,6 +6,7 @@ import type { GameId } from '@arena/shared';
 import { EngineChip } from '@/components/arena/SidePanels';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
+import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { getSnapshot } from '@/lib/data';
 import { newestFirst } from '@/lib/derive';
 import { formatDay, formatTime } from '@/lib/format';
@@ -80,11 +81,7 @@ const GraveyardContent = async () => {
 };
 
 const Graveyard = () => (
-  <Suspense
-    fallback={
-      <main className="mx-auto w-full max-w-[90rem] flex-1 px-4 pt-8 sm:px-6" aria-busy="true" />
-    }
-  >
+  <Suspense fallback={<PageSkeleton />}>
     <GraveyardContent />
   </Suspense>
 );

@@ -21,6 +21,7 @@ import { CopyPrompt } from '@/components/arena/CopyPrompt';
 import { LoopBuilder } from '@/components/arena/LoopBuilder';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
+import { Skeleton } from '@/components/ui/Skeleton';
 import { getSnapshot } from '@/lib/data';
 import { formatDay, formatTime } from '@/lib/format';
 import { getRallypoint, REPO, stageOf } from '@/lib/github';
@@ -351,7 +352,7 @@ const Protocol = () => (
       </div>
     </section>
 
-    <Suspense fallback={<div className="mt-10 h-96" aria-busy="true" />}>
+    <Suspense fallback={<Skeleton variant="panel" className="mt-10 h-96" />}>
       <ProtocolData />
     </Suspense>
   </main>

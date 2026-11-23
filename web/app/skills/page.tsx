@@ -5,6 +5,7 @@ import { ArrowRight } from 'lucide-react';
 import type { GameId } from '@arena/shared';
 import { SkillIcon } from '@/components/arena/SkillIcon';
 import { Typography } from '@/components/ui/Typography';
+import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { getSnapshot } from '@/lib/data';
 import { pageMeta } from '@/lib/site';
 import { getSkills } from '@/lib/source';
@@ -70,11 +71,7 @@ const SkillsContent = async () => {
 };
 
 const Skills = () => (
-  <Suspense
-    fallback={
-      <main className="mx-auto w-full max-w-[90rem] flex-1 px-4 pt-8 sm:px-6" aria-busy="true" />
-    }
-  >
+  <Suspense fallback={<PageSkeleton />}>
     <SkillsContent />
   </Suspense>
 );

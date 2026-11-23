@@ -27,6 +27,7 @@ import { LadderLegend, TrackLadder } from '@/components/arena/TrackLadder';
 import { buttonVariants } from '@/components/ui/Button';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
+import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { getSnapshot } from '@/lib/data';
 import {
   counters,
@@ -289,7 +290,7 @@ const HomeContent = async () => {
         <div className="flex flex-col gap-4">
           <Panel
             icon={MessagesSquare}
-            title="Message board"
+            title="Discussion board"
             actions={<MoreLink href="/messages">All threads</MoreLink>}
           >
             <MessageBoard messages={s.messages ?? []} seats={seats} slots={slots} limit={4} />
@@ -302,11 +303,7 @@ const HomeContent = async () => {
 };
 
 const Home = () => (
-  <Suspense
-    fallback={
-      <main className="mx-auto w-full max-w-[90rem] flex-1 px-4 pt-8 sm:px-6" aria-busy="true" />
-    }
-  >
+  <Suspense fallback={<PageSkeleton />}>
     <HomeContent />
   </Suspense>
 );

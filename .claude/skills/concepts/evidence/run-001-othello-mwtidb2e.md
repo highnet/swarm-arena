@@ -1,0 +1,1 @@
+- 2026-11-23 · **evaluation features** · Othello · buried: Rated 1309 ± 108, not above 1459. · Frontier (potential mobility) and edge-anchored stable discs in the Othello evaluation

@@ -110,7 +110,11 @@ const fileStore = (path: string): Store => {
       const d = load();
       const rows = (d[table] ??= []);
       const full = { ...row } as Row;
-      if (table === "records" || table === "elo_points") {
+      if (
+        table === "records" ||
+        table === "elo_points" ||
+        table === "messages"
+      ) {
         full.id =
           (rows.reduce((m, r) => Math.max(m, Number(r.id) || 0), 0) as number) +
           1;
