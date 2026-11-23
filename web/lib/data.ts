@@ -1,5 +1,5 @@
 import { cacheLife, cacheTag } from 'next/cache';
-import { TRACKS, type GameRow, type Message, type Snapshot } from '@arena/shared';
+import { TRACKS, type EloPoint, type GameRow, type Message, type Snapshot } from '@arena/shared';
 import { getSupabase, supabaseConfigured } from './supabase';
 
 /** Before the first run: the four ladders at the start line, nothing played. */
@@ -97,10 +97,26 @@ const fromSupabase = async (): Promise<Snapshot | null> => {
     records,
     matches,
     games: games.map((g) => ({ ...g, moves: moves.get(g.id) ?? [] })),
-    elo,
+    elo: perVersion(elo),
     messages,
     asOf: new Date().toISOString(),
   };
+};
+
+/**
+ * One point per engine version: placed when the version first went on the curve, valued at its
+ * latest rating. When the referee re-rates a version against a harder opponent (to compare a
+ * candidate like with like), that rating replaces the one from the easier rung, so a version that
+ * beat its predecessor on the same opponent never plots below it.
+ */
+const perVersion = (points: EloPoint[]): EloPoint[] => {
+  const byVersion = new Map<string, { first: EloPoint; latest: EloPoint }>();
+  for (const p of [...points].sort((a, b) => a.at.localeCompare(b.at))) {
+    const key = `${p.track_id}:${p.engine_version}`;
+    const seen = byVersion.get(key);
+    byVersion.set(key, seen ? { first: seen.first, latest: p } : { first: p, latest: p });
+  }
+  return [...byVersion.values()].map(({ first, latest }) => ({ ...latest, at: first.at }));
 };
 
 /** Expired on demand by `refreshLive` whenever Supabase Realtime reports a change. */
