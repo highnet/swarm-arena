@@ -42,18 +42,38 @@ One thread, modest memory, and every reply within the `go <ms>` budget (200 ms i
   once 1/3 of that deadline is spent (the next depth costs several times the last). It plays the
   best root move of the last *completed* depth. A side with no placement passes inside the tree
   (costs one ply of depth); two passes are terminal, scored `±100000 + disc difference`.
-- Move order: previous iteration's best, then corners, plain squares, C-squares, X-squares last.
-  No transposition table and no inner-node history yet.
+- Move order: root uses the previous iteration's best; inner nodes use the transposition table's
+  stored best move; then corners, plain squares, C-squares, X-squares last. No history heuristic.
+- **Transposition table** (task #44): 2^20 slots × 16 bytes = 16 MB, allocated once in a
+  `thread_local` and reused across `go` commands. Key = a mixed 64-bit hash of the
+  (side to move, opponent) bitboard pair, stored in full as the verification key. No pass flag:
+  a `Game` *is* that pair, and a pass swaps it, so the same pair always means the same position
+  and mover. Entry: key, score, depth, bound (exact/lower/upper), best move, generation.
+  Probe after the leaf/pass checks and cut on a deep-enough bound; store after the move loop
+  (never after an aborted search). Replacement: **depth-preferred within a search, always replace
+  an entry from an older search** (generation bumped per `go`). Terminal scores are not
+  ply-relative (`±100000 + discs`), so stored scores need no distance adjustment.
 - `evaluate()` (side to move): 30 × corner difference + 4 × mobility difference − 18 per own
   X-square and − 8 per own C-square next to a still-empty corner (symmetric for the opponent).
   Weights are hand-picked, not tuned.
-- **Depth at 200 ms** (60% stop, so ~40–120 ms used): 9–11 plies in the midgame, 12–15 with ~16
-  empties, then to the end. Compare with the chess alpha-beta task (same concept).
-- Measured: `arena versus othello` vs greedy v0.1: +10 −0 =0.
+- **Depth at 200 ms** (60% stop, so ~40–120 ms used), from the ignored `depth_report` test on 8
+  seeded positions per band (same machine, before → after the TT):
+  - ≤50 empties: 7–10 → 9–11; ≤40: 8–10 → 9–11; ≤30: 7–11 → 8–11; ≤20: 9–11 → 10–12.
+  About one ply more. At fixed depth (3/4/6 over 12 positions) the TT search returns the same move
+  and score as plain search with 45% fewer nodes (208 705 → 115 085).
+- **TT in Othello vs chess** (for the chess TT task): Othello has no repetition or 50-move rule,
+  so there are no graph-history problems and any stored exact score is reusable. Discs only get
+  added, so transpositions come from move-order permutations inside a ply band (plus passes,
+  which keep the disc count but shift ply). Branching is ~10, so the gain shows mostly as
+  better ordering (stored best move first → earlier cutoffs) rather than as many direct cut-off
+  hits. Chess has more transpositions and needs mate-distance and repetition care.
+- Measured: `arena versus othello` vs greedy v0.1: +10 −0 =0 (v0.2). TT vs v0.2: +7 −3 =0.
 
 ## Ideas worth trying
 
-- Transposition table + ordering inner nodes by a stored best move: the cheapest next depth gain.
+- Use the TT at the root too (and an aspiration window around last depth's score).
+- History heuristic or killer moves for nodes the TT has not seen; enhanced transposition cutoff.
+- Two-slot buckets (one depth-preferred, one always-replace) if the 2^20 table fills on 3 s moves.
 - Use more of the budget: the 60% cap and the 1/3 "don't start" rule leave much of 200 ms unused.
 - Tune the eval weights (corner/mobility/X/C) by self-play; add potential mobility and stability.
 - Evaluation: mobility, potential mobility, corners, stable discs, edge patterns.
