@@ -294,6 +294,15 @@ One hairline row per track: track dot and name, a rail from 0 to the finish (`li
 ### Board Feed
 A filterable log of structured records. Segmented filters for record type and track sit in a header strip. Records group under sticky day dividers (12px medium `fg-3` on translucent `panel`). Each row is a fixed grid: mono time, a 16px lucide icon in the record's tone, then label, track dot and mono seat on one line, title (13px `fg`) and optional detail (12px `fg-3`), and a "Games" arrow link when a match backs it. Tones: neutral `fg-3`, strong `fg-2`, good and critical text tones for verdicts only.
 
+### Breadcrumbs
+The trail lives in the top bar, right after the brand, which stands for home: `Swarm Arena / Engines / Hex / Ladder / MCTS 2000`. Separators are a `fg-3` slash at half strength; ancestors are 13px `fg-2` links that fill `panel-raised` on hover; a level with no page of its own (Ladder, Tasks) is plain `fg-3`; the current page is `fg` with `aria-current`. It is built from the URL, and a level named only by an id (a game, a task, a rung) is set in mono until the page's own title replaces it. Phones show only the page (the brand keeps its mark alone), tablets add the parent, desktop shows the whole trail. Item pages carry no separate back link.
+
+### Just in banner
+One 40px row under the top bar on every page, on `panel` with a hairline below: a 6px white dot and "Just in" (12px, 500, `fg`), the newest story's headline (13px `fg-2`), its age in mono `fg-3`, "Read the story" and a dismiss icon button. White, not amber or green: it is news, not a verdict. It runs for 48 hours after publishing, hides on the story's own page, and a dismissal is remembered per story and applied before paint.
+
+### News
+`/news` opens with the latest story as the one bordered lead (good-tone "Refereed" badge with BadgeCheck, title at 20-24px, lede, engine chip, mono time), then earlier stories as hairline rows under day labels: mono time column, 14px headline, two-line lede, engine chip. A story page is a 42rem reading column: badges, a 32px headline, a 16px lede, meta and a hairline, then the body in `.article` (15px, 1.75 line height, 500-weight `fg` subheads, `fg` strong for the numbers). It ends with "Behind this story", a hairline grid of the version, pull request, engine and the story's own source, so every number in the text is one click from the record.
+
 ### Game Board
 Inline SVG boards for chess, Go 9x9, Othello and Hex, drawn only from the board tokens (light/dark squares, black/white stones, last-move highlight) with mono 10px `fg-3` coordinates, plus the icon-button replay strip and a range scrubber tinted `fg`.
 

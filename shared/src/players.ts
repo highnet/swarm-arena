@@ -168,6 +168,51 @@ const rollout = <S>(rules: GameRules<S>, start: S, rand: Rand): Outcome => {
 };
 
 /**
+ * Flat Monte Carlo with UCB1 over root moves: the search behind `mctsPlayer`. Returns the chosen
+ * move and its win rate for the side to move (0..1), so offline tools can score positions with
+ * the same estimate the reference ladder plays by.
+ */
+export const flatMonteCarlo = <S>(
+  rules: GameRules<S>,
+  state: S,
+  playouts: number,
+  rand: Rand,
+): { move: string; value: number } => {
+  const moves = playoutMoves(rules, state);
+  if (moves.length === 1) return { move: moves[0], value: 0.5 };
+  // Shuffle so that unvisited moves (and ties) are broken at random, not by board order.
+  for (let i = moves.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [moves[i], moves[j]] = [moves[j], moves[i]];
+  }
+  const me = rules.toMove(state);
+  const wins = new Array(moves.length).fill(0);
+  const visits = new Array(moves.length).fill(0);
+  const children = moves.map((m) => rules.play(state, m));
+  for (let n = 0; n < playouts; n++) {
+    let best = 0;
+    let bestUcb = -Infinity;
+    for (let i = 0; i < moves.length; i++) {
+      const ucb =
+        visits[i] === 0
+          ? Infinity
+          : wins[i] / visits[i] + Math.sqrt((2 * Math.log(n + 1)) / visits[i]);
+      if (ucb > bestUcb) {
+        bestUcb = ucb;
+        best = i;
+      }
+    }
+    const o = rollout(rules, children[best], rand);
+    wins[best] += me === 0 ? o : 1 - o;
+    visits[best] += 1;
+  }
+  const value = (i: number) => visits[i] + (visits[i] ? wins[i] / visits[i] : 0);
+  let choice = 0;
+  for (let i = 1; i < moves.length; i++) if (value(i) > value(choice)) choice = i;
+  return { move: moves[choice], value: visits[choice] ? wins[choice] / visits[choice] : 0.5 };
+};
+
+/**
  * Flat Monte Carlo with UCB1 over root moves. Cheap, rules-only, and its strength scales
  * with `playouts`, which makes it a usable reference ladder for every game.
  */
@@ -175,39 +220,6 @@ export const mctsPlayer = (playouts: number, seed = 7): Mover => {
   const rand = rng(seed);
   return {
     id: `mcts-${playouts}`,
-    choose: async (rules, state) => {
-      const moves = playoutMoves(rules, state);
-      if (moves.length === 1) return moves[0];
-      // Shuffle so that unvisited moves (and ties) are broken at random, not by board order.
-      for (let i = moves.length - 1; i > 0; i--) {
-        const j = Math.floor(rand() * (i + 1));
-        [moves[i], moves[j]] = [moves[j], moves[i]];
-      }
-      const me = rules.toMove(state);
-      const wins = new Array(moves.length).fill(0);
-      const visits = new Array(moves.length).fill(0);
-      const children = moves.map((m) => rules.play(state, m));
-      for (let n = 0; n < playouts; n++) {
-        let best = 0;
-        let bestUcb = -Infinity;
-        for (let i = 0; i < moves.length; i++) {
-          const ucb =
-            visits[i] === 0
-              ? Infinity
-              : wins[i] / visits[i] + Math.sqrt((2 * Math.log(n + 1)) / visits[i]);
-          if (ucb > bestUcb) {
-            bestUcb = ucb;
-            best = i;
-          }
-        }
-        const o = rollout(rules, children[best], rand);
-        wins[best] += me === 0 ? o : 1 - o;
-        visits[best] += 1;
-      }
-      const value = (i: number) => visits[i] + (visits[i] ? wins[i] / visits[i] : 0);
-      let choice = 0;
-      for (let i = 1; i < moves.length; i++) if (value(i) > value(choice)) choice = i;
-      return moves[choice];
-    },
+    choose: async (rules, state) => flatMonteCarlo(rules, state, playouts, rand).move,
   };
 };

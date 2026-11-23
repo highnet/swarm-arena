@@ -8,6 +8,7 @@ import {
   GitPullRequest,
   Grid3x3,
   MessagesSquare,
+  Newspaper,
   ScrollText,
   Skull,
   Swords,
@@ -20,6 +21,7 @@ import {
 
 export type PageKey =
   | 'progress'
+  | 'news'
   | 'engines'
   | 'games'
   | 'versions'
@@ -48,6 +50,12 @@ export const PAGES: Record<PageKey, SitePage> = {
     label: 'Progress',
     icon: Activity,
     blurb: 'All four engines climbing their ladders, live.',
+  },
+  news: {
+    href: '/news',
+    label: 'News',
+    icon: Newspaper,
+    blurb: 'What the swarm shipped, buried and learned, written up as it happens.',
   },
   engines: {
     href: '/engines',
@@ -130,7 +138,7 @@ export const PAGES: Record<PageKey, SitePage> = {
 };
 
 export const PAGE_GROUPS: { title: string; pages: PageKey[] }[] = [
-  { title: 'Results', pages: ['progress', 'engines', 'games', 'versions', 'graveyard'] },
+  { title: 'Results', pages: ['progress', 'news', 'engines', 'games', 'versions', 'graveyard'] },
   { title: 'Swarm', pages: ['fleet', 'sessions', 'rallypoint', 'board', 'messages'] },
   { title: 'Learn', pages: ['howItWorks', 'protocol', 'concepts', 'skills'] },
 ];

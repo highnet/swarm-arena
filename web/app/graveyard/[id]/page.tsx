@@ -63,7 +63,6 @@ const IdeaContent = async (props: IdeaPageProps) => {
 
   return (
     <DetailShell
-      back={{ href: '/graveyard', label: 'Ideas buried' }}
       eyebrow={
         <>
           {record.track_id && <EngineChip track={record.track_id} slots={slots} />}

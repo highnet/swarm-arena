@@ -1,5 +1,5 @@
 import type { GameRules, Outcome } from './games/types';
-import { matchOpenings } from './openings';
+import { pickOpenings, type OpeningSuite } from './openings';
 import type { Mover } from './players';
 
 export type Termination = 'rules' | 'adjudicated' | 'illegal-move' | 'crash' | 'timeout';
@@ -105,6 +105,10 @@ export type MatchResult = {
   openings: string[][];
   /** The seed the openings came from, or null when every game started from `options.opening`. */
   openingSeed: number | null;
+  /** Where seeded openings came from: the balanced suite, #103's random lines, or none (no seed). */
+  openingSource: 'suite' | 'random' | null;
+  /** For a suite draw, the entry (0-based, in file order) each pair used. */
+  openingEntries: number[] | null;
 };
 
 export type MatchOptions = PlayOptions & {
@@ -113,14 +117,20 @@ export type MatchOptions = PlayOptions & {
    * games of a pair share it, colours swapped. Without a seed every game uses `opening`.
    */
   openingSeed?: number;
-  /** Override the per-game opening length (`OPENING_PLIES`). */
+  /** Override the per-game opening length (`OPENING_PLIES`) of the random fallback. */
   openingPlies?: number;
+  /**
+   * Draw each pair's opening from this balanced suite (needs `openingSeed`). Falls back to the
+   * random lines when the suite has fewer distinct entries than there are pairs.
+   */
+  openingSuite?: OpeningSuite;
   onGame?: (g: GameRecord, index: number) => void;
 };
 
 /**
  * Plays `pairs` colour-swapped pairs: candidate first in even games, second in odd ones.
- * With `openingSeed`, pair k starts from its own seeded random opening.
+ * With `openingSeed`, pair k starts from its own opening: a balanced suite entry when
+ * `openingSuite` is given and large enough, otherwise a seeded random line.
  */
 export const playMatch = async <S>(
   rules: GameRules<S>,
@@ -130,10 +140,11 @@ export const playMatch = async <S>(
   options: MatchOptions = {},
 ): Promise<MatchResult> => {
   const seed = options.openingSeed ?? null;
-  const openings =
+  const picked =
     seed === null
-      ? Array.from({ length: pairs }, () => options.opening ?? [])
-      : matchOpenings(rules, pairs, seed, options.openingPlies);
+      ? null
+      : pickOpenings(rules, pairs, seed, { suite: options.openingSuite, plies: options.openingPlies });
+  const openings = picked?.openings ?? Array.from({ length: pairs }, () => options.opening ?? []);
   const games: GameRecord[] = [];
   let score = 0;
   let wins = 0;
@@ -153,5 +164,15 @@ export const playMatch = async <S>(
     games.push(g);
     options.onGame?.(g, i);
   }
-  return { games, score, wins, draws, losses, openings, openingSeed: seed };
+  return {
+    games,
+    score,
+    wins,
+    draws,
+    losses,
+    openings,
+    openingSeed: seed,
+    openingSource: picked?.source ?? null,
+    openingEntries: picked?.entries ?? null,
+  };
 };

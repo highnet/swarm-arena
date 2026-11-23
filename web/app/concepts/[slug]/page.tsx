@@ -77,12 +77,7 @@ const ConceptContent = async (props: ConceptPageProps) => {
   );
 
   return (
-    <DetailShell
-      back={{ href: '/concepts', label: 'Concepts' }}
-      eyebrow={<span>Concept</span>}
-      title={name}
-      lede={idea}
-    >
+    <DetailShell eyebrow={<span>Concept</span>} title={name} lede={idea}>
       <Facts
         items={TRACK_ORDER.map((g) => {
           const mine = tasks.filter((t) => t.track_id === g);
