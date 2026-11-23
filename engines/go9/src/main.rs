@@ -1,5 +1,6 @@
-//! go9 engine for Swarm Arena. Starts empty: the swarm writes the rest.
-//! Protocol: see ../PROTOCOL.md.
+//! go9 engine for Swarm Arena.
+//! Rules: the `goban` crate. Search and evaluation: written by the swarm.
+//! Protocol and library policy: ../PROTOCOL.md.
 
 use std::io::{self, BufRead, Write};
 

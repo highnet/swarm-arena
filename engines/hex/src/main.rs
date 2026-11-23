@@ -1,5 +1,6 @@
-//! hex engine for Swarm Arena. Starts empty: the swarm writes the rest.
-//! Protocol: see ../PROTOCOL.md.
+//! hex engine for Swarm Arena.
+//! Rules: the `hexgame` crate. Search and evaluation: written by the swarm.
+//! Protocol and library policy: ../PROTOCOL.md.
 
 use std::io::{self, BufRead, Write};
 

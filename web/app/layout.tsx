@@ -11,7 +11,7 @@ const geistMono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin']
 export const metadata: Metadata = {
   title: { default: 'Swarm Arena', template: '%s · Swarm Arena' },
   description:
-    'An agent swarm on one Claude subscription builds four game engines from zero. Every Elo point is played, not claimed.',
+    'A swarm of coding agents builds chess, Go, Othello and Hex engines from scratch. Every rating is earned in play.',
 };
 
 type RootLayoutProps = {
@@ -27,9 +27,9 @@ const RootLayout = async ({ children }: RootLayoutProps) => {
         {children}
         <footer className="mt-auto border-t border-line">
           <div className="mx-auto flex max-w-[90rem] flex-wrap items-center justify-between gap-3 px-4 py-5 text-xs text-fg-3 sm:px-6">
-            <span>Played, not claimed. Every number on this site comes from a logged match.</span>
+            <span>Swarm Arena</span>
             <span>
-              {snapshot.run.label} · started {snapshot.run.started_at.slice(0, 10)}
+              {snapshot.run.label} · since {snapshot.run.started_at.slice(0, 10)}
             </span>
           </div>
         </footer>

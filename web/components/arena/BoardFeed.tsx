@@ -22,15 +22,21 @@ type BoardFeedProps = {
 
 type RecordRowProps = {
   record: BoardRecord;
+  fresh: boolean;
   slot: number | undefined;
   seat: string | undefined;
 };
 
-const RecordRow = ({ record, slot, seat }: RecordRowProps) => {
+const RecordRow = ({ record, fresh, slot, seat }: RecordRowProps) => {
   const meta = KINDS[record.kind];
   const Icon = meta.icon;
   return (
-    <li className="grid grid-cols-[3rem_1.25rem_1fr] gap-x-2.5 px-4 py-2.5 sm:grid-cols-[3.25rem_1.25rem_1fr_auto]">
+    <li
+      className={cn(
+        'grid grid-cols-[3rem_1.25rem_1fr] gap-x-2.5 px-4 py-2.5 sm:grid-cols-[3.25rem_1.25rem_1fr_auto]',
+        fresh && 'animate-record-in',
+      )}
+    >
       <time dateTime={record.at} className="pt-px font-mono text-xs tabular text-fg-3">
         {formatTime(record.at)}
       </time>
@@ -74,6 +80,8 @@ const BoardFeed = ({ records, slots, seats, pageSize = 30, scoped = false }: Boa
   const [kind, setKind] = useState('all');
   const [track, setTrack] = useState<GameId | 'all'>('all');
   const [limit, setLimit] = useState(pageSize);
+  // Records present on first render are history; anything after that arrived live.
+  const [seen] = useState(() => new Set(records.map((r) => r.id)));
 
   const kinds = KIND_FILTERS.find((f) => f.id === kind)?.kinds ?? null;
   const visible = records.filter(
@@ -146,6 +154,7 @@ const BoardFeed = ({ records, slots, seats, pageSize = 30, scoped = false }: Boa
               <RecordRow
                 key={r.id}
                 record={r}
+                fresh={!seen.has(r.id)}
                 slot={r.track_id ? slots[r.track_id] : undefined}
                 seat={r.agent_id ? seats[r.agent_id] : undefined}
               />

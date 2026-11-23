@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import type { Agent, BoardRecord, GameId } from '@arena/shared';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
@@ -14,11 +13,11 @@ type StrategySeatProps = {
 const StrategySeat = ({ updates }: StrategySeatProps) => {
   const [current, ...older] = updates;
   return (
-    <Panel id="strategy" title="Strategy seat">
+    <Panel id="strategy" title="Strategy">
       {current ? (
         <div className="px-4 py-3.5">
           <Typography variant="meta">
-            In force since {formatDay(current.at)}, {formatTime(current.at)} UTC
+            Since {formatDay(current.at)}, {formatTime(current.at)} UTC
           </Typography>
           <Typography
             variant="body"
@@ -36,13 +35,13 @@ const StrategySeat = ({ updates }: StrategySeatProps) => {
         </div>
       ) : (
         <Typography variant="small" className="px-4 py-6">
-          No strategy on the record yet.
+          No orders yet.
         </Typography>
       )}
       {older.length > 0 && (
         <details className="group border-t border-line">
           <summary className="cursor-pointer list-none px-4 py-2 text-xs text-fg-3 hover:text-fg-2">
-            {older.length} earlier {older.length === 1 ? 'update' : 'updates'}
+            {older.length} earlier {older.length === 1 ? 'call' : 'calls'}
           </summary>
           <ol className="space-y-2.5 px-4 pb-3.5">
             {older.map((u) => (
@@ -72,13 +71,13 @@ const Graveyard = ({ dead, slots }: GraveyardProps) => (
     title="Graveyard"
     actions={
       <Typography variant="meta" as="span">
-        {dead.length} ruled dead
+        {dead.length} buried
       </Typography>
     }
   >
     {dead.length === 0 ? (
       <Typography variant="small" className="px-4 py-6">
-        Nothing has died yet.
+        Nothing buried yet.
       </Typography>
     ) : (
       <ol className="divide-y divide-line">
@@ -133,10 +132,10 @@ const AgentRoster = ({ agents, slots }: AgentRosterProps) => {
   return (
     <Panel
       id="seats"
-      title="Seats"
+      title="Agents"
       actions={
         <Typography variant="meta" as="span">
-          {working} of {agents.length} working
+          {working} of {agents.length} at work
         </Typography>
       }
     >
@@ -157,18 +156,13 @@ const AgentRoster = ({ agents, slots }: AgentRosterProps) => {
             <span className="w-16 shrink-0 text-right text-xs text-fg-3">{a.status}</span>
             <span
               className="w-20 shrink-0 text-right font-mono text-xs tabular text-fg-3"
-              title="Claude Code sessions"
+              title="Sessions"
             >
               {a.sessions} sess.
             </span>
           </li>
         ))}
       </ul>
-      <div className="border-t border-line px-4 py-2">
-        <Link href="/how-it-works#seats" className="text-xs text-fg-2 hover:text-fg">
-          What a seat is
-        </Link>
-      </div>
     </Panel>
   );
 };

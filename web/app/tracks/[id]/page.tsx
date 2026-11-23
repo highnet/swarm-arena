@@ -2,8 +2,8 @@ import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft } from 'lucide-react';
-import type { GameId } from '@arena/shared';
+import { ArrowLeft, CircleDashed, CircleDot, CircleSlash, Flag, GitMerge } from 'lucide-react';
+import type { GameId, Task } from '@arena/shared';
 import { BoardFeed } from '@/components/arena/BoardFeed';
 import { RaceChart } from '@/components/arena/RaceChart';
 import { TrackLadder } from '@/components/arena/TrackLadder';
@@ -32,6 +32,32 @@ const TASK_TONE = {
   landed: 'good',
   dead: 'critical',
 } as const;
+const TASK_ICON = {
+  open: CircleDashed,
+  claimed: CircleDot,
+  landed: GitMerge,
+  dead: CircleSlash,
+} as const;
+const TASK_LABEL = {
+  open: 'open',
+  claimed: 'in progress',
+  landed: 'shipped',
+  dead: 'buried',
+} as const;
+
+type TaskBadgeProps = {
+  status: Task['status'];
+};
+
+const TaskBadge = ({ status }: TaskBadgeProps) => {
+  const Icon = TASK_ICON[status];
+  return (
+    <Badge tone={TASK_TONE[status]}>
+      <Icon className="size-3" aria-hidden="true" />
+      {TASK_LABEL[status]}
+    </Badge>
+  );
+};
 
 const TrackContent = async ({ params }: TrackPageProps) => {
   const { id } = await params;
@@ -68,7 +94,12 @@ const TrackContent = async ({ params }: TrackPageProps) => {
             . Finish line: {track.finishLabel} ({formatElo(track.finishElo)}).
           </Typography>
         </div>
-        {track.finished && <Badge tone="good">Finished</Badge>}
+        {track.finished && (
+          <Badge tone="good">
+            <Flag className="size-3" aria-hidden="true" />
+            Finished
+          </Badge>
+        )}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_23rem]">
@@ -113,10 +144,6 @@ const TrackContent = async ({ params }: TrackPageProps) => {
               </li>
             ))}
           </ol>
-          <Typography variant="meta" as="p" className="border-t border-line px-4 py-2.5">
-            A rung clears when a version&apos;s performance minus half its error bar is above the
-            opponent&apos;s Elo.
-          </Typography>
         </Panel>
       </div>
 
@@ -177,7 +204,7 @@ const TrackContent = async ({ params }: TrackPageProps) => {
                   <Typography variant="small" color="primary">
                     {t.title}
                   </Typography>
-                  <Badge tone={TASK_TONE[t.status]}>{t.status}</Badge>
+                  <TaskBadge status={t.status} />
                 </div>
                 <Typography variant="meta" as="p" className="mt-0.5">
                   {t.claimed_by ? seats[t.claimed_by] : 'unclaimed'} · {formatDay(t.created_at)}

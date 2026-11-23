@@ -24,3 +24,13 @@ Lines that are not `ready` or `bestmove …` are ignored, so engines may print `
   White connects left to right.
 
 The reference implementation of every rule is `shared/src/games/*.ts`. When in doubt, it wins.
+
+## What engines may use
+
+- **Rules come from libraries.** Each crate already depends on a rules library:
+  `shakmaty` (chess), `goban` (go), `othello` (bitboard othello), `hexgame` (hex). Other crates for
+  rules, data structures, hashing, threads or RNG are fine too.
+- **The thinking is written here.** Search, evaluation, playout policies and time management are
+  original code. No engine crates, no ported engine source, no downloaded weights or opening books.
+- Library orientation can differ from the referee (for example which colour owns which Hex edge).
+  Map it carefully and test it: the referee forfeits any illegal move.

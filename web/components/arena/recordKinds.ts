@@ -20,13 +20,13 @@ export type KindMeta = {
 
 export const KINDS: Record<RecordKind, KindMeta> = {
   strategy: { label: 'Strategy', icon: Compass, tone: 'strong' },
-  task_opened: { label: 'Task opened', icon: CirclePlus, tone: 'neutral' },
+  task_opened: { label: 'Opened', icon: CirclePlus, tone: 'neutral' },
   task_claimed: { label: 'Claimed', icon: CircleDot, tone: 'neutral' },
-  patch_landed: { label: 'Landed', icon: GitMerge, tone: 'good' },
+  patch_landed: { label: 'Shipped', icon: GitMerge, tone: 'good' },
   patch_rejected: { label: 'Rejected', icon: Undo2, tone: 'critical' },
   match_verdict: { label: 'Match', icon: Swords, tone: 'strong' },
   rung_cleared: { label: 'Rung cleared', icon: Flag, tone: 'good' },
-  idea_dead: { label: 'Ruled dead', icon: CircleSlash, tone: 'critical' },
+  idea_dead: { label: 'Buried', icon: CircleSlash, tone: 'critical' },
 };
 
 export const TONE_CLASS: Record<KindMeta['tone'], string> = {
@@ -46,5 +46,5 @@ export const KIND_FILTERS: { id: string; label: string; kinds: RecordKind[] | nu
   },
   { id: 'tasks', label: 'Tasks', kinds: ['task_opened', 'task_claimed'] },
   { id: 'strategy', label: 'Strategy', kinds: ['strategy'] },
-  { id: 'dead', label: 'Dead', kinds: ['idea_dead'] },
+  { id: 'dead', label: 'Buried', kinds: ['idea_dead'] },
 ];

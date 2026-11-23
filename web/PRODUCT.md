@@ -8,7 +8,7 @@ web
 
 ## Stack
 
-Next.js (App Router) frontend, Supabase (Postgres + Realtime) backend, deployed to Vercel. The
+Next.js (App Router) frontend on Vercel, Supabase (Postgres + Realtime) backend. The
 swarm harness is a separate Node/TypeScript package; engines are Rust. Chosen by the user.
 
 ## Users
@@ -64,3 +64,8 @@ benchmarks.
 - Visual direction chosen by the user: the category standard played straight, a dark dashboard.
   Craft bar: Linear (dense, quiet, precise; near-black ground, hairline structure, one accent).
 - Working name "Swarm Arena" is provisional.
+- Site copy speaks about the engines, the race and the results. It never mentions the tooling
+  behind the agents (model, vendor, subscription) and carries no meta commentary about the site
+  itself. The only exception is the SAMPLE badge while sample data is shown.
+- Game rules come from third-party libraries; search and evaluation are original. Reference
+  opponents are real engines (Stockfish, GNU Go, Edax).

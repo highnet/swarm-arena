@@ -99,7 +99,7 @@ const PLANS: Record<GameId, Plan> = {
   chess: {
     curve: [40, 310, 520, 760, 910, 1040, 1180, 1265, 1340, 1420],
     ideas: [
-      { title: 'Bitboard move generator, perft-verified to depth 5', seat: 'chess/movegen', spec: 'Pseudo-legal bitboard generation with legality filter. Gate: perft matches reference counts for six positions.', landed: true },
+      { title: 'Wire shakmaty into the protocol and play legal moves', seat: 'chess/rules', spec: 'Parse UCI moves into shakmaty positions; pick a random legal move. Gate: no forfeits in the smoke match.', landed: true },
       { title: 'Alpha-beta search with iterative deepening', seat: 'chess/search', spec: 'Negamax alpha-beta, iterative deepening to the time limit, material-only eval.', landed: true },
       { title: 'Piece-square tables (tapered middlegame/endgame)', seat: 'chess/eval', spec: 'Add PSTs with a game-phase taper.', landed: true },
       { title: 'Quiescence search on captures', seat: 'chess/search', spec: 'Extend leaf nodes with capture-only search, MVV-LVA ordering.', landed: true },
@@ -116,7 +116,7 @@ const PLANS: Record<GameId, Plan> = {
   go9: {
     curve: [30, 260, 430, 560, 690, 790, 880],
     ideas: [
-      { title: 'Board, captures, superko, Tromp-Taylor scoring', seat: 'go/rules', spec: 'Rules core verified against the referee on 10k random games.', landed: true },
+      { title: 'Wire goban with area scoring and superko parity', seat: 'go/rules', spec: 'Map GTP-style coordinates onto goban; match the referee on 10k random games.', landed: true },
       { title: 'UCT tree search with random playouts', seat: 'go/tree', spec: 'UCT with eye-aware random playouts, 2k playouts per move.', landed: true },
       { title: 'RAVE / AMAF statistics', seat: 'go/tree', spec: 'Blend AMAF values into UCT selection.', landed: true },
       { title: '3×3 pattern playout policy', seat: 'go/playout', spec: 'Mogo-style 3x3 patterns bias the playouts.', landed: true },
@@ -130,7 +130,7 @@ const PLANS: Record<GameId, Plan> = {
   othello: {
     curve: [60, 420, 700, 930, 1110, 1240, 1340],
     ideas: [
-      { title: 'Bitboard move generation with flips', seat: 'othello/movegen', spec: 'Kogge-Stone style shifts for all 8 directions.', landed: true },
+      { title: 'Wire the othello crate and handle forced passes', seat: 'othello/rules', spec: 'Map a1-h8 onto the bitboard; pass only when no placement exists.', landed: true },
       { title: 'Alpha-beta with disc-count evaluation', seat: 'othello/search', spec: 'Baseline search.', landed: true },
       { title: 'Mobility + corner + stability evaluation', seat: 'othello/eval', spec: 'Weighted sum of mobility, corner ownership and edge stability.', landed: true },
       { title: 'Exact endgame solver from 14 empties', seat: 'othello/search', spec: 'Switch to perfect play when 14 squares remain.', landed: true },
@@ -142,7 +142,7 @@ const PLANS: Record<GameId, Plan> = {
   hex: {
     curve: [80, 400, 640, 860, 1040, 1230],
     ideas: [
-      { title: 'Union-find win detection', seat: 'hex/rules', spec: 'O(α) connection check per move.', landed: true },
+      { title: 'Wire hexgame with the referee’s edge orientation', seat: 'hex/rules', spec: 'Black joins top to bottom; verify on 10k random games against the referee.', landed: true },
       { title: 'MCTS with uniform random fill-in playouts', seat: 'hex/mcts', spec: 'Random fill to the end then a single connection check.', landed: true },
       { title: 'Bridge-save playout rule', seat: 'hex/mcts', spec: 'When the opponent intrudes a bridge, answer the other cell.', landed: true },
       { title: 'Two-distance evaluation for move priors', seat: 'hex/eval', spec: 'Shannon two-distance as a prior on child nodes.', landed: true },
@@ -154,11 +154,11 @@ const PLANS: Record<GameId, Plan> = {
 };
 
 const STRATEGY = [
-  { h: 0, title: 'Run opened. Four tracks, one rule: no number without a match.', detail: 'Each track starts from an empty crate. First rung for every engine is the random mover; the referee rejects any illegal move as a forfeit.' },
+  { h: 0, title: 'Run opened. Four tracks, one rule: no number without a match.', detail: 'Rules come from libraries; search and evaluation are written from scratch. The referee forfeits any illegal move.' },
   { h: 14, title: 'Chess search seats go first; eval waits for a stable search.', detail: 'Two builders on search, one on eval. Eval patches are gated against the same search version to keep comparisons clean.' },
   { h: 30, title: 'Go is the slowest climber. Moving a builder from Othello to Go playouts.', detail: 'Othello is ahead of its curve; Go playout quality is the bottleneck.' },
   { h: 47, title: 'Hex reached its finish line. Hex seats move to Go.', detail: 'Hex is closed unless a regression shows up in the nightly ladder.' },
-  { h: 62, title: 'Next 24h: chess targets Stockfish level 6, Go targets GNU Go level 1.', detail: 'Chess eval moves to Texel tuning after the hand-tuned king safety stalled.' },
+  { h: 62, title: 'Next 24h: chess targets Stockfish level 3, Go targets GNU Go level 1.', detail: 'Chess eval moves to Texel tuning after the hand-tuned king safety stalled.' },
 ];
 
 const main = async () => {
@@ -353,7 +353,7 @@ const main = async () => {
           agent_id: builder.id,
           task_id: taskId,
           match_id: matchId,
-          title: `${nextVersion} landed: ${idea.title}`,
+          title: `${nextVersion} shipped: ${idea.title}`,
           detail: `${Math.round(est.elo - prevElo) >= 0 ? '+' : ''}${Math.round(est.elo - prevElo)} Elo over ${track.current_version === 'v0.1' ? 'baseline' : 'the previous version'}.`,
         });
         for (const r of trackRungs) {

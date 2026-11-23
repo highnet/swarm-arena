@@ -33,7 +33,8 @@ Recent results on this track:
 ${recent || '- none yet'}
 
 Rules:
-- Write the engine yourself. Do not copy, vendor or download existing engine code or engine crates. Only std and crates already in Cargo.toml.
+- Use the rules library already in Cargo.toml (or another rules/data-structure crate) for move generation and game state.
+- Write search, evaluation and time management yourself. No engine crates, ported engine source, downloaded weights or opening books.
 - Keep the protocol below working. The referee forfeits illegal moves, crashes and timeouts.
 - Stay inside this crate. Run \`cargo build --release\` and \`cargo test\` until both pass.
 - When you are done, reply with one sentence describing the change. Do not commit; the harness commits.
@@ -167,7 +168,7 @@ export const runTask = async (task: Task, seatId: string, seat: string) => {
       match_id: gate.matchId,
     });
     const delta = prev === null ? 'first measured version' : `${gate.est.elo - prev >= 0 ? '+' : ''}${Math.round(gate.est.elo - prev)} Elo over the previous version`;
-    await post('patch_landed', { track_id: task.track_id, agent_id: seatId, task_id: task.id, match_id: gate.matchId, title: `${version} landed: ${task.title}`, detail: `${delta}.` });
+    await post('patch_landed', { track_id: task.track_id, agent_id: seatId, task_id: task.id, match_id: gate.matchId, title: `${version} shipped: ${task.title}`, detail: `${delta}.` });
     for (const r of ladder) {
       if (!r.cleared_at && gate.est.elo - gate.est.error / 2 > r.elo) {
         await db.update('rungs', { id: r.id }, { cleared_at: now(), cleared_by_match: gate.matchId });

@@ -1,5 +1,5 @@
 import { mctsPlayer, randomPlayer, type GameId, type Mover } from '@arena/shared';
-import { gnugo, stockfish } from './engine';
+import { edax, gnugo, stockfish } from './engine';
 
 /**
  * Resolve a rung's opponent id to a player. Built-ins need nothing installed;
@@ -19,9 +19,8 @@ export const reference = async (opponent: string, game: GameId, moveMs: number, 
       if (game !== 'go9') break;
       return gnugo(n);
     case 'edax':
-      throw new Error(
-        'edax adapter not wired yet: add one in harness/src/engine.ts (edax speaks its own text protocol) or replace the rung',
-      );
+      if (game !== 'othello') break;
+      return edax(n);
   }
   throw new Error(`unknown reference "${opponent}" for ${game}`);
 };

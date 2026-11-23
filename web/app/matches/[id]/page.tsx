@@ -32,7 +32,6 @@ const MatchContent = async ({ params }: MatchPageProps) => {
     a.finished_at.localeCompare(b.finished_at),
   );
   const total = match.wins + match.draws + match.losses;
-  const verdict = s.records.find((r) => r.match_id === match.id && r.kind === 'match_verdict');
   const firstLabel = track.id === 'chess' ? 'White' : 'Black';
 
   return (
@@ -74,21 +73,15 @@ const MatchContent = async ({ params }: MatchPageProps) => {
           </div>
         ))}
       </dl>
-      {verdict?.detail && (
-        <Typography variant="small" className="mt-3">
-          Referee: {verdict.detail}
-        </Typography>
-      )}
 
       <Typography variant="sectionTitle" className="mb-3 mt-8">
-        Stored games
+        Games
         <span className="ml-2 font-normal text-fg-3">
-          {games.length} of {total}
-          {s.run.is_sample && ' · sample replays by reference players'}
+          {games.length === total ? total : `${games.length} of ${total} stored`}
         </span>
       </Typography>
       {games.length === 0 ? (
-        <Typography variant="small">No stored games for this match.</Typography>
+        <Typography variant="small">No games stored for this match.</Typography>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {games.map((g, i) => (

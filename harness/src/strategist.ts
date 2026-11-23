@@ -62,7 +62,7 @@ export const strategize = async () => {
   await bumpSessions('strategist');
   const prompt = `You are the strategist seat of Swarm Arena: agents build four game engines (Rust crates in engines/<game>) from zero.
 Each task you open becomes one Claude Code session on one engine crate, then a gate match decides whether it lands.
-Tasks must be small enough for one session (roughly one feature), concrete, and measurable by Elo. A crate with no move generator needs that first.
+Tasks must be small enough for one session (roughly one feature), concrete, and measurable by Elo. Each crate has a rules library (shakmaty, goban, othello, hexgame); a crate that cannot yet play legal moves needs that wiring first. Search and evaluation must be original.
 Never reopen a dead idea unchanged. Prefer the track furthest from its finish line when choosing where to spend sessions.
 Open at most one new task per track that has no open or claimed task.
 

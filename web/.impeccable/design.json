@@ -1,0 +1,592 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-23T08:25:46+00:00",
+  "title": "Design System: Swarm Arena",
+  "extensions": {
+    "colorMeta": {
+      "bg": {
+        "role": "neutral",
+        "displayName": "Arena Night",
+        "canonical": "oklch(0.155 0.006 265)",
+        "tonalRamp": [
+          "oklch(0.15 0.001 265)",
+          "oklch(0.26 0.002 265)",
+          "oklch(0.37 0.003 265)",
+          "oklch(0.48 0.005 265)",
+          "oklch(0.60 0.006 265)",
+          "oklch(0.72 0.005 265)",
+          "oklch(0.84 0.003 265)",
+          "oklch(0.95 0.002 265)"
+        ]
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "Panel Slate",
+        "canonical": "oklch(0.185 0.006 265)",
+        "tonalRamp": [
+          "oklch(0.15 0.001 265)",
+          "oklch(0.26 0.002 265)",
+          "oklch(0.37 0.003 265)",
+          "oklch(0.48 0.005 265)",
+          "oklch(0.60 0.006 265)",
+          "oklch(0.72 0.005 265)",
+          "oklch(0.84 0.003 265)",
+          "oklch(0.95 0.002 265)"
+        ]
+      },
+      "panel-raised": {
+        "role": "neutral",
+        "displayName": "Raised Slate",
+        "canonical": "oklch(0.215 0.007 265)",
+        "tonalRamp": [
+          "oklch(0.15 0.001 265)",
+          "oklch(0.26 0.002 265)",
+          "oklch(0.37 0.004 265)",
+          "oklch(0.48 0.005 265)",
+          "oklch(0.60 0.007 265)",
+          "oklch(0.72 0.005 265)",
+          "oklch(0.84 0.004 265)",
+          "oklch(0.95 0.002 265)"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "oklch(0.265 0.007 265)",
+        "tonalRamp": [
+          "oklch(0.15 0.001 265)",
+          "oklch(0.26 0.002 265)",
+          "oklch(0.37 0.004 265)",
+          "oklch(0.48 0.005 265)",
+          "oklch(0.60 0.007 265)",
+          "oklch(0.72 0.005 265)",
+          "oklch(0.84 0.004 265)",
+          "oklch(0.95 0.002 265)"
+        ]
+      },
+      "line-strong": {
+        "role": "neutral",
+        "displayName": "Strong Hairline",
+        "canonical": "oklch(0.34 0.008 265)",
+        "tonalRamp": [
+          "oklch(0.15 0.001 265)",
+          "oklch(0.26 0.003 265)",
+          "oklch(0.37 0.004 265)",
+          "oklch(0.48 0.006 265)",
+          "oklch(0.60 0.008 265)",
+          "oklch(0.72 0.006 265)",
+          "oklch(0.84 0.004 265)",
+          "oklch(0.95 0.002 265)"
+        ]
+      },
+      "fg": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "oklch(0.965 0.003 265)",
+        "tonalRamp": [
+          "oklch(0.15 0.000 265)",
+          "oklch(0.26 0.001 265)",
+          "oklch(0.37 0.002 265)",
+          "oklch(0.48 0.002 265)",
+          "oklch(0.60 0.003 265)",
+          "oklch(0.72 0.002 265)",
+          "oklch(0.84 0.002 265)",
+          "oklch(0.95 0.001 265)"
+        ]
+      },
+      "fg-2": {
+        "role": "neutral",
+        "displayName": "Ink 2",
+        "canonical": "oklch(0.79 0.008 265)",
+        "tonalRamp": [
+          "oklch(0.15 0.001 265)",
+          "oklch(0.26 0.003 265)",
+          "oklch(0.37 0.004 265)",
+          "oklch(0.48 0.006 265)",
+          "oklch(0.60 0.008 265)",
+          "oklch(0.72 0.006 265)",
+          "oklch(0.84 0.004 265)",
+          "oklch(0.95 0.002 265)"
+        ]
+      },
+      "fg-3": {
+        "role": "neutral",
+        "displayName": "Ink 3",
+        "canonical": "oklch(0.66 0.01 265)",
+        "tonalRamp": [
+          "oklch(0.15 0.002 265)",
+          "oklch(0.26 0.003 265)",
+          "oklch(0.37 0.005 265)",
+          "oklch(0.48 0.008 265)",
+          "oklch(0.60 0.010 265)",
+          "oklch(0.72 0.008 265)",
+          "oklch(0.84 0.005 265)",
+          "oklch(0.95 0.003 265)"
+        ]
+      },
+      "primary": {
+        "role": "primary",
+        "displayName": "Referee White",
+        "canonical": "oklch(0.965 0.003 265)",
+        "tonalRamp": [
+          "oklch(0.15 0.000 265)",
+          "oklch(0.26 0.001 265)",
+          "oklch(0.37 0.002 265)",
+          "oklch(0.48 0.002 265)",
+          "oklch(0.60 0.003 265)",
+          "oklch(0.72 0.002 265)",
+          "oklch(0.84 0.002 265)",
+          "oklch(0.95 0.001 265)"
+        ]
+      },
+      "primary-fg": {
+        "role": "primary",
+        "displayName": "Referee White Ink",
+        "canonical": "oklch(0.17 0.006 265)",
+        "tonalRamp": [
+          "oklch(0.15 0.001 265)",
+          "oklch(0.26 0.002 265)",
+          "oklch(0.37 0.003 265)",
+          "oklch(0.48 0.005 265)",
+          "oklch(0.60 0.006 265)",
+          "oklch(0.72 0.005 265)",
+          "oklch(0.84 0.003 265)",
+          "oklch(0.95 0.002 265)"
+        ]
+      },
+      "series-1": {
+        "role": "data",
+        "displayName": "Track 1 Blue",
+        "canonical": "oklch(0.622 0.161 255.1)",
+        "tonalRamp": [
+          "oklch(0.15 0.024 255.1)",
+          "oklch(0.26 0.052 255.1)",
+          "oklch(0.37 0.087 255.1)",
+          "oklch(0.48 0.122 255.1)",
+          "oklch(0.60 0.161 255.1)",
+          "oklch(0.72 0.122 255.1)",
+          "oklch(0.84 0.084 255.1)",
+          "oklch(0.95 0.048 255.1)"
+        ]
+      },
+      "series-2": {
+        "role": "data",
+        "displayName": "Track 2 Orange",
+        "canonical": "oklch(0.622 0.173 40.1)",
+        "tonalRamp": [
+          "oklch(0.15 0.026 40.1)",
+          "oklch(0.26 0.055 40.1)",
+          "oklch(0.37 0.093 40.1)",
+          "oklch(0.48 0.131 40.1)",
+          "oklch(0.60 0.173 40.1)",
+          "oklch(0.72 0.131 40.1)",
+          "oklch(0.84 0.090 40.1)",
+          "oklch(0.95 0.052 40.1)"
+        ]
+      },
+      "series-3": {
+        "role": "data",
+        "displayName": "Track 3 Aqua",
+        "canonical": "oklch(0.621 0.128 163.1)",
+        "tonalRamp": [
+          "oklch(0.15 0.019 163.1)",
+          "oklch(0.26 0.041 163.1)",
+          "oklch(0.37 0.069 163.1)",
+          "oklch(0.48 0.097 163.1)",
+          "oklch(0.60 0.128 163.1)",
+          "oklch(0.72 0.097 163.1)",
+          "oklch(0.84 0.067 163.1)",
+          "oklch(0.95 0.038 163.1)"
+        ]
+      },
+      "series-4": {
+        "role": "data",
+        "displayName": "Track 4 Amber",
+        "canonical": "oklch(0.67 0.143 73.2)",
+        "tonalRamp": [
+          "oklch(0.15 0.021 73.2)",
+          "oklch(0.26 0.046 73.2)",
+          "oklch(0.37 0.077 73.2)",
+          "oklch(0.48 0.109 73.2)",
+          "oklch(0.60 0.143 73.2)",
+          "oklch(0.72 0.109 73.2)",
+          "oklch(0.84 0.074 73.2)",
+          "oklch(0.95 0.043 73.2)"
+        ]
+      },
+      "good": {
+        "role": "status",
+        "displayName": "Verdict Green",
+        "canonical": "oklch(0.621 0.207 142.6)",
+        "tonalRamp": [
+          "oklch(0.15 0.031 142.6)",
+          "oklch(0.26 0.066 142.6)",
+          "oklch(0.37 0.112 142.6)",
+          "oklch(0.48 0.157 142.6)",
+          "oklch(0.60 0.207 142.6)",
+          "oklch(0.72 0.157 142.6)",
+          "oklch(0.84 0.108 142.6)",
+          "oklch(0.95 0.062 142.6)"
+        ]
+      },
+      "good-text": {
+        "role": "status",
+        "displayName": "Verdict Green Text",
+        "canonical": "oklch(0.709 0.201 143.1)",
+        "tonalRamp": [
+          "oklch(0.15 0.030 143.1)",
+          "oklch(0.26 0.064 143.1)",
+          "oklch(0.37 0.109 143.1)",
+          "oklch(0.48 0.153 143.1)",
+          "oklch(0.60 0.201 143.1)",
+          "oklch(0.72 0.153 143.1)",
+          "oklch(0.84 0.105 143.1)",
+          "oklch(0.95 0.060 143.1)"
+        ]
+      },
+      "warning": {
+        "role": "status",
+        "displayName": "Sample Amber",
+        "canonical": "oklch(0.811 0.164 78.5)",
+        "tonalRamp": [
+          "oklch(0.15 0.025 78.5)",
+          "oklch(0.26 0.052 78.5)",
+          "oklch(0.37 0.089 78.5)",
+          "oklch(0.48 0.125 78.5)",
+          "oklch(0.60 0.164 78.5)",
+          "oklch(0.72 0.125 78.5)",
+          "oklch(0.84 0.085 78.5)",
+          "oklch(0.95 0.049 78.5)"
+        ]
+      },
+      "critical": {
+        "role": "status",
+        "displayName": "Refuted Red",
+        "canonical": "oklch(0.575 0.186 25.2)",
+        "tonalRamp": [
+          "oklch(0.15 0.028 25.2)",
+          "oklch(0.26 0.060 25.2)",
+          "oklch(0.37 0.100 25.2)",
+          "oklch(0.48 0.141 25.2)",
+          "oklch(0.60 0.186 25.2)",
+          "oklch(0.72 0.141 25.2)",
+          "oklch(0.84 0.097 25.2)",
+          "oklch(0.95 0.056 25.2)"
+        ]
+      },
+      "critical-text": {
+        "role": "status",
+        "displayName": "Refuted Red Text",
+        "canonical": "oklch(0.687 0.165 22.4)",
+        "tonalRamp": [
+          "oklch(0.15 0.025 22.4)",
+          "oklch(0.26 0.053 22.4)",
+          "oklch(0.37 0.089 22.4)",
+          "oklch(0.48 0.125 22.4)",
+          "oklch(0.60 0.165 22.4)",
+          "oklch(0.72 0.125 22.4)",
+          "oklch(0.84 0.086 22.4)",
+          "oklch(0.95 0.050 22.4)"
+        ]
+      },
+      "square-light": {
+        "role": "board",
+        "displayName": "Light Square",
+        "canonical": "oklch(0.34 0.008 265)",
+        "tonalRamp": [
+          "oklch(0.15 0.001 265)",
+          "oklch(0.26 0.003 265)",
+          "oklch(0.37 0.004 265)",
+          "oklch(0.48 0.006 265)",
+          "oklch(0.60 0.008 265)",
+          "oklch(0.72 0.006 265)",
+          "oklch(0.84 0.004 265)",
+          "oklch(0.95 0.002 265)"
+        ]
+      },
+      "square-dark": {
+        "role": "board",
+        "displayName": "Dark Square",
+        "canonical": "oklch(0.27 0.008 265)",
+        "tonalRamp": [
+          "oklch(0.15 0.001 265)",
+          "oklch(0.26 0.003 265)",
+          "oklch(0.37 0.004 265)",
+          "oklch(0.48 0.006 265)",
+          "oklch(0.60 0.008 265)",
+          "oklch(0.72 0.006 265)",
+          "oklch(0.84 0.004 265)",
+          "oklch(0.95 0.002 265)"
+        ]
+      },
+      "stone-black": {
+        "role": "board",
+        "displayName": "Black Stone",
+        "canonical": "oklch(0.13 0.004 265)",
+        "tonalRamp": [
+          "oklch(0.15 0.001 265)",
+          "oklch(0.26 0.001 265)",
+          "oklch(0.37 0.002 265)",
+          "oklch(0.48 0.003 265)",
+          "oklch(0.60 0.004 265)",
+          "oklch(0.72 0.003 265)",
+          "oklch(0.84 0.002 265)",
+          "oklch(0.95 0.001 265)"
+        ]
+      },
+      "stone-white": {
+        "role": "board",
+        "displayName": "White Stone",
+        "canonical": "oklch(0.93 0.004 265)",
+        "tonalRamp": [
+          "oklch(0.15 0.001 265)",
+          "oklch(0.26 0.001 265)",
+          "oklch(0.37 0.002 265)",
+          "oklch(0.48 0.003 265)",
+          "oklch(0.60 0.004 265)",
+          "oklch(0.72 0.003 265)",
+          "oklch(0.84 0.002 265)",
+          "oklch(0.95 0.001 265)"
+        ]
+      },
+      "highlight": {
+        "role": "board",
+        "displayName": "Last-move Highlight",
+        "canonical": "oklch(0.8 0.12 85 / 0.32)",
+        "tonalRamp": [
+          "oklch(0.15 0.018 85)",
+          "oklch(0.26 0.038 85)",
+          "oklch(0.37 0.065 85)",
+          "oklch(0.48 0.091 85)",
+          "oklch(0.60 0.120 85)",
+          "oklch(0.72 0.091 85)",
+          "oklch(0.84 0.062 85)",
+          "oklch(0.95 0.036 85)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Page title",
+        "purpose": "One h1 per page; 24px rising to 28px at sm, semibold, tight tracking, balanced wrap."
+      },
+      "headline": {
+        "displayName": "Lede",
+        "purpose": "The one or two sentences under the page title, fg-2."
+      },
+      "title": {
+        "displayName": "Section title",
+        "purpose": "Panel headers."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Explanatory copy, fg-2, max-w-prose where long."
+      },
+      "body-small": {
+        "displayName": "Small",
+        "purpose": "Record titles, row names, nav links, button text."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Record-kind labels and small headers, fg-3, sentence case."
+      },
+      "meta": {
+        "displayName": "Meta",
+        "purpose": "Timestamps, counter labels, axis text, day dividers, fg-3."
+      },
+      "data": {
+        "displayName": "Data",
+        "purpose": "Geist Mono tabular: Elo, plies, counts, times, versions, seat IDs."
+      },
+      "data-large": {
+        "displayName": "Big data",
+        "purpose": "Geist Mono headline numbers."
+      }
+    },
+    "shadows": [
+      {
+        "name": "float",
+        "value": "0 8px 24px rgb(0 0 0 / 0.45)",
+        "purpose": "Race-chart crosshair tooltip only."
+      },
+      {
+        "name": "pressed-segment",
+        "value": "0 1px 2px rgb(0 0 0 / 0.4)",
+        "purpose": "Active option in a segmented filter."
+      }
+    ],
+    "motion": [
+      {
+        "name": "transition-color",
+        "value": "150ms (Tailwind default ease)",
+        "purpose": "Hover colour, background and border changes on buttons, links and rows."
+      },
+      {
+        "name": "pulse-dot",
+        "value": "pulse-dot 2s ease-in-out infinite",
+        "purpose": "Live indicator and working-agent dots only."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "animation/transition-duration 0.01ms",
+        "purpose": "Collapses all motion under prefers-reduced-motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      },
+      {
+        "name": "xl",
+        "value": "1280px"
+      },
+      {
+        "name": "container",
+        "value": "90rem"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "White fill, near-black text; the single page-level action (defined, not yet used on a page).",
+      "html": "<button class=\"ds-btn ds-btn-primary\">Open track</button>",
+      "css": ".ds-btn { font-family: var(--font-sans, Geist, ui-sans-serif, system-ui, sans-serif); display:inline-flex; align-items:center; gap:6px; height:32px; padding:0 12px; font-size:13px; border-radius:6px; border:0; cursor:pointer; transition:background-color .15s, color .15s, border-color .15s; } .ds-btn-primary { background:var(--primary, oklch(0.965 0.003 265)); color:var(--primary-fg, oklch(0.17 0.006 265)); font-weight:500; } .ds-btn-primary:hover { background:var(--fg-2, oklch(0.79 0.008 265)); } .ds-btn:focus-visible { outline:2px solid var(--fg, oklch(0.965 0.003 265)); outline-offset:2px; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Default button: panel fill, hairline border, raises on hover.",
+      "html": "<button class=\"ds-btn2\">View games</button>",
+      "css": ".ds-btn2 { font-family: var(--font-sans, Geist, ui-sans-serif, system-ui, sans-serif); display:inline-flex; align-items:center; height:32px; padding:0 12px; font-size:13px; font-weight:500; border-radius:6px; cursor:pointer; background:var(--panel, oklch(0.185 0.006 265)); color:var(--fg, oklch(0.965 0.003 265)); border:1px solid var(--line, oklch(0.265 0.007 265)); transition:background-color .15s, border-color .15s; } .ds-btn2:hover { background:var(--panel-raised, oklch(0.215 0.007 265)); border-color:var(--line-strong, oklch(0.34 0.008 265)); } .ds-btn2:focus-visible { outline:2px solid var(--fg, oklch(0.965 0.003 265)); outline-offset:2px; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Transparent fg-2 control; fills panel-raised on hover. Used for 'Show older records' and icon replay controls.",
+      "html": "<button class=\"ds-btn-ghost\">Show 30 older records</button> <button class=\"ds-btn-ghost ds-btn-icon\" aria-label=\"Play\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polygon points=\"6 3 20 12 6 21 6 3\"/></svg></button>",
+      "css": ".ds-btn-ghost { font-family: var(--font-sans, Geist, ui-sans-serif, system-ui, sans-serif); display:inline-flex; align-items:center; justify-content:center; height:28px; padding:0 10px; font-size:12px; border:0; border-radius:6px; background:transparent; color:var(--fg-2, oklch(0.79 0.008 265)); cursor:pointer; transition:background-color .15s, color .15s; } .ds-btn-ghost:hover { background:var(--panel-raised, oklch(0.215 0.007 265)); color:var(--fg, oklch(0.965 0.003 265)); } .ds-btn-icon { width:32px; height:32px; padding:0; } .ds-btn-ghost:focus-visible { outline:2px solid var(--fg, oklch(0.965 0.003 265)); outline-offset:2px; }"
+    },
+    {
+      "name": "Segmented Filter",
+      "kind": "chip",
+      "refersTo": "button-segment",
+      "description": "Segment buttons in a bg well; pressed option raises with a 1px shadow. Track options carry their series dot.",
+      "html": "<div class=\"ds-seg\" role=\"group\"><button class=\"ds-seg-btn\" aria-pressed=\"true\">All</button><button class=\"ds-seg-btn\" aria-pressed=\"false\">Verdicts</button><button class=\"ds-seg-btn\" aria-pressed=\"false\"><span class=\"ds-dot\"></span>Chess</button></div>",
+      "css": ".ds-seg { display:inline-flex; gap:2px; padding:2px; border-radius:6px; background:var(--bg, oklch(0.155 0.006 265)); } .ds-seg-btn { font-family: var(--font-sans, Geist, ui-sans-serif, system-ui, sans-serif); display:inline-flex; align-items:center; gap:6px; height:24px; padding:0 8px; font-size:12px; border:0; border-radius:5px; background:transparent; color:var(--fg-3, oklch(0.66 0.01 265)); cursor:pointer; transition:color .15s, background-color .15s; } .ds-seg-btn:hover { color:var(--fg, oklch(0.965 0.003 265)); } .ds-seg-btn[aria-pressed=true] { background:var(--panel-raised, oklch(0.215 0.007 265)); color:var(--fg, oklch(0.965 0.003 265)); box-shadow:0 1px 2px rgb(0 0 0 / .4); } .ds-seg-btn:focus-visible { outline:2px solid var(--fg, oklch(0.965 0.003 265)); outline-offset:2px; } .ds-dot { width:6px; height:6px; border-radius:9999px; background:var(--series-1, #3987e5); }"
+    },
+    {
+      "name": "Badges",
+      "kind": "chip",
+      "refersTo": "badge-sample",
+      "description": "Neutral, SAMPLE (warning), good and critical tones; status tones always carry an icon and a word.",
+      "html": "<span class=\"ds-badge ds-badge-sample\">Sample data</span> <span class=\"ds-badge ds-badge-good\"><svg width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z\"/><line x1=\"4\" x2=\"4\" y1=\"22\" y2=\"15\"/></svg>Finished</span> <span class=\"ds-badge ds-badge-critical\">Ruled dead</span> <span class=\"ds-badge\">claimed</span>",
+      "css": ".ds-badge { font-family: var(--font-sans, Geist, ui-sans-serif, system-ui, sans-serif); display:inline-flex; align-items:center; gap:4px; padding:0 6px; font-size:11px; font-weight:500; line-height:20px; border-radius:5px; border:1px solid var(--line, oklch(0.265 0.007 265)); background:var(--panel-raised, oklch(0.215 0.007 265)); color:var(--fg-2, oklch(0.79 0.008 265)); white-space:nowrap; } .ds-badge-sample { border-color:color-mix(in oklab, var(--warning, #fab219) 40%, transparent); background:color-mix(in oklab, var(--warning, #fab219) 10%, transparent); color:var(--warning, #fab219); } .ds-badge-good { border-color:color-mix(in oklab, var(--good, #0ca30c) 40%, transparent); background:color-mix(in oklab, var(--good, #0ca30c) 10%, transparent); color:var(--good-text, #3fbf3f); } .ds-badge-critical { border-color:color-mix(in oklab, var(--critical, #d03b3b) 40%, transparent); background:color-mix(in oklab, var(--critical, #d03b3b) 10%, transparent); color:var(--critical-text, #ef6a6a); }"
+    },
+    {
+      "name": "Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Panel surface with hairline border and 44px header; rows are hairline-divided.",
+      "html": "<section class=\"ds-panel\"><header class=\"ds-panel-h\"><h2>The race</h2><span class=\"ds-meta\">4 tracks</span></header><ul class=\"ds-rows\"><li><span>Chess</span><span class=\"ds-data\">1,412 <span class=\"ds-meta\">/ 2,000</span></span></li><li><span>Go 9x9</span><span class=\"ds-data\">988 <span class=\"ds-meta\">/ 1,800</span></span></li></ul></section>",
+      "css": ".ds-panel { font-family: var(--font-sans, Geist, ui-sans-serif, system-ui, sans-serif); background:var(--panel, oklch(0.185 0.006 265)); border:1px solid var(--line, oklch(0.265 0.007 265)); border-radius:8px; color:var(--fg, oklch(0.965 0.003 265)); } .ds-panel-h { display:flex; align-items:center; justify-content:space-between; min-height:44px; padding:8px 16px; border-bottom:1px solid var(--line, oklch(0.265 0.007 265)); } .ds-panel-h h2 { margin:0; font-size:14px; font-weight:500; } .ds-rows { list-style:none; margin:0; padding:0; } .ds-rows li { display:flex; justify-content:space-between; padding:10px 16px; font-size:13px; transition:background-color .15s; } .ds-rows li + li { border-top:1px solid var(--line, oklch(0.265 0.007 265)); } .ds-rows li:hover { background:var(--panel-raised, oklch(0.215 0.007 265)); } .ds-meta { font-size:12px; color:var(--fg-3, oklch(0.66 0.01 265)); } .ds-data { font-family:var(--font-mono, 'Geist Mono', ui-monospace, monospace); font-variant-numeric:tabular-nums; }"
+    },
+    {
+      "name": "Top Bar",
+      "kind": "nav",
+      "refersTo": "site-header",
+      "description": "48px sticky bar: mark, name, SAMPLE badge, nav links, hairline divider, live indicator.",
+      "html": "<header class=\"ds-nav\"><a class=\"ds-brand\" href=\"#\"><svg viewBox=\"0 0 20 20\" width=\"20\" height=\"20\"><path d=\"M3 16 7 10l3 3 3-6 4 9\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"17\" cy=\"16\" r=\"1.75\" fill=\"currentColor\"/></svg>Swarm Arena</a><nav><a href=\"#\">Race</a><a href=\"#\">Board</a><a href=\"#\">How it works</a><span class=\"ds-sep\"></span><span class=\"ds-live\"><span class=\"ds-live-dot\"></span>Live</span></nav></header>",
+      "css": ".ds-nav { font-family: var(--font-sans, Geist, ui-sans-serif, system-ui, sans-serif); display:flex; align-items:center; gap:16px; height:48px; padding:0 16px; background:color-mix(in oklab, var(--bg, oklch(0.155 0.006 265)) 90%, transparent); backdrop-filter:blur(12px); border-bottom:1px solid var(--line, oklch(0.265 0.007 265)); } .ds-brand { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:600; letter-spacing:-0.025em; color:var(--fg, oklch(0.965 0.003 265)); text-decoration:none; } .ds-nav nav { margin-left:auto; display:flex; align-items:center; gap:4px; } .ds-nav nav a { padding:6px 10px; border-radius:6px; font-size:13px; color:var(--fg-2, oklch(0.79 0.008 265)); text-decoration:none; transition:background-color .15s, color .15s; } .ds-nav nav a:hover { background:var(--panel-raised, oklch(0.215 0.007 265)); color:var(--fg, oklch(0.965 0.003 265)); } .ds-nav nav a:focus-visible { outline:2px solid var(--fg, oklch(0.965 0.003 265)); outline-offset:2px; } .ds-sep { width:1px; height:16px; margin:0 8px; background:var(--line, oklch(0.265 0.007 265)); } .ds-live { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--fg-2, oklch(0.79 0.008 265)); } .ds-live-dot { width:6px; height:6px; border-radius:9999px; background:var(--good, #0ca30c); animation:ds-pulse 2s ease-in-out infinite; } @keyframes ds-pulse { 50% { opacity:.35; } }"
+    },
+    {
+      "name": "Board Record Row",
+      "kind": "custom",
+      "description": "Signature feed row: mono time, tone icon, label + track dot + mono seat, title, detail, Games link.",
+      "html": "<div class=\"ds-rec\"><time class=\"ds-rec-t\">14:02</time><svg class=\"ds-rec-i\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"18\" cy=\"18\" r=\"3\"/><circle cx=\"6\" cy=\"6\" r=\"3\"/><path d=\"M6 21V9a9 9 0 0 0 9 9\"/></svg><div><div class=\"ds-rec-m\"><span class=\"ds-rec-l\">Landed</span><span class=\"ds-rec-trk\"><span class=\"ds-dot\"></span>Chess</span><span class=\"ds-rec-s\">seat-2</span></div><p class=\"ds-rec-title\">Quiescence search on captures</p><p class=\"ds-rec-d\">+64 Elo over 400 games against rung 3.</p></div><a class=\"ds-rec-a\" href=\"#\">Games &#8599;</a></div>",
+      "css": ".ds-rec { font-family: var(--font-sans, Geist, ui-sans-serif, system-ui, sans-serif); display:grid; grid-template-columns:3.25rem 1.25rem 1fr auto; column-gap:10px; padding:10px 16px; background:var(--panel, oklch(0.185 0.006 265)); } .ds-rec-t { font-family:var(--font-mono, 'Geist Mono', ui-monospace, monospace); font-size:12px; font-variant-numeric:tabular-nums; color:var(--fg-3, oklch(0.66 0.01 265)); } .ds-rec-i { margin-top:2px; color:var(--good-text, #3fbf3f); } .ds-rec-m { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px; font-size:12px; } .ds-rec-l { font-weight:500; color:var(--good-text, #3fbf3f); } .ds-rec-trk { display:inline-flex; align-items:center; gap:4px; color:var(--fg-2, oklch(0.79 0.008 265)); } .ds-dot { width:6px; height:6px; border-radius:9999px; background:var(--series-1, #3987e5); } .ds-rec-s { font-family:var(--font-mono, 'Geist Mono', ui-monospace, monospace); font-size:11px; color:var(--fg-3, oklch(0.66 0.01 265)); } .ds-rec-title { margin:2px 0 0; font-size:13px; line-height:20px; color:var(--fg, oklch(0.965 0.003 265)); } .ds-rec-d { margin:2px 0 0; font-size:12px; line-height:20px; color:var(--fg-3, oklch(0.66 0.01 265)); } .ds-rec-a { font-size:12px; color:var(--fg-2, oklch(0.79 0.008 265)); text-decoration:none; transition:color .15s; } .ds-rec-a:hover { color:var(--fg, oklch(0.965 0.003 265)); } .ds-rec-a:focus-visible { outline:2px solid var(--fg, oklch(0.965 0.003 265)); outline-offset:2px; border-radius:4px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Referee's Console",
+    "overview": "Swarm Arena is the category standard played straight: a Linear-grade dark dashboard, dense, quiet and precise. A cool near-black ground carries one raised panel tone, and structure comes from hairline borders rather than boxes, shadows or colour. The chrome is deliberately colourless (white, three greys, hairlines) so that the only saturated things on screen are the data: four track hues climbing a race chart, and the rare green or red of a verdict.\n\nThe system is dark only, by design. There is no light theme and no theme switch; `color-scheme: dark` is set at the root. Density is high and calm: 13-14px UI text, 10px row padding, 16px panel gutters, a 48px top bar. Nothing is decorative. Every saturated mark either identifies a track or reports a status, and every number is set in Geist Mono with tabular figures because it was measured, not written.\n\nMotion is nearly absent. The one ambient animation is the pulsing live dot; everything else is a 150ms colour transition on hover. Reduced-motion collapses all animation and transition durations.",
+    "keyCharacteristics": [
+      "Dark only: near-black ground (hue 265, a faint cool blue) with one raised panel tone and one hover tone.",
+      "Hairline structure: 1px `line` borders and `divide-y` rows; no card shadows.",
+      "Colourless chrome: the primary action colour is the foreground white.",
+      "Four categorical track hues, used only as data identity.",
+      "Status hues reserved for verdicts and always paired with an icon and a label.",
+      "Geist for UI, Geist Mono only for measured data.",
+      "SAMPLE data is always flagged with the warning-tone badge."
+    ],
+    "rules": [
+      {
+        "name": "The Identity, Not Rank Rule",
+        "body": "Colour follows the entity, never its rank. A track's hue is fixed by its slot and never reassigned for leader, sort order or state; track hues never appear on chrome, buttons or text that is not about that track.",
+        "section": "colors"
+      },
+      {
+        "name": "The Reserved Status Rule",
+        "body": "Green and red mean verified and refuted, nothing else. They always ship with an icon and a label (Flag + \"Finished\", GitMerge + \"Landed\", CircleSlash + \"Ruled dead\"); colour alone never carries a status.",
+        "section": "colors"
+      },
+      {
+        "name": "The One White Rule",
+        "body": "The only action colour is the foreground white. Chrome stays greyscale so the data is the only saturated thing on screen.",
+        "section": "colors"
+      },
+      {
+        "name": "The SAMPLE Rule",
+        "body": "Synthetic data is labelled with the warning-tone badge wherever it appears, with a one-line explanation on hover or inline.",
+        "section": "colors"
+      },
+      {
+        "name": "The Mono Means Measured Rule",
+        "body": "Geist Mono is used only for data: Elo, moves and plies, counts, times, versions and seat IDs, always with tabular figures. Prose, labels and headings are never mono; a measured number is never sans.",
+        "section": "typography"
+      },
+      {
+        "name": "The Sentence Case Rule",
+        "body": "All labels, titles and badges are sentence case at normal tracking. Hierarchy comes from weight and the three ink tones, not from caps or letter-spacing.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tonal Ladder Rule",
+        "body": "Surfaces separate by lightness step and hairline, never by shadow. A shadow appears only on something that floats above the page (tooltip) or on a pressed control.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do build every surface from the three-step tonal ladder (`bg`, `panel`, `panel-raised`) and 1px `line` hairlines.",
+      "Do give each track one series slot and use it for every mark about that track: line, dot, rung, filter, tooltip row.",
+      "Do pair every green or red with a lucide icon and a word, as the ladder's Flag + \"Finished\" and the feed's verdict rows do.",
+      "Do set every measured number in Geist Mono with tabular figures, and its label in sans `fg-3`.",
+      "Do label synthetic data with the warning-tone SAMPLE badge and say what it is.",
+      "Do direct-label chart series at the line end and keep an accessible table behind the chart.",
+      "Do keep transitions to 150ms colour changes and respect reduced motion."
+    ],
+    "donts": [
+      "Don't add a light theme or theme toggle; the system is dark only.",
+      "Don't use a track hue for chrome, buttons, emphasis or decoration, or reassign hues by rank or leader.",
+      "Don't add a fifth categorical hue without re-running the CVD validator against `panel`.",
+      "Don't use green, red or amber for anything but verdicts, failures and SAMPLE/connecting, and never as colour alone.",
+      "Don't introduce a brand accent; the primary is white.",
+      "Don't put shadows on panels or rows; depth is tonal.",
+      "Don't set prose, headings or labels in mono, or numbers in sans.",
+      "Don't use uppercase or letter-spaced labels or eyebrow text above headings."
+    ]
+  }
+}

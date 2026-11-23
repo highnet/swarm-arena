@@ -1,6 +1,23 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createInterface, type Interface } from 'node:readline';
+import { existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import type { GameId, GameRules, Mover } from '@arena/shared';
+import { ARENA_HOME } from './config';
+
+/** Find a reference binary: env override, then the install script's location, then PATH. */
+export const findBin = (name: string, envVar: string): string => {
+  const env = process.env[envVar];
+  if (env) return env;
+  const candidates = [
+    resolve(ARENA_HOME, 'refs/edax/bin', name),
+    resolve(ARENA_HOME, 'refs/bin', name),
+    `/usr/games/${name}`,
+    `/opt/homebrew/bin/${name}`,
+    `/usr/local/bin/${name}`,
+  ];
+  return candidates.find((c) => existsSync(c)) ?? name;
+};
 
 /**
  * A line-based process speaking a small protocol. Used for arena engines (see
@@ -90,7 +107,7 @@ export const arenaEngine = async (id: string, binary: string, game: GameId, move
 
 /** Stockfish at a fixed skill level, via UCI. Needs `stockfish` on PATH. */
 export const stockfish = async (level: number, moveMs: number): Promise<Mover> => {
-  const p = new LineProcess(process.env.STOCKFISH_BIN ?? 'stockfish', []);
+  const p = new LineProcess(findBin('stockfish', 'STOCKFISH_BIN'), []);
   p.send('uci');
   await p.until((l) => l === 'uciok');
   p.send(`setoption name Skill Level value ${level}`);
@@ -108,27 +125,58 @@ export const stockfish = async (level: number, moveMs: number): Promise<Mover> =
   };
 };
 
-/** GNU Go at a fixed level on 9×9 with komi 7.5, via GTP. Needs `gnugo` on PATH. */
-export const gnugo = async (level: number): Promise<Mover> => {
-  const p = new LineProcess(process.env.GNUGO_BIN ?? 'gnugo', ['--mode', 'gtp', '--level', String(level), '--chinese-rules']);
+type GtpOptions = {
+  id: string;
+  command: string;
+  args: string[];
+  cwd?: string;
+  setup: string[];
+};
+
+/**
+ * Any GTP engine. The full game is replayed each move (clear_board + play ...), which keeps
+ * the engine in sync with the referee even after a forfeit or a pass.
+ */
+export const gtpEngine = async ({ id, command, args, cwd, setup }: GtpOptions): Promise<Mover> => {
+  const p = new LineProcess(command, args, cwd);
   const cmd = async (c: string) => {
     p.send(c);
     const reply = await p.until((l) => l.startsWith('=') || l.startsWith('?'));
     await p.next(); // blank line terminating a GTP response
-    if (reply.startsWith('?')) throw new Error(`gtp: ${c}: ${reply}`);
+    if (reply.startsWith('?')) throw new Error(`gtp ${id}: ${c}: ${reply}`);
     return reply.slice(1).trim();
   };
-  await cmd('boardsize 9');
-  await cmd('komi 7.5');
+  for (const c of setup) await cmd(c);
   return {
-    id: `gnugo-${level}`,
+    id,
     choose: async <S>(_rules: GameRules<S>, state: S) => {
       await cmd('clear_board');
       const moves = movesOf(state);
       for (const [i, m] of moves.entries()) await cmd(`play ${i % 2 === 0 ? 'b' : 'w'} ${m}`);
-      const reply = (await cmd(`genmove ${moves.length % 2 === 0 ? 'b' : 'w'}`)).toLowerCase();
-      return reply === 'resign' ? 'resign' : reply;
+      // "resign" is not a legal move, so the referee scores it as a loss for this engine.
+      return (await cmd(`genmove ${moves.length % 2 === 0 ? 'b' : 'w'}`)).toLowerCase();
     },
     close: () => p.close(),
   };
+};
+
+/** GNU Go at a fixed level on 9×9, Chinese (area) rules, komi 7.5. */
+export const gnugo = (level: number) =>
+  gtpEngine({
+    id: `gnugo-${level}`,
+    command: findBin('gnugo', 'GNUGO_BIN'),
+    args: ['--mode', 'gtp', '--level', String(level), '--chinese-rules'],
+    setup: ['boardsize 9', 'komi 7.5'],
+  });
+
+/** Edax at a fixed search depth, opening book off. Needs its data/eval.dat beside the binary. */
+export const edax = (level: number) => {
+  const bin = findBin('lEdax-x86-64', 'EDAX_BIN');
+  return gtpEngine({
+    id: `edax-${level}`,
+    command: bin,
+    args: ['-gtp', '-l', String(level), '-book-usage', 'off', '-n', '1', '-q'],
+    cwd: dirname(bin),
+    setup: ['boardsize 8'],
+  });
 };

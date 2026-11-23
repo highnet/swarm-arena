@@ -28,7 +28,6 @@ export const TRACKS: TrackSpec[] = [
     finishLabel: 'Stockfish level 10',
     rungs: [
       { label: 'Random mover', opponent: 'random', elo: 0 },
-      { label: 'MCTS 200', opponent: 'mcts-200', elo: 350 },
       { label: 'Stockfish level 0', opponent: 'stockfish-0', elo: 900 },
       { label: 'Stockfish level 3', opponent: 'stockfish-3', elo: 1250 },
       { label: 'Stockfish level 6', opponent: 'stockfish-6', elo: 1600 },
@@ -42,9 +41,9 @@ export const TRACKS: TrackSpec[] = [
     finishLabel: 'GNU Go level 10',
     rungs: [
       { label: 'Random mover', opponent: 'random', elo: 0 },
-      { label: 'MCTS 200', opponent: 'mcts-200', elo: 420 },
-      { label: 'MCTS 2000', opponent: 'mcts-2000', elo: 760 },
+      { label: 'MCTS 2000', opponent: 'mcts-2000', elo: 600 },
       { label: 'GNU Go level 1', opponent: 'gnugo-1', elo: 1150 },
+      { label: 'GNU Go level 5', opponent: 'gnugo-5', elo: 1300 },
       { label: 'GNU Go level 10', opponent: 'gnugo-10', elo: 1450 },
     ],
   },
@@ -55,9 +54,9 @@ export const TRACKS: TrackSpec[] = [
     finishLabel: 'Edax level 10',
     rungs: [
       { label: 'Random mover', opponent: 'random', elo: 0 },
-      { label: 'MCTS 200', opponent: 'mcts-200', elo: 480 },
-      { label: 'MCTS 2000', opponent: 'mcts-2000', elo: 820 },
-      { label: 'Edax level 3', opponent: 'edax-3', elo: 1300 },
+      { label: 'Edax level 1', opponent: 'edax-1', elo: 700 },
+      { label: 'Edax level 3', opponent: 'edax-3', elo: 1150 },
+      { label: 'Edax level 6', opponent: 'edax-6', elo: 1550 },
       { label: 'Edax level 10', opponent: 'edax-10', elo: 1900 },
     ],
   },

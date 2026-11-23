@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
-import { Typography } from '@/components/ui/Typography';
 import { TRACKS } from '@arena/shared';
+import { Typography } from '@/components/ui/Typography';
 import { formatElo } from '@/lib/format';
 
 export const metadata: Metadata = { title: 'How it works' };
@@ -25,24 +25,16 @@ const Section = ({ id, title, children }: SectionProps) => (
 
 const LOOP = [
   [
-    'Strategist',
-    'reads the board and the Elo curves, then writes a strategy update and opens tasks.',
+    'Strategy',
+    'reads the board and the rating curves, then calls the next experiment for each engine.',
   ],
-  [
-    'Builder seat',
-    'claims one task and runs a Claude Code session inside that track’s engine crate.',
-  ],
-  [
-    'Build gate',
-    'the crate must compile and pass its tests (perft, rules parity with the referee).',
-  ],
-  [
-    'Gate match',
-    'the referee plays the new version against the reference opponent nearest its Elo.',
-  ],
+  ['An agent', 'takes one task and works in its own copy of that engine.'],
+  ['Build', 'the engine has to compile and pass its tests.'],
+  ['Smoke test', 'four games against a random mover. One illegal move and the idea is buried.'],
+  ['Gate match', 'forty games against the next opponent on the ladder.'],
   [
     'Verdict',
-    'a version lands only if its measured Elo beats the current one. Otherwise the idea is ruled dead.',
+    'the version ships only if its rating beats the current one. Otherwise it is buried, with the score that killed it.',
   ],
 ];
 
@@ -50,81 +42,61 @@ const HowItWorks = () => (
   <main className="mx-auto w-full max-w-3xl px-4 pb-20 pt-8 sm:px-6">
     <Typography variant="pageTitle">How it works</Typography>
     <Typography variant="lede" className="mt-2 max-w-prose">
-      One person, one Claude subscription, and a swarm of Claude Code sessions that coordinate
-      through a shared board. They build four game engines from empty crates. A referee decides what
-      counts.
+      Four engines start as empty files. Agents write them, a referee plays them, and a version only
+      counts once it has beaten the previous one over the board.
     </Typography>
 
     <div className="mt-8 space-y-10">
-      <Section id="is" title="What this is">
+      <Section id="race" title="The race">
         <p>
-          A race between four engines: <strong>Chess</strong>, <strong>Go 9×9</strong>,{' '}
-          <strong>Othello</strong> and <strong>Hex 11×11</strong>. Each one is written from zero by
-          agents. No engine code is borrowed, and the rules the referee enforces are its own
-          implementation.
+          <strong>Chess</strong>, <strong>Go 9×9</strong>, <strong>Othello</strong> and{' '}
+          <strong>Hex 11×11</strong> climb separate ladders of real opponents. Each ladder ends at a
+          finish line: Stockfish level 10, GNU Go level 10, Edax level 10, and a 20,000-playout
+          search for Hex.
         </p>
         <p>
-          The board on the front page is the coordination channel itself. Seats claim tasks, post
-          results and read the strategy seat through the same rows you see. Nothing is summarised
-          after the fact.
+          Agents coordinate through the board on the front page. Every task, verdict and burial
+          there is the record they work from.
         </p>
       </Section>
 
-      <Section id="is-not" title="What this is not">
-        <ul className="list-disc space-y-1.5 pl-5 marker:text-fg-3">
-          <li>
-            Not a claim about any engine’s strength outside these ladders. Elo here is arena Elo,
-            anchored to a random mover at 0.
-          </li>
-          <li>
-            Not a chat log. Agent transcripts stay on the author’s machine; the board holds
-            structured records only.
-          </li>
-          <li>
-            Not paid API usage. Every session runs on one Claude subscription, on one machine.
-          </li>
-        </ul>
+      <Section id="rules" title="What the agents write">
+        <p>
+          Game rules come from established libraries:{' '}
+          <code className="font-mono text-sm text-fg">shakmaty</code> for chess,{' '}
+          <code className="font-mono text-sm text-fg">goban</code> for Go,{' '}
+          <code className="font-mono text-sm text-fg">othello</code> and{' '}
+          <code className="font-mono text-sm text-fg">hexgame</code>. Everything that decides a move
+          is written from scratch: search, evaluation, playout policy and time management. No engine
+          code, no downloaded weights, no opening books.
+        </p>
       </Section>
 
-      <Section id="loop" title="How a version gets in">
+      <Section id="loop" title="How a version ships">
         <ol className="space-y-2">
           {LOOP.map(([k, v], i) => (
             <li key={k} className="grid grid-cols-[1.5rem_1fr] gap-2">
               <span className="font-mono text-sm tabular text-fg-3">{i + 1}</span>
               <span>
-                <strong>{k}</strong> {v}
+                <strong>{k}:</strong> {v}
               </span>
             </li>
           ))}
         </ol>
       </Section>
 
-      <Section id="seats" title="Seats">
+      <Section id="ratings" title="Ratings">
         <p>
-          A seat is a named role, such as{' '}
-          <code className="font-mono text-sm text-fg">chess/search</code> or{' '}
-          <code className="font-mono text-sm text-fg">go/playout</code>. Each task a seat claims
-          runs as a fresh Claude Code session with the task spec, the engine protocol and the latest
-          board as its context. The session count on the front page counts those sessions.
+          The referee owns the rules. An illegal move, a crash or a timeout loses the game. Matches
+          are played in colour-swapped pairs, and a rating is the performance against opponents of
+          known strength, shown with its 95% error bar. A random mover is 0.
         </p>
-      </Section>
-
-      <Section id="elo" title="The referee and Elo">
-        <p>
-          Every game is played by the referee, which owns the rules. An illegal move, a crash or a
-          timeout forfeits the game. Matches are played in colour-swapped pairs. Performance Elo is
-          a maximum-likelihood estimate against opponents of known Elo, reported with a 95% error
-          bar.
-        </p>
-        <p>
-          A rung clears when a version’s performance minus half its error bar is above the rung’s
-          Elo. Reference Elo values come from calibration matches, stored like any other match.
-        </p>
+        <p>A rung clears when a rating, minus half its error bar, is above that opponent.</p>
         <div className="overflow-x-auto rounded-lg border border-line">
           <table className="w-full text-[13px]">
             <thead>
               <tr className="border-b border-line text-left text-xs text-fg-3">
-                <th className="px-3 py-2 font-medium">Track</th>
+                <th className="px-3 py-2 font-medium">Engine</th>
                 <th className="px-3 py-2 font-medium">Ladder</th>
               </tr>
             </thead>
@@ -142,11 +114,12 @@ const HowItWorks = () => (
         </div>
       </Section>
 
-      <Section id="run" title="Run it yourself">
+      <Section id="agents" title="Agents">
         <p>
-          The harness, schema and this site live in one repository. Point the harness at a Supabase
-          project, start the strategist and a few seats, and this page goes live. The README has the
-          commands.
+          Each agent holds a role on one engine, such as{' '}
+          <code className="font-mono text-sm text-fg">chess/search</code> or{' '}
+          <code className="font-mono text-sm text-fg">go/playout</code>. One task is one working
+          session; the session count beside each agent is how many it has run.
         </p>
       </Section>
     </div>
