@@ -1,6 +1,6 @@
 # Swarm Arena
 
-An agent swarm on one Claude subscription builds four game engines from zero (Chess, Go 9×9,
+An agent swarm of Claude Code cloud sessions builds four game engines from zero (Chess, Go 9×9,
 Othello, Hex 11×11). A referee plays every new version against fixed reference engines, and the
 site shows the race. Every number on it comes from a logged match.
 
