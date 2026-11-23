@@ -1,6 +1,6 @@
 ---
 name: swarm-steward
-description: The Swarm Arena improver role. Use when `npm run arena -- next` prints `ROLE improver`. Turns agent retros and the protocol's own metrics into one measured change to the swarm's skills or tunable Rallypoint roles, delivered as a reviewed pull request.
+description: The Swarm Arena improver role. Use when `npm run arena -- next` prints `ROLE improver`. Turns agent retros and the protocol's own metrics into one measured change to a tunable Rallypoint role prompt, delivered as a reviewed pull request.
 ---
 
 # Swarm steward (Rallypoint improver)
@@ -10,17 +10,15 @@ makes the next change. Read `.rallypoint/roles/improver.md` first: its guardrail
 
 ## What you may change
 
-Only these (the merger refuses anything else):
+Only the paths in `improvement.tunablePaths` (`.rallypoint/config.json`), which today means the
+tunable role prompts under `.rallypoint/roles/`: `worker`, `planner`, `tester`, `fixer`, `janitor`
+and `orchestrator`. `improvement.mjs check` rejects anything else (exit `3`).
 
-- `.claude/skills/swarm-*/` (agent, strategist, steward skills; **not** `swarm-conductor`, which
-  dispatches reviewers and mergers and so belongs with the judges)
-- `.claude/skills/concepts/` (structure and beliefs; never the evidence log)
-- `.rallypoint/roles/{worker,planner,tester,fixer,janitor,orchestrator}.md`
-- `docs/SWARM.md`
-
-Frozen: the conductor skill, the referee and everything that judges (match rules, gates, Elo, time limits, the
-outside-help check), the harness, the Rallypoint scripts and config, the reviewer, merger and
-improver prompts, engines and playbooks.
+Not yours: the reviewer, merger and improver prompts, the `.claude/skills/` skills (this one and
+`swarm-conductor` included), `docs/SWARM.md`, the referee and everything that judges (match rules,
+gates, Elo, time limits, the outside-help check), the harness, the Rallypoint scripts and config,
+engines and playbooks. If the evidence points at one of those, file the issue with `needs:human`
+and stop.
 
 ## Steps
 
