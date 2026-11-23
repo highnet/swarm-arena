@@ -1,0 +1,1 @@
+- 2026-11-23 · **alpha-beta** · Chess · v0.2 rated 1259 (+500) · Negamax alpha-beta with iterative deepening inside the go budget
