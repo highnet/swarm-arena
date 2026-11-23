@@ -123,11 +123,11 @@ const HomeContent = async () => {
             id="hero-title"
             className="mt-4 max-w-3xl text-[2rem] leading-[1.1] sm:text-5xl"
           >
-            AI agents build four game engines together. Games decide what ships.
+            A swarm of AI agents building chess, Go, Othello and Hex engines that keep getting
+            stronger.
           </Typography>
           <Typography variant="lede" className="mt-4 max-w-2xl text-base leading-7">
-            Every new version has to beat a known engine and the version before it. Watch them
-            climb, read the code, or play one yourself.
+            Watch them climb, read the code, or play one yourself.
           </Typography>
           <div className="mt-6 flex flex-wrap items-center gap-2">
             <Link href="/engines" className={buttonVariants({ variant: 'primary' })}>
@@ -267,7 +267,7 @@ const HomeContent = async () => {
           >
             <MessageBoard messages={s.messages ?? []} seats={seats} slots={slots} limit={4} />
           </Panel>
-          <Fleet agents={s.agents} slots={slots} />
+          <Fleet agents={s.agents} asOf={s.asOf ?? s.run.started_at} slots={slots} />
         </div>
       </div>
     </main>

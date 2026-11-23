@@ -16,27 +16,37 @@ Rallypoint as is. Nothing in `src/` imports React, Next.js, Tailwind or `@arena/
 
 ## Vocabulary
 
-The input is Rallypoint's own terms, so any repository running the protocol can feed it:
+The input uses Rallypoint's own terms, so any repository running the protocol can feed it:
 
-- **integrationBranch** — `config.json`'s `integrationBranch`; the hub every merge flows into.
-- **sectors** — parts of the codebase effort lands in. The host decides what a sector is: a
-  directory, a package, an issue label. Each has an optional colour and `paths`.
-- **agents** — one per seat, with its Rallypoint role (`.rallypoint/roles/`), `working` only
-  while its session is live, the sector and work item it holds now.
-- **workItems** — claimable issues, `open → claimed → review → merged | closed`.
-- **events** — what agents log (`plan`, `claim`, `progress`, `review`, `merge`, `reject`,
-  `milestone`, `protocol`). Each event's weight is effort, summed per sector and per agent.
+- **integrationBranch**: `config.json`'s `integrationBranch`, the trunk every branch forks from
+  and merges back into.
+- **sectors**: the parts of the codebase (paths in the integration branch) that work lands in.
+  The host decides what a sector is: a directory, a package, an issue label.
+- **agents**: one per seat, with its Rallypoint role (`.rallypoint/roles/`). An agent is
+  `working` only while its session is live. Each agent also carries the work item and PR it is on.
+- **workItems**: one per issue, carried through the protocol's stages: `backlog` / `held`
+  (issue) → `claimed` (branch) → `review` / `changes` / `approved` (pull request) → `merged`,
+  or `closed`. `rallypointBranch()` gives the same `agent/<issue>-<slug>` name `claim.mjs`
+  prescribes.
+- **events**: what agents log (`plan`, `claim`, `progress`, `review`, `merge`, `reject`,
+  `milestone`, `protocol`).
 
 ## What the graph shows
 
-- Sectors sit on a ring around the integration branch; their size and number are effort.
-- Live agents glow and stream particles into the work they hold, which feeds its sector;
-  live sectors stream into the hub.
-- Faint **contribution** links tie an agent to every other sector it has spent effort on, so
-  you can see how each agent's work is spread across the codebase.
-- Gate roles with no sector (reviewer, merger) wait by the hub.
-- Each `update()` diffs the new events against the ones it has seen and fires a spark from the
-  agent to where the event landed; merges travel from the work item into the hub.
+It follows the protocol. **Nothing reaches the integration branch except a merge.**
+
+- Sectors ring the integration branch. Each sector is sized by the effort logged in it.
+- An open issue is a dashed node waiting outside its sector.
+- A claim forks a branch (◇) from the integration branch's tip. The branch sits between the
+  trunk and the sector it changes. The worker (or fixer) sits on its branch, streaming effort
+  into its worktree.
+- Once delivered, the branch becomes a pull request (▢), outlined by review state: in review,
+  changes asked (warning), approved (good). Reviewers and the merger sit on the pull request
+  they gate. The referee's gate matches spark into the branch they measure.
+- A merge is the only flow into the integration branch. It travels from the branch into the
+  trunk, then out to the sector whose paths it changed, where the work rests as landed.
+- Faint dotted lines show every sector an agent has spent effort on. They light up when the
+  agent is hovered.
 - `replay()` plays the whole event history back, growing each sector from zero.
 
 ## Using it
@@ -58,7 +68,8 @@ can be overridden through `options.theme`. Honour `prefers-reduced-motion` by pa
 
 The only arena-specific code is the adapter (`web/lib/swarmGraph.ts`, Supabase snapshot →
 `SwarmInput`) and the React mount (`web/components/arena/SwarmGraph.tsx`). To ship with
-Rallypoint, move this directory as is and write one adapter from Rallypoint's own state — issues
-and their `status:*` labels, `rallypoint-claims/` and `rallypoint-sessions/` refs, pull requests,
-and the reports `report.mjs` writes — to `SwarmInput`. Sectors can default to top-level
-directories touched by each pull request.
+Rallypoint, move this directory as is. Then write one adapter to `SwarmInput` from Rallypoint's
+own state: issues and their `status:*` labels, `rallypoint-claims/` and `rallypoint-sessions/`
+refs, pull requests and their `review:*` labels, and the reports `report.mjs` writes. The arena's
+adapter already derives stages from the same labels (`web/lib/github.ts` `stageOf`). Sectors can
+default to the top-level directories each pull request touches.

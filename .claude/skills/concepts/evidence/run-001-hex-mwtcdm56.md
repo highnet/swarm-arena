@@ -1,0 +1,1 @@
+- 2026-11-23 · **mcts** · Hex 11×11 · v0.2 rated 1459 (+700) · MCTS (UCT) with random fill-in playouts on a flat 121-cell board

@@ -8,7 +8,7 @@
  * whoever logged it to where it landed. `replay()` plays the whole event history back.
  */
 import * as d3 from 'd3';
-import type { SwarmFlow, SwarmGraph, SwarmLink, SwarmNode } from './model';
+import type { SwarmFlow, SwarmGraph, SwarmLink, SwarmNode, SwarmStage } from './model';
 
 export type SwarmGraphTheme = {
   fg: string;
@@ -21,6 +21,7 @@ export type SwarmGraphTheme = {
   /** Colour for nodes whose sector has none. */
   neutral: string;
   good: string;
+  warning: string;
   critical: string;
   font: string;
   monoFont: string;
@@ -69,6 +70,7 @@ export const DEFAULT_THEME: SwarmGraphTheme = {
   panelRaised: 'var(--panel-raised, #222328)',
   neutral: 'var(--fg-3, #9a9ca6)',
   good: 'var(--good, #0ca30c)',
+  warning: 'var(--warning, #fab219)',
   critical: 'var(--critical, #d03b3b)',
   font: 'var(--font-sans, ui-sans-serif, system-ui, sans-serif)',
   monoFont: 'var(--font-mono, ui-monospace, monospace)',
@@ -96,7 +98,6 @@ type Ripple = { key: number; node: SimNode; start: number; color: string };
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const AMBIENT_MS = 1500;
-const TRUNK_MS = 2600;
 const RIPPLE_MS = 900;
 
 const ROLE_GLYPH: Record<string, string> = {
@@ -161,10 +162,35 @@ const radiusOf = (n: SwarmNode, effort: number, scale = 1) => {
     case 'sector':
       return Math.min(48, 18 + Math.sqrt(effort) * 2.6) * scale;
     case 'work':
-      return n.workItem && ['open', 'claimed', 'review'].includes(n.workItem.status) ? 7 : 4.5;
+      return n.phase === 'pr' ? 8 : n.phase === 'branch' ? 8 : n.phase === 'issue' ? 5 : 4;
     case 'agent':
       return n.active ? 11 : 8.5;
   }
+};
+
+/** Node bodies: circles, except a branch (diamond) and a pull request (rounded square). */
+const bodyPath = (n: SwarmNode, r: number) => {
+  if (n.kind === 'work' && n.phase === 'branch') {
+    const d = r * 1.2;
+    return `M0,${-d}L${d},0L0,${d}L${-d},0Z`;
+  }
+  if (n.kind === 'work' && n.phase === 'pr') {
+    const h = r * 0.95;
+    const c = Math.min(3, h / 3);
+    return `M${-h + c},${-h}H${h - c}Q${h},${-h} ${h},${-h + c}V${h - c}Q${h},${h} ${h - c},${h}H${-h + c}Q${-h},${h} ${-h},${h - c}V${-h + c}Q${-h},${-h} ${-h + c},${-h}Z`;
+  }
+  return `M${-r},0a${r},${r} 0 1,0 ${2 * r},0a${r},${r} 0 1,0 ${-2 * r},0`;
+};
+
+const STAGE_LABEL: Record<SwarmStage, string> = {
+  backlog: 'issue',
+  held: 'held',
+  claimed: 'branch',
+  review: 'in review',
+  changes: 'changes asked',
+  approved: 'approved',
+  merged: 'merged',
+  closed: 'closed',
 };
 
 const shortLabel = (s: string, max = 26) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
@@ -254,13 +280,23 @@ export const createSwarmGraph = (
     if (n.kind === 'sector') return n.ring ?? { x: 0, y: 0 };
     const ring = n.sectorId ? nodeById.get(`sector:${n.sectorId}`)?.ring : undefined;
     if (!ring) return { x: 0, y: 0 };
-    const k = n.kind === 'work' ? 1.15 : 1.08;
+    // Branches and pull requests live between the integration branch they forked from and the
+    // sector they change; issues wait outside the ring; landed work sits in its sector.
+    const k =
+      n.kind === 'work'
+        ? n.phase === 'branch' || n.phase === 'pr'
+          ? 0.56
+          : n.phase === 'issue'
+            ? 1.2
+            : 1
+        : 1.08;
     return { x: ring.x * k, y: ring.y * k };
   };
   const anchorStrength = (n: SimNode) => {
     if (n.kind === 'sector') return 0.5;
-    if (!n.sectorId) return n.kind === 'agent' ? 0.04 : 0;
-    return n.kind === 'work' ? 0.18 : n.active ? 0.05 : 0.1;
+    if (n.kind === 'agent') return n.sectorId ? 0.03 : 0.02;
+    if (!n.sectorId) return 0;
+    return n.phase === 'landed' ? 0.3 : 0.2;
   };
 
   const simulation = d3
@@ -285,16 +321,19 @@ export const createSwarmGraph = (
     .forceLink<SimNode, SimLink>()
     .id((n) => n.id)
     .distance((l) => {
-      if (l.kind === 'work') return l.source.r + l.target.r + 26;
+      if (l.kind === 'target') return l.target.r + 34;
+      if (l.kind === 'landed') return l.target.r + 12;
       if (l.kind === 'assignment')
-        return l.target.kind === 'work' ? 30 : l.target.kind === 'hub' ? 70 : l.target.r + 46;
+        return l.target.kind === 'work' ? 34 : l.target.kind === 'hub' ? 70 : l.target.r + 46;
       if (l.kind === 'contribution') return 160;
       return ringRadius();
     })
     .strength((l) => {
-      if (l.kind === 'trunk') return 0;
+      // The ring and the anchors place trunk, fork and scope ends; the links are drawn, not pulled.
+      if (l.kind === 'trunk' || l.kind === 'fork' || l.kind === 'scope') return 0;
       if (l.kind === 'contribution') return Math.min(0.06, 0.01 * Math.sqrt(l.weight));
-      if (l.kind === 'work') return 0.7;
+      if (l.kind === 'target') return 0.4;
+      if (l.kind === 'landed') return 0.8;
       return 0.6;
     });
   simulation.force('link', linkForce);
@@ -325,19 +364,33 @@ export const createSwarmGraph = (
     return set;
   };
 
-  const linkStyle = (l: SimLink) => {
-    const c =
-      l.kind === 'work' ? theme.lineStrong : colorOf(l.target.kind === 'hub' ? l.source : l.target);
+  const linkStyle = (
+    l: SimLink,
+  ): { stroke: string; width: number; opacity: number; dash: string | null } => {
+    const c = colorOf(l.target.kind === 'hub' ? l.source : l.target);
     switch (l.kind) {
       case 'trunk':
+        // The sector's paths are part of the integration branch.
         return {
           stroke: colorOf(l.source),
-          width: 1.2 + Math.sqrt(l.weight) * 0.55,
-          opacity: l.active ? 0.6 : 0.28,
-          dash: l.active ? '6 6' : null,
+          width: 1 + Math.sqrt(l.weight) * 0.4,
+          opacity: 0.2,
+          dash: null,
         };
-      case 'work':
-        return { stroke: c, width: 1, opacity: 0.6, dash: null };
+      case 'fork':
+        // Branched from the integration branch's tip; animated while an agent works in it.
+        return {
+          stroke: colorOf(l.target),
+          width: 1.6,
+          opacity: l.active ? 0.85 : 0.5,
+          dash: l.active ? '5 5' : null,
+        };
+      case 'scope':
+        return { stroke: colorOf(l.source), width: 1, opacity: 0.28, dash: '1 4' };
+      case 'target':
+        return { stroke: colorOf(l.target), width: 1, opacity: 0.35, dash: '3 4' };
+      case 'landed':
+        return { stroke: colorOf(l.target), width: 1, opacity: 0.4, dash: null };
       case 'assignment':
         return l.active
           ? { stroke: colorOf(l.source), width: 1.8, opacity: 0.9, dash: '3 5' }
@@ -345,9 +398,10 @@ export const createSwarmGraph = (
       case 'contribution':
         return {
           stroke: c,
-          width: Math.min(5, 0.6 + Math.sqrt(l.weight) * 0.7),
-          opacity: Math.min(0.32, 0.08 + l.weight * 0.025),
-          dash: null,
+          // History, not a path work travels: faint until the agent is hovered.
+          width: Math.min(2.5, 0.5 + Math.sqrt(l.weight) * 0.35),
+          opacity: Math.min(0.12, 0.04 + l.weight * 0.01),
+          dash: '1 3',
         };
     }
   };
@@ -372,7 +426,7 @@ export const createSwarmGraph = (
 
     // Rings: the halo of every live sector / agent.
     const ringed = [...nodeById.values()].filter(
-      (n) => n.active && (n.kind === 'sector' || n.kind === 'agent' || n.kind === 'hub'),
+      (n) => n.active && (n.kind === 'sector' || n.kind === 'agent' || n.kind === 'work'),
     );
     gRings
       .selectAll<SVGCircleElement, SimNode>('circle')
@@ -410,7 +464,7 @@ export const createSwarmGraph = (
             .style('cursor', 'pointer')
             .style('outline', 'none')
             .attr('opacity', 0);
-          g.append('circle').attr('class', 'sg-body');
+          g.append('path').attr('class', 'sg-body');
           g.append('text')
             .attr('class', 'sg-glyph')
             .attr('text-anchor', 'middle')
@@ -425,10 +479,10 @@ export const createSwarmGraph = (
       );
 
     groups.attr('aria-label', (n) => `${n.kind} ${n.label}`);
-    groups.select<SVGCircleElement>('circle.sg-body').each(function (n) {
+    groups.select<SVGPathElement>('path.sg-body').each(function (n) {
       const el = d3.select(this);
       const c = colorOf(n);
-      el.transition().duration(500).attr('r', n.r);
+      el.attr('d', bodyPath(n, n.r)).attr('stroke-dasharray', null);
       if (n.kind === 'hub') {
         el.style('fill', theme.panelRaised)
           .style('stroke', theme.fg)
@@ -442,12 +496,34 @@ export const createSwarmGraph = (
           .attr('stroke-width', n.active ? 2 : 1.25)
           .attr('filter', n.active ? glowUrl : null);
       } else if (n.kind === 'work') {
-        const open = n.workItem && ['open', 'claimed', 'review'].includes(n.workItem.status);
-        el.style('fill', open ? (n.active ? c : theme.panel) : c)
-          .attr('fill-opacity', open ? 1 : 0.45)
-          .style('stroke', c)
-          .attr('stroke-width', open ? 1.5 : 0)
-          .attr('filter', null);
+        const stage = n.workItem?.stage;
+        const stroke =
+          stage === 'approved'
+            ? theme.good
+            : stage === 'changes'
+              ? theme.warning
+              : stage === 'held'
+                ? theme.fgFaint
+                : c;
+        if (n.phase === 'issue')
+          el.style('fill', theme.panel)
+            .attr('fill-opacity', 1)
+            .style('stroke', stroke)
+            .attr('stroke-width', 1.25)
+            .attr('stroke-dasharray', '2 2')
+            .attr('filter', null);
+        else if (n.phase === 'landed')
+          el.style('fill', c)
+            .attr('fill-opacity', 0.55)
+            .style('stroke', 'none')
+            .attr('stroke-width', 0)
+            .attr('filter', null);
+        else
+          el.style('fill', n.phase === 'pr' || n.active ? c : theme.panel)
+            .attr('fill-opacity', n.phase === 'pr' ? 0.3 : n.active ? 0.35 : 1)
+            .style('stroke', stroke)
+            .attr('stroke-width', stage === 'approved' || stage === 'changes' ? 2.2 : 1.6)
+            .attr('filter', n.active ? glowUrl : null);
       } else {
         el.style('fill', theme.panelRaised)
           .attr('fill-opacity', 1)
@@ -477,7 +553,11 @@ export const createSwarmGraph = (
 
     groups
       .select<SVGTextElement>('text.sg-label')
-      .style('font-family', theme.font)
+      .style('font-family', (n) =>
+        n.kind === 'work' && (n.phase === 'branch' || n.phase === 'pr')
+          ? theme.monoFont
+          : theme.font,
+      )
       .attr('font-size', (n) => (n.kind === 'sector' ? 13 : 11))
       .attr('font-weight', (n) => (n.kind === 'sector' ? 600 : 500))
       .style('fill', (n) => (n.kind === 'sector' || n.active ? theme.fg : theme.fgFaint))
@@ -485,13 +565,7 @@ export const createSwarmGraph = (
       .style('stroke', theme.panel)
       .attr('stroke-width', 3)
       .attr('dy', (n) => n.r + (n.kind === 'sector' ? 16 : 13))
-      .text((n) => {
-        if (n.kind === 'sector') return n.label;
-        if (n.kind === 'agent' && (n.active || n === hovered)) return shortLabel(n.label, 22);
-        if (n.kind === 'work' && n === hovered) return shortLabel(n.label, 34);
-        if (n.kind === 'hub') return '';
-        return '';
-      });
+      .text((n) => labelOf(n));
 
     groups
       .select<SVGTextElement>('text.sg-sub')
@@ -508,6 +582,8 @@ export const createSwarmGraph = (
           return live ? `${live} live` : '';
         }
         if (n.kind === 'agent' && n.active) return n.agent?.role ?? '';
+        if (n.kind === 'work' && n.phase === 'pr' && n.workItem)
+          return STAGE_LABEL[n.workItem.stage];
         return '';
       });
 
@@ -584,24 +660,28 @@ export const createSwarmGraph = (
     applyHover();
   };
 
+  /** Sectors, live agents, branches and pull requests are always named; the rest on hover. */
+  const labelOf = (n: SimNode) => {
+    if (n.kind === 'sector') return n.label;
+    if (n.kind === 'agent') return n.active || n === hovered ? shortLabel(n.label, 22) : '';
+    if (n.kind === 'work') {
+      if (n.phase === 'branch' || n.phase === 'pr')
+        return shortLabel(n.label, n === hovered ? 48 : 30);
+      return n === hovered ? shortLabel(n.label, 34) : '';
+    }
+    return '';
+  };
+
   const applyHover = () => {
     const near = hovered ? neighbours(hovered) : null;
     const groups = gNodes.selectAll<SVGGElement, SimNode>('g.sg-node');
     groups
-      .select<SVGCircleElement>('circle.sg-body')
-      .interrupt()
-      .transition()
-      .duration(180)
-      .attr('r', (n) => (n === hovered ? n.r + 4 : n.r));
+      .select<SVGPathElement>('path.sg-body')
+      .attr('d', (n) => bodyPath(n, n === hovered ? n.r + 4 : n.r));
     groups
       .attr('opacity', (n) => (!near || near.has(n.id) ? 1 : 0.2))
       .select<SVGTextElement>('text.sg-label')
-      .text((n) => {
-        if (n.kind === 'sector') return n.label;
-        if (n.kind === 'agent' && (n.active || n === hovered)) return shortLabel(n.label, 22);
-        if (n.kind === 'work' && n === hovered) return shortLabel(n.label, 34);
-        return '';
-      });
+      .text((n) => labelOf(n));
     gLinks
       .selectAll<SVGPathElement, SimLink>('path')
       .interrupt()
@@ -652,25 +732,31 @@ export const createSwarmGraph = (
     ripples.push({ key: nextKey++, node, start: now, color });
   };
 
-  /** Fire one event onto the graph: a spark along its path, a ripple where it lands. */
+  /**
+   * Fire one event onto the graph: a spark along its path, node by node, and a ripple where it
+   * lands. A merge passes through the integration branch on its way into its sector.
+   */
   const fireFlow = (flow: SwarmFlow, source: 'live' | 'replay', now: number) => {
-    const from = nodeById.get(flow.from);
-    const to = nodeById.get(flow.to);
-    if (!from || !to) return;
-    const color =
-      flow.kind === 'reject'
-        ? theme.critical
-        : flow.kind === 'merge'
-          ? colorOf(from)
-          : colorOf(to.kind === 'hub' ? from : to);
+    const path = flow.path.map((id) => nodeById.get(id)).filter((n): n is SimNode => Boolean(n));
+    if (path.length < 2) return;
+    const coloured = (flow.kind === 'merge' ? path : [...path].reverse()).find(
+      (n) => n.kind !== 'hub' && n.color,
+    );
+    const color = flow.kind === 'reject' ? theme.critical : coloured ? colorOf(coloured) : theme.fg;
+    const last = path[path.length - 1];
     const land = () => {
-      ripple(to, color, performance.now());
+      ripple(last, color, performance.now());
       if (replayOverride) {
-        replayOverride.set(to.id, (replayOverride.get(to.id) ?? 0) + flow.weight);
         const sector =
-          to.kind === 'work' && to.sectorId ? nodeById.get(`sector:${to.sectorId}`) : null;
+          last.kind === 'sector'
+            ? last
+            : last.sectorId
+              ? nodeById.get(`sector:${last.sectorId}`)
+              : undefined;
         if (sector)
           replayOverride.set(sector.id, (replayOverride.get(sector.id) ?? 0) + flow.weight);
+        if (flow.kind === 'merge' && graph)
+          replayOverride.set(graph.hubId, (replayOverride.get(graph.hubId) ?? 0) + flow.weight);
         resize();
       }
     };
@@ -679,34 +765,23 @@ export const createSwarmGraph = (
       land();
       return;
     }
-    spawn(
-      {
-        from,
-        to,
-        duration: 900 + Math.random() * 300,
-        color,
-        size: 3.2 + Math.min(3, flow.weight),
-        spark: true,
-        onArrive: land,
-      },
-      now,
-    );
-    // Work lands in its sector a beat later.
-    if (to.kind === 'work' && to.sectorId) {
-      const sector = nodeById.get(`sector:${to.sectorId}`);
-      if (sector)
-        spawn(
-          {
-            from: to,
-            to: sector,
-            duration: 700,
-            color,
-            size: 2.6,
-            spark: true,
-            delay: 1000,
-          },
-          now,
-        );
+    const step = 850;
+    for (let i = 0; i < path.length - 1; i++) {
+      const final = i === path.length - 2;
+      const via = path[i + 1];
+      spawn(
+        {
+          from: path[i],
+          to: via,
+          duration: step,
+          color,
+          size: 3.2 + Math.min(3, flow.weight),
+          spark: true,
+          delay: i * step,
+          onArrive: final ? land : () => ripple(via, color, performance.now()),
+        },
+        now,
+      );
     }
   };
 
@@ -715,8 +790,8 @@ export const createSwarmGraph = (
     for (const n of nodeById.values()) n.r = rOf(n);
     gNodes
       .selectAll<SVGGElement, SimNode>('g.sg-node')
-      .select<SVGCircleElement>('circle.sg-body')
-      .attr('r', (n) => n.r);
+      .select<SVGPathElement>('path.sg-body')
+      .attr('d', (n) => bodyPath(n, n.r));
     gNodes
       .selectAll<SVGGElement, SimNode>('g.sg-node')
       .select<SVGTextElement>('text.sg-glyph')
@@ -737,59 +812,25 @@ export const createSwarmGraph = (
     simulation.alpha(Math.max(simulation.alpha(), 0.05)).restart();
   };
 
+  /** Live agents stream effort into what they are on: their branch's worktree, or the PR they gate. */
   const ambient = (now: number) => {
     if (!motion || replayOverride) return;
     for (const l of simLinks) {
-      if (!l.active) continue;
-      if (l.kind === 'assignment') {
-        const last = lastEmit.get(l.id) ?? 0;
-        const gap = AMBIENT_MS + (hash(l.id) % 700);
-        if (now - last < gap) continue;
-        lastEmit.set(l.id, now);
-        spawn(
-          {
-            from: l.source,
-            to: l.target,
-            duration: 1100,
-            color: colorOf(l.source),
-            size: 2.2,
-            spark: false,
-          },
-          now,
-        );
-        const t = l.target;
-        if (t.kind === 'work' && t.sectorId) {
-          const sector = nodeById.get(`sector:${t.sectorId}`);
-          if (sector)
-            spawn(
-              {
-                from: t,
-                to: sector,
-                duration: 800,
-                color: colorOf(l.source),
-                size: 1.8,
-                spark: false,
-                delay: 1100,
-              },
-              now,
-            );
-        }
-      } else if (l.kind === 'trunk') {
-        const last = lastEmit.get(l.id) ?? 0;
-        if (now - last < TRUNK_MS + (hash(l.id) % 900)) continue;
-        lastEmit.set(l.id, now);
-        spawn(
-          {
-            from: l.source,
-            to: l.target,
-            duration: 1800,
-            color: colorOf(l.source),
-            size: 2,
-            spark: false,
-          },
-          now,
-        );
-      }
+      if (!l.active || l.kind !== 'assignment') continue;
+      const last = lastEmit.get(l.id) ?? 0;
+      if (now - last < AMBIENT_MS + (hash(l.id) % 700)) continue;
+      lastEmit.set(l.id, now);
+      spawn(
+        {
+          from: l.source,
+          to: l.target,
+          duration: 1100,
+          color: colorOf(l.source),
+          size: 2.2,
+          spark: false,
+        },
+        now,
+      );
     }
   };
 
