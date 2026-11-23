@@ -53,6 +53,13 @@ MCTS (UCT) since #42, with RAVE since #50. Three files in `engines/hex/src`:
   Fisher–Yates picks ⌈k/2⌉ of them for the side to move, the rest go to the other side, one
   connection check for Black (a full board has exactly one winner). No per-move win checks.
   `fill` returns Black's final board (White owns the rest); `playout` = `fill` + the check.
+  **Bridge pairing (#60, `BRIDGE_PAIRING = true`):** before the split, `fill_bridges` finds
+  every bridge of either colour with an empty carrier (three downward directions from the upper
+  stone, offsets +12/+21/+9 with column masks, as bitboard ANDs), visits them in random order and,
+  when both carrier cells are still unassigned, gives one (at random) to each colour. The rest
+  are split ⌈k/2⌉/⌊k/2⌋ as before (k keeps the parity of all empties, so the per-colour counts
+  match the uniform fill). `fill_uniform` is kept for the switch and the tests. Only interior
+  bridges: no edge templates, no ladders.
 - `search.rs`: node arena (`Vec<Node>`, 24 bytes a node, children contiguous and shuffled at
   expansion), expand a leaf on its 2nd visit, tree capped at 2M nodes (48 MB), clock checked
   every 64 playouts. `Limit::Playouts(n)` makes it deterministic for tests; `Limit::Time` is
@@ -65,6 +72,11 @@ MCTS (UCT) since #42, with RAVE since #50. Three files in `engines/hex/src`:
   `(1 − β)·Q + β·Q_amaf`, **β = sqrt(K / (3n + K)), K = 1000, no UCB term (C = 0)**; a child
   with no real visits uses Q_amaf, one with neither uses FPU = 1.1. Test
   `amaf_counts_on_a_hand_built_path` checks the counts on a hand-built tree.
+
+Bridge pairing (#60) at f6 e7 g5, 3 runs each on the shared machine: `go 200` main 43–53k,
+pairing 41–49k playouts; `go 1000` main 265–296k, pairing 247–304k. The bridge scan costs a few
+percent at most. Strength: `arena versus hex` (pairing vs v0.3) **19–1** at 200 ms; with pairing,
+K = 3000 lost 4–6 to K = 1000, so K stays 1000 and C stays 0.
 
 Speed (native release, shared 4-core machine, position f6 e7 g5): plain UCT (v0.2) ~100k
 playouts per `go 200` and ~460k per `go 1000`; with RAVE ~41k and ~320k. At C = 0.3 the naive AMAF
@@ -101,7 +113,9 @@ order-dependent, so expect a smaller gain there; start its sweep at C = 0 too.
 - Heuristic prior (the old one-ply score: centre distance, neighbours, bridges) as virtual
   wins on new nodes; the issue left it optional and it was not measured.
 - Tree reuse between moves (the next position's subtree is already searched).
-- Bridge-save playout rule; two-distance or resistance evaluation as priors.
+- Bridge pairing worked (#60, 19–1 vs v0.3). Next in the same fill-in form: edge templates
+  (a stone on row 2 with both edge cells empty: pair them the same way), then K = 300–500 (only
+  1000 vs 3000 was tried with pairing). Two-distance or resistance evaluation as priors.
 - Dead-cell and captured-cell pruning; parallel root search within the time budget.
 
 ## Novel experiments
@@ -126,3 +140,4 @@ Never re-propose an idea from this list unchanged.
 - 2026-11-23 14:33 UTC · v0.2 passed the referee · MCTS (UCT) with random fill-in playouts on a flat 121-cell board · rated 1459 (+700)
 - 2026-11-23 15:42 UTC · v0.3 passed the referee · RAVE (AMAF) blended into UCT, read from the final fill-in bitboards · rated 2218 (+759)
 - 2026-11-23 15:59 UTC · v0.3 passed the referee · RAVE (AMAF) blended into UCT, read from the final fill-in bitboards · rated 1971 (+512)
+- 2026-11-23 16:48 UTC · v0.4 passed the referee · Bridge-preserving fill-in playouts: give each bridge's two carrier cells one to each colour · rated 2607 (+636)
