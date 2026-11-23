@@ -1,0 +1,1 @@
+- 2026-11-23 · **mcts** · Go 9×9 · v0.2 rated 1236 (+967) · MCTS (UCT) with random eye-respecting playouts on a fast flat board
