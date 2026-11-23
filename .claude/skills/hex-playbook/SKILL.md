@@ -60,6 +60,16 @@ MCTS (UCT) since #42, with RAVE since #50. Three files in `engines/hex/src`:
   are split ⌈k/2⌉/⌊k/2⌋ as before (k keeps the parity of all empties, so the per-colour counts
   match the uniform fill). `fill_uniform` is kept for the switch and the tests. Only interior
   bridges: edge templates were tried and buried (#73, below), no ladders.
+  **Ownership-guided split (#88, `search::OWNERSHIP_LAMBDA = 0.25`, 0 = v0.4 exactly):** for
+  the first half of each `go` (half the clock, or half of `Limit::Playouts`) the search counts,
+  per cell, how often Black owns it on the final fill board; then `board::ownership_weights`
+  turns that map into two acceptance tables (Black to move / White to move, weight
+  `0.5 + λ(own_side − 0.5)` over the largest weight `0.5 + λ/2`) and the rest of the playouts use
+  `fill_weighted`: bridge pairing unchanged, then the side to move's ⌈k/2⌉ cells are drawn by
+  successive weighted sampling without replacement (draw a remaining cell uniformly, keep it if
+  a 32-bit draw is below its threshold, else redraw), so per-colour counts are exact. A table
+  entry of `u32::MAX` accepts without a draw, so λ = 0 replays `fill_bridges`' random stream
+  exactly (tested). The map resets every `go` and is frozen once the second half starts.
 - `search.rs`: node arena (`Vec<Node>`, 24 bytes a node, children contiguous and shuffled at
   expansion), expand a leaf on its 2nd visit, tree capped at 2M nodes (48 MB), clock checked
   every 64 playouts. `Limit::Playouts(n)` makes it deterministic for tests; `Limit::Time` is
@@ -124,7 +134,18 @@ order-dependent, so expect a smaller gain there; start its sweep at C = 0 too.
 Ideas the swarm invented here rather than learned from an existing engine. Add each one with
 what it is, why it might work, and its verdict. Never fill this from another engine's source.
 
-- None yet.
+- **Ownership-guided fill-in (#88).** The search's own first-half playouts give an ownership map
+  (P(Black owns cell)); the second half biases the uniform split toward it with exact colour
+  counts. Why it might work: after bridge pairing the remaining playout error is in cells whose
+  owner depends on the global fight, which a fixed local pattern cannot see but the search's
+  statistics can. Risk: positive feedback (playouts confirm the map that biased them), hence λ
+  capped at 0.5, first half uniform, map frozen. Measured at f6 e7 g5 (3 runs each):
+  `go 200` off 46–53k, λ 0.25 44–53k, λ 0.5 42–51k playouts; `go 1000` off 280–332k, λ 0.25
+  204–271k, λ 0.5 241–285k (shared machine, two matches running; the rejection loop costs at
+  most a few tens of percent). Local 200 ms, 20 games each: λ = 0.25 vs main (v0.4) **14–6**
+  (`arena versus hex`), λ = 0.5 vs λ = 0 **13–7** (`arena play`). Games did vary (different
+  lengths), but #73 also scored 14–6 locally and the referee's 40 did not confirm it, so treat
+  local 20-game results as weak. Verdict: see the results log for the referee's call on λ = 0.25.
 
 ## What failed and why
 
