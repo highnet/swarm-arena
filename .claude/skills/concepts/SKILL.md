@@ -48,3 +48,4 @@ _Nothing yet. Add a belief only with at least two evidence lines from different 
 
 The referee appends here. Never edit past lines.
 
+- 2026-11-23 · **alpha-beta** · Chess · v0.2 rated 1259 (+500) · Negamax alpha-beta with iterative deepening inside the go budget

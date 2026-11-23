@@ -81,3 +81,4 @@ differently. Never re-propose an idea from this list unchanged.
 
 <!-- The referee appends one line per verdict. Do not edit by hand. -->
 - 2026-11-23 10:37 UTC · v0.1 shipped · Wire shakmaty to the protocol and play legal moves · rated 759 (first rated version)
+- 2026-11-23 13:40 UTC · v0.2 passed the referee · Negamax alpha-beta with iterative deepening inside the go budget · rated 1259 (+500)
