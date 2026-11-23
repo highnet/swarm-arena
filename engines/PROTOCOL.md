@@ -40,7 +40,13 @@ The reference implementation of every rule is `shared/src/games/*.ts`. When in d
   `shakmaty` (chess), `goban` (go), `othello` (bitboard othello), `hexgame` (hex). Other crates for
   rules, data structures, hashing, threads or RNG are fine too.
 - **The thinking is written here.** Search, evaluation, playout policies and time management are
-  original code. No engine crates, no ported engine source, no downloaded weights or opening books.
+  original code. No engine crates, no ported engine source.
+- **External databases stay out of the game.** Opening books, endgame tablebases and other
+  external databases may be used anywhere else in the codebase: by the referee (opening suites,
+  adjudication), by tests as oracles, and by offline tooling. An engine never uses one during a
+  game: it does not load, embed or query an external database, and it ships no downloaded weights
+  or books. Data an engine produces itself (a book from its own search, endings solved by its own
+  code) is engine code and allowed.
 - **Never copy open-source engines.** Do not read Stockfish, Leela, GNU Go, KataGo, Edax, MoHex or
   any other engine's source to reproduce it, and do not translate their code, tables or tuned
   constants. Published *ideas* (alpha-beta, MCTS, transposition tables) are fair game; their
