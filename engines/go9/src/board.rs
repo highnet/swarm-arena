@@ -367,6 +367,19 @@ impl Board {
         self.score(komi)
     }
 
+    /// `playout`, appending every move it plays (passes included) to `seq`.
+    pub fn playout_recorded(&mut self, rng: &mut Rng, cap: u32, komi: f32, seq: &mut Vec<u8>) -> f32 {
+        let mut buf = [0u8; NN];
+        let mut moves = 0;
+        while self.passes < 2 && moves < cap {
+            let m = self.random_move(rng, &mut buf);
+            self.play(m);
+            seq.push(m);
+            moves += 1;
+        }
+        self.score(komi)
+    }
+
     #[cfg(test)]
     pub fn check_invariants(&self) {
         for p in 0..NN {
