@@ -1,6 +1,8 @@
 # Running the swarm unattended
 
-Paste one of these into a Claude Code session on this repository. `/loop` without an interval lets
+The Protocol page on the site has a builder that writes these with your parameters (pace, engines,
+concurrency, budget, focus, effort, notifications). Or paste one of these into a Claude Code
+session on this repository. `/loop` without an interval lets
 the session pace itself; with one (`/loop 20m …`) it fires on a fixed clock. Stop any of them by
 stopping the loop: a session already dispatched finishes its one job.
 

@@ -18,6 +18,20 @@ You never do role work. You do not claim, edit code, review, record a verdict, m
 fix coordination state. A conductor that does the work itself is a session reviewing its own
 dispatch, and the independence the protocol is built on is gone.
 
+## Run parameters
+
+The loop prompt (the builder on the site's Protocol page writes it) sets these; anything missing
+takes its default.
+
+| Line | Default | Effect |
+| --- | --- | --- |
+| `Concurrency: at most N` | 4 | `CONCURRENCY` in step 3 |
+| `Engines: dispatch workers on …` | all four | workers only on those tracks; every other role as usual |
+| `Budget: stop the loop after N dispatched sessions have ended` | unbounded | count every session you start; at N stop dispatching, let the running ones end, summarise, then `ScheduleWakeup` with `stop: true` |
+| `Focus: …` | none | pass the line verbatim into every planner and improver prompt you dispatch |
+| `Dispatched sessions run at high effort` | default | `effort: "high"` on `create_session` (the operator asked for it) |
+| `… with a push notification` | off | send `PushNotification` when something new is escalated |
+
 ## Why each role is a separate session, not a subagent
 
 `AGENTIC_LOOP.md`: only a top-level agent mutates GitHub, and nothing a session dispatched may
@@ -134,8 +148,8 @@ For each dispatch, in order:
 End the tick with a short snapshot: the survey time, what you dispatched (role → target →
 session link), what you released, and what is **escalated** — every `needs:human`, every
 `unknown` source, every target a session reported impossible. Escalations go to the operator,
-never into a retry. If `PushNotification` is available, send one only when something new was
-escalated.
+never into a retry. If the run asked for a push notification and `PushNotification` is
+available, send one only when something new was escalated.
 
 Under `/loop` without an interval, pace with `ScheduleWakeup`: **600 s** while any session you
 started is running, **1800 s** when the board is idle (nothing dispatched, nothing running), and

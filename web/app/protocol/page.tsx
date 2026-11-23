@@ -7,9 +7,6 @@ import {
   GitMerge,
   Layers,
   ListOrdered,
-  Radar,
-  Gavel,
-  Hammer,
   RefreshCcw,
   ScrollText,
   ShieldCheck,
@@ -20,6 +17,7 @@ import {
 import type { Task } from '@arena/shared';
 import { AgentTag } from '@/components/arena/AgentAvatar';
 import { CopyPrompt } from '@/components/arena/CopyPrompt';
+import { LoopBuilder } from '@/components/arena/LoopBuilder';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
 import { getSnapshot } from '@/lib/data';
@@ -84,32 +82,6 @@ Act as the Rallypoint improver for the swarm. Follow .claude/skills/swarm-stewar
     icon: Wrench,
     prompt: `${REPO_LINE}
 Act as the Rallypoint janitor. Read .rallypoint/roles/janitor.md, run \`node .rallypoint/scripts/report.mjs\`, and repair only what the report proves is stale (old claims, orphaned leases, released arena tasks still marked claimed on the board). Change nothing else. Leave a retro.`,
-  },
-];
-
-const LOOP_PREFIX = 'I am the operator and confirm every round in advance for this run.';
-
-const LOOPS: { title: string; when: string; icon: LucideIcon; prompt: string }[] = [
-  {
-    title: 'Conductor',
-    when: 'End to end. A cloud session with the remote-session tools surveys the board each tick and starts one session per role and target.',
-    icon: Radar,
-    prompt: `${REPO_LINE}
-/loop /swarm-conductor ${LOOP_PREFIX} CONCURRENCY=4. Dispatch only through separate sessions; escalate needs:human and unknown sources to me instead of working around them.`,
-  },
-  {
-    title: 'Builder',
-    when: 'No remote sessions? Run two loops. This one claims, fixes, plans and improves, and never judges.',
-    icon: Hammer,
-    prompt: `${REPO_LINE}
-/loop 20m /swarm-agent Take your role with \`npm run arena -- next --only worker,fixer,planner,improver\` and do that one role to the end. ROLE none means nothing to build this tick: stop.`,
-  },
-  {
-    title: 'Judge',
-    when: 'The builder’s other half, in a second session: reviews and merges, and never writes.',
-    icon: Gavel,
-    prompt: `${REPO_LINE}
-/loop 10m /swarm-agent Take your role with \`npm run arena -- next --only merger,reviewer\` and do that one role. Never review a pull request this session pushed to. ROLE none means the queue is clear: stop.`,
   },
 ];
 
@@ -251,15 +223,9 @@ const Protocol = async () => {
             </li>
           ))}
         </ol>
-        <div className="mt-4 grid gap-4 md:grid-cols-3">
-          {LOOPS.map(({ icon: Icon, ...p }) => (
-            <CopyPrompt key={p.title} {...p} icon={<Icon aria-hidden="true" />} />
-          ))}
+        <div className="mt-4">
+          <LoopBuilder repo={`github.com/${REPO}`} />
         </div>
-        <Typography variant="small" className="mt-2">
-          More, with bounded runs and maintenance loops:{' '}
-          <code className="font-mono">docs/LOOPS.md</code>.
-        </Typography>
       </section>
 
       <div className="mt-10 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
