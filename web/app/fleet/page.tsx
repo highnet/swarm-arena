@@ -8,6 +8,7 @@ import { AgentAvatar } from '@/components/arena/AgentAvatar';
 import { Elapsed } from '@/components/arena/Elapsed';
 import { EngineLogo } from '@/components/arena/EngineLogo';
 import { KINDS, TONE_CLASS } from '@/components/arena/recordKinds';
+import { agentHref, isLive, isStale, roleLabel } from '@/components/arena/seats';
 import { Badge } from '@/components/ui/Badge';
 import { Typography } from '@/components/ui/Typography';
 import { getSnapshot } from '@/lib/data';
@@ -21,21 +22,6 @@ export const metadata: Metadata = pageMeta(
   'Every agent seat in the swarm, live: its Rallypoint role, what it is doing this minute, the task and pull request it holds, and its latest steps.',
   '/fleet',
 );
-
-/** A seat that says it is working but has not been heard from in this long is shown as stale. */
-const STALE_MS = 45 * 60 * 1000;
-
-const ROLE_LABEL: Record<string, string> = {
-  worker: 'Worker',
-  reviewer: 'Reviewer',
-  merger: 'Merger',
-  fixer: 'Fixer',
-  improver: 'Improver',
-  planner: 'Planner',
-  strategist: 'Planner',
-  builder: 'Worker',
-  referee: 'Referee',
-};
 
 const SeatCard = ({
   a,
@@ -56,13 +42,13 @@ const SeatCard = ({
   }[];
   taskTitle: string | null;
 }) => {
-  const stale = a.status === 'working' && Date.parse(asOf) - Date.parse(a.last_seen) > STALE_MS;
-  const live = a.status === 'working' && !stale;
-  const role = ROLE_LABEL[a.rp_role ?? a.role] ?? a.role;
+  const stale = isStale(a, asOf);
+  const live = isLive(a, asOf);
+  const role = roleLabel(a);
   return (
     <li
       className={cn(
-        'flex flex-col rounded-lg border bg-panel',
+        'relative flex flex-col rounded-lg border bg-panel transition-colors hover:border-fg-3 focus-within:border-fg-3',
         live ? 'border-line-strong' : 'border-line',
       )}
     >
@@ -78,7 +64,12 @@ const SeatCard = ({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="truncate text-[15px] font-medium text-fg">{agentName(a.id)}</span>
+            <Link
+              href={agentHref(a.id)}
+              className="truncate text-[15px] font-medium text-fg outline-none after:absolute after:inset-0 after:rounded-lg after:content-['']"
+            >
+              {agentName(a.id)}
+            </Link>
             <Badge tone="neutral">{role}</Badge>
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-fg-3">
@@ -121,7 +112,7 @@ const SeatCard = ({
           </p>
           <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs">
             {a.task_id && (
-              <Link href={`/tasks/${a.task_id}`} className="text-fg-2 hover:text-fg">
+              <Link href={`/tasks/${a.task_id}`} className="relative z-10 text-fg-2 hover:text-fg">
                 {taskTitle ?? 'Task'}
               </Link>
             )}
@@ -130,7 +121,7 @@ const SeatCard = ({
                 href={`${REPO_URL}/pull/${a.pr}`}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1 text-fg-2 hover:text-fg"
+                className="relative z-10 inline-flex items-center gap-1 text-fg-2 hover:text-fg"
               >
                 <GitPullRequest className="size-3.5" aria-hidden="true" />#{a.pr}
                 <ArrowUpRight className="size-3" aria-hidden="true" />
@@ -183,9 +174,7 @@ const FleetContent = async () => {
       Number(b.status === 'working') - Number(a.status === 'working') ||
       b.last_seen.localeCompare(a.last_seen),
   );
-  const working = seats.filter(
-    (a) => a.status === 'working' && Date.parse(asOf) - Date.parse(a.last_seen) <= STALE_MS,
-  );
+  const working = seats.filter((a) => isLive(a, asOf));
 
   return (
     <main className="mx-auto w-full max-w-[90rem] px-4 pb-16 pt-8 sm:px-6">
