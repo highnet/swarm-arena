@@ -128,3 +128,27 @@ export const getMatchGames = async (matchId: string): Promise<GameRow[]> => {
   const { data } = await getSupabase().from('games').select('*').eq('match_id', matchId);
   return (data ?? []) as GameRow[];
 };
+
+/** Every game of the run with its moves, oldest first. Paged past PostgREST's row cap. */
+export const getAllGames = async (): Promise<GameRow[]> => {
+  'use cache';
+  cacheTag(SNAPSHOT_TAG);
+  cacheLife({ stale: 60, revalidate: 300, expire: 86400 });
+  if (!supabaseConfigured()) return [];
+  const s = await getSnapshot();
+  const db = getSupabase();
+  const page = 1000;
+  const out: GameRow[] = [];
+  for (let from = 0; ; from += page) {
+    const { data, error } = await db
+      .from('games')
+      .select('*')
+      .eq('run_id', s.run.id)
+      .order('finished_at', { ascending: true })
+      .range(from, from + page - 1);
+    if (error) throw new Error(`games: ${error.message}`);
+    out.push(...((data ?? []) as GameRow[]));
+    if (!data || data.length < page) break;
+  }
+  return out;
+};
