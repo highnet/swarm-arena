@@ -67,8 +67,6 @@ its prompt the loop's tick message). Create it once, store its id in the ledger 
 for an existing one with `list_triggers` before creating another. Every dispatched session fires it
 as its last action, so the next tick starts the moment a role ends; the `send_later` heartbeat in
 step 5 is only the fallback for a session that ends without poking.
-`.claude/settings.json` allows `fire_trigger` so a dispatched session can poke without a
-permission prompt; it fires only the trigger id its prompt names.
 
 Start from current `main`: if `git status --porcelain` is not empty, stop and report it (somebody's
 work is in this checkout); otherwise `git checkout -q main && git pull -q --ff-only origin main`.
