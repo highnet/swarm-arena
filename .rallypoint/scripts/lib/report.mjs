@@ -139,11 +139,38 @@ export const listReservationRefs = (gh, repository, prefix) => {
     ok: true,
     items: refs.items.flatMap((ref) => {
       const issue = reservationIssue(ref.ref, prefix);
-      return issue === null
+      if (issue === null) return [];
+      const sha = ref.object?.sha ?? null;
+      return isReleasedMarker(gh, repository, sha)
         ? []
-        : [{ ref: ref.ref ?? "", sha: ref.object?.sha ?? null, issue }];
+        : [{ ref: ref.ref ?? "", sha, issue }];
     }),
   };
+};
+
+/**
+ * Whether `sha` is a `rallypoint: released` marker commit. Sessions that may
+ * not delete refs release one by moving it to such a marker, and every read
+ * treats it as absent — but only the REST transport in `lib/gh.mjs` filters
+ * them, so a report run through the real `gh` listed every released
+ * reservation as live and nominated janitors for refs nobody holds. Checking
+ * here makes the answer the same on either transport.
+ *
+ * A commit that cannot be read is *not* released: an unreadable ref stays
+ * reported, never folded into "absent".
+ *
+ * @param {(...args: string[]) => string} gh
+ * @param {string} repository
+ * @param {string | null} sha
+ */
+const isReleasedMarker = (gh, repository, sha) => {
+  if (!sha) return false;
+  try {
+    const commit = JSON.parse(gh("api", `repos/${repository}/git/commits/${sha}`));
+    return String(commit?.message ?? "").startsWith("rallypoint: released");
+  } catch {
+    return false;
+  }
 };
 
 /**
@@ -303,7 +330,7 @@ export const listAssignedOpenIssues = (gh) =>
  *
  * @param {(...args: string[]) => string} gh
  * @param {string} issueNumber
- * @returns {{ ok: true, issue: LabeledIssue & { title: string } } | { ok: false, reason: string }}
+ * @returns {{ ok: true, issue: LabeledIssue & { title: string, state: string | null } } | { ok: false, reason: string }}
  */
 export const viewIssue = (gh, issueNumber) => {
   try {
@@ -313,7 +340,7 @@ export const viewIssue = (gh, issueNumber) => {
         "view",
         issueNumber,
         "--json",
-        "number,title,labels,assignees,comments",
+        "number,title,state,labels,assignees,comments",
       ),
     );
 
@@ -329,6 +356,7 @@ export const viewIssue = (gh, issueNumber) => {
       issue: {
         number: Number(parsed.number ?? issueNumber),
         title: parsed.title ?? "",
+        state: typeof parsed.state === "string" ? parsed.state.toUpperCase() : null,
         labels: Array.isArray(parsed.labels) ? parsed.labels : null,
         assignees: Array.isArray(parsed.assignees) ? parsed.assignees : [],
         comments: Array.isArray(parsed.comments) ? parsed.comments : [],
@@ -651,6 +679,10 @@ export const classify = ({
   const claimsInFlight = [];
   /** @type {Set<string>} */
   const inFlight = new Set();
+  // Reservations whose issue the direct read showed closed: cleanup
+  // candidates, never claims in flight.
+  /** @type {Set<string>} */
+  const closedWithRef = new Set();
 
   // The confirming read runs *only* where the two sources already disagree —
   // a ref with no `status:claimed` issue behind it in the listing. That is the
@@ -697,6 +729,15 @@ export const classify = ({
         continue;
       }
 
+      // A closed issue is never a claim in flight, whatever labels it still
+      // carries: its work is over, and a live reservation on it is residue for
+      // `cleanup.mjs` (which also clears a leftover `status:claimed`). Held as
+      // `unclaimable` below, which is what nominates it for that cleanup.
+      if (confirmed.issue.state === "CLOSED") {
+        closedWithRef.add(issueNumber);
+        continue;
+      }
+
       if (!labels.some((label) => label?.name === config.labels.claimed)) continue;
 
       claimedByIssue.set(issueNumber, confirmed.issue);
@@ -736,7 +777,16 @@ export const classify = ({
     for (const [issueNumber, ref] of refByIssue) {
       if (openIssues.ok && poolByIssue.has(issueNumber)) continue;
 
-      if (!claimedByIssue.has(issueNumber)) {
+      if (closedWithRef.has(issueNumber)) {
+        disagreements.push({
+          kind: "unclaimable",
+          issue: issueNumber,
+          detail:
+            `reservation \`${ref.ref}\` (${ref.sha ?? "sha unknown"}) is live ` +
+            `but #${issueNumber} is closed: a cleanup candidate, not a claim in ` +
+            `flight (\`cleanup.mjs --issue ${issueNumber}\`).`,
+        });
+      } else if (!claimedByIssue.has(issueNumber)) {
         disagreements.push({
           kind: "unclaimable",
           issue: issueNumber,
