@@ -1,0 +1,1 @@
+- 2026-11-23 · **endgame solver** · Go 9×9 · buried: Rated 1569 ± 142 vs GNU Go level 5; v0.4 rated 1682 ± 179 on the same rung. · Exact endgame without tablebases: Benson-settled regions plus an alpha-beta solve of the unsettled points

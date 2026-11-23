@@ -101,6 +101,58 @@ search). Tests: flat board vs goban across 40 random games (stones identical aft
 legality equal except where only superko forbids), flat-board suicide/capture/ko, and 20
 self-play games at 200 ms (legal, each reply < 200 ms; takes ~4.5 min in release).
 
+## Buried, not shipped: Benson-settled regions + exact endgame solve (#116)
+
+Not in the engine. Code: commit 7b37ee1 on branch
+`agent/116-go-9-9-exact-endgame-without-tablebases-be` (`src/benson.rs`, `src/solve.rs`, and the
+`forbid` field in `board.rs`; may vanish with the branch, the design below is enough to rebuild
+it). Verdict and why in "What failed and why".
+
+- `benson.rs`: Benson's unconditional life per colour on the flat cells (u128 masks; chains and
+  regions by flood fill; drop chains with < 2 vital regions among regions enclosed by kept
+  chains until stable). **Settled** area = a region with no stones at all, all bordering chains
+  alive, every point touching them. Regions holding dead enemy stones stay unsettled on purpose:
+  the referee scores Tromp-Taylor with no dead-stone removal, so those stones must be captured.
+  `unsettled_points` = 81 − alive stones − settled points (stones of non-alive chains count:
+  capturing them opens new points; counting only empties made the solver explode).
+- `Board::forbid` = settled points of both colours. Root moves, tree expansion
+  (`playout_moves`), `random_move` and the tactical reply all skip it, so settled points also
+  score exactly in every playout at no cost.
+- `solve.rs`: negamax alpha-beta to two passes on the TT area score (half points, komi 7.5),
+  moves = non-forbidden legal non-own-eye points + pass (last); ordering: TT move, captures
+  (by size), saving an own chain in atari, next to the last move, self-atari last. TT 2^18
+  × 16 B (4 MB) keyed on stones/side/ko/passes with bounds and plies-left. Ply cap
+  3·unsettled + 20. Superko beyond simple ko not modelled (root moves come from the oracle).
+- `main.rs`: when `unsettled_points` ≤ 16 (18 from `go 1000`), a **null-window win/loss solve**
+  (−1, 1) until 50% of the budget; a proven win plays that move (pass included); a proven loss
+  or timeout falls back to MCTS to 70% (swindles vs an imperfect opponent). No legal
+  non-settled move → pass.
+- Solve-time table (`solve_report` ignored test, 8 random endings per row from a settled
+  top/bottom base, release, 2 s cap; "≤100" = within half a go-200 budget):
+
+  | unsettled ≤ | full window median / max | win/loss median / max (shipped) | win/loss ≤100 ms |
+  | --- | --- | --- | --- |
+  | 10 | 0.6 / 6.3 ms | 0.4 / 1.3 ms | 8/8 |
+  | 12 | 1.4 / 11.5 ms | 0.7 / 4.8 ms | 8/8 |
+  | 14 | 21.7 / 1226 ms | 5.2 / 16.1 ms | 8/8 |
+  | 16 | 13.5 / >2000 ms | 4.6 / 58.5 ms | 8/8 |
+  | 18 | 109 / >2000 ms | 11.9 / 265 ms | 7/8 |
+  | 20 | >2000 / >2000 ms | 77 / 680 ms | 5/8 |
+  | 24 | timeouts | 2000 / 2000 ms | 2/8 |
+
+  Null-window is 5–30× cheaper than the exact margin; only the result matters for rating.
+- How often it fires: in 20 local games vs GNU Go 1 at 200 ms, only 8 of ~730 moves had
+  ≤ 16 unsettled points (85% of moves > 60): GNU Go resigns or the game ends before the board
+  settles under Benson's strict test. The 4 solves that ran all proved a loss. So the gain, if
+  any, comes from the forbid mask (no moves inside settled areas in tree and playouts).
+- Local results, 200 ms: vs GNU Go 1 candidate 13–7 and 15–5 (28–12) against main 12–8 in the
+  same run, about noise; `arena versus go9 --pairs 10` vs main v0.4: **14–6** (no opening
+  seed, so treat as weak evidence). Tests: Benson (two eyes, one eye, false eye, seki, dead stone in an
+  eye, big open area, finished board), solver = plain minimax on 30 random endings (full and
+  null window, root move), takes the last dame, captures a dead stone before passing.
+- Next: a looser "settled" test that fires earlier (e.g. regions an enemy cannot live in by
+  size/shape, or Benson plus one-move safety), so the exact solve reaches real gate endgames.
+
 ## Ideas worth trying
 
 - Tree reuse between moves, progressive widening. RAVE is in (#86).
@@ -124,6 +176,19 @@ what it is, why it might work, and its verdict. Never fill this from another eng
 
 ## What failed and why
 
+- Benson forbid mask + null-window endgame solve (#116): referee rated it 1569 ± 142 vs
+  GNU Go level 5, against v0.4's 1682 ± 179 on the same rung, so it was buried. Read that with
+  care: **the burial rests on a broken reference on both sides.** GNU Go timeouts broke both
+  matches. In the candidate's match (run-001-go9-mwtsgnd9, 33–7) games 21–40 are all GNU Go
+  timeouts at 2–3 plies (g21 at 31); in v0.4's baseline (run-001-go9-mwtsjytf, 36–4) games
+  18–40 are the same (one crash, the rest timeouts). Counting only games that ended by the
+  rules, the candidate went 13–7 over 20 games and v0.4 went 13–4 over 17, so neither 1569 nor
+  1682 measures an engine. The referee bug is tracked in a separate harness issue. Locally the candidate was level or better: versus main 14–6, vs GNU Go 1 28–12 (main
+  12–8). And the solve almost never fired (8 of ~730 moves at <= 16 unsettled points), so
+  this gate could hardly have measured the solver. Before retrying, check that GNU Go at level 5
+  answers every move on the gate machine. Then resubmit with a looser "settled" test, so the
+  solve reaches real endgames.
+
 - Rejecting *every* non-capturing self-atari in playouts (#99, variant A): 29–31 vs GNU Go 1
   against 54–26 when lone-stone self-ataris (throw-ins, nakade shapes) are allowed. The
   playouts need those moves to kill eyes; reject only self-atari that grows an own chain.
@@ -140,3 +205,4 @@ differently. Never re-propose an idea from this list unchanged.
 - 2026-11-23 17:39 UTC · v0.2 passed the referee · MCTS (UCT) with random eye-respecting playouts on a fast flat board · rated 1236 (+967)
 - 2026-11-23 19:00 UTC · v0.3 passed the referee · RAVE (AMAF) blended into UCT, ported from Hex v0.3 · rated 959 (+24 vs v0.2 on the same rung)
 - 2026-11-23 20:39 UTC · v0.4 passed the referee · Tactical playout policy: capture or escape atari near the last move, and refuse self-atari, ported from Hex's bridge-preserving fill-in · rated 1341 (+382)
+- 2026-11-23 21:44 UTC · buried · Exact endgame without tablebases: Benson-settled regions plus an alpha-beta solve of the unsettled points · Rated 1569 ± 142 vs GNU Go level 5; v0.4 rated 1682 ± 179 on the same rung.
