@@ -1,0 +1,1 @@
+- 2026-11-23 · **transposition table** · Chess · v0.4 rated 1420 (+114) · Transposition table keyed by Zobrist hash: TT move ordering every node, bound cut-offs, mate-distance-safe scores
