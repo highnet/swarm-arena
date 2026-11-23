@@ -86,7 +86,10 @@ One thread, modest memory, and every reply within the `go <ms>` budget (200 ms i
 
   Fastest-first is the big win (5-15× fewer nodes than plain at 12-14); parity alone halves
   nodes, on top of fastest-first it adds ~10%; PVS another 15-30%. Each extra empty costs ~3×.
-  N = 14 is the largest count with every position under 100 ms. The spec's "16-20 empties in
+  N = 14 is the largest count with every position under 100 ms. Re-measured for #112 (shipped
+  config, median / max ms): 14 empties 18.2 / 31.7, 15 empties 36.7 / 194.7 (7/8 <= 100), 16
+  90.3 / 187.2 (5/8): about 2× faster hardware, yet one 15-empty position still overruns the
+  ~140 ms solve window of a go-200 move, so N stays 14. The spec's "16-20 empties in
   200 ms" needs a TT and/or faster move generation than the crate's `make_move` per child.
 
 ## Ideas worth trying
@@ -239,7 +242,10 @@ differently. Never re-propose an idea from this list unchanged.
 
   Fastest-first is the big win (5-15× fewer nodes than plain at 12-14); parity alone halves
   nodes, on top of fastest-first it adds ~10%; PVS another 15-30%. Each extra empty costs ~3×.
-  N = 14 is the largest count with every position under 100 ms. The spec's "16-20 empties in
+  N = 14 is the largest count with every position under 100 ms. Re-measured for #112 (shipped
+  config, median / max ms): 14 empties 18.2 / 31.7, 15 empties 36.7 / 194.7 (7/8 <= 100), 16
+  90.3 / 187.2 (5/8): about 2× faster hardware, yet one 15-empty position still overruns the
+  ~140 ms solve window of a go-200 move, so N stays 14. The spec's "16-20 empties in
   200 ms" needs a TT and/or faster move generation than the crate's `make_move` per child.
 - Measured (#94): `arena versus othello --pairs 20` vs main v0.3: +20 −20, but every game was
   won by the second player: with no opening variety each colour pair replays one game, so it
