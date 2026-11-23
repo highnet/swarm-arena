@@ -167,6 +167,11 @@ fn ordered(avail: u64, first: Option<usize>) -> Vec<usize> {
 /// Iterative-deepening alpha-beta. Stops on a clock check at ~60% of the budget and plays
 /// the best move of the last completed depth. Returns (move, depth completed).
 fn search(g: &Game, budget_ms: u64) -> (usize, u32) {
+    search_limited(g, u32::MAX, Duration::from_millis(budget_ms * 6 / 10))
+}
+
+/// Iterative deepening up to `max_depth` plies or until `deadline` passes, whichever is first.
+fn search_limited(g: &Game, max_depth: u32, deadline: Duration) -> (usize, u32) {
     let avail = g.available_moves();
     let order = ordered(avail, None);
     let mut best = order[0];
@@ -175,13 +180,13 @@ fn search(g: &Game, budget_ms: u64) -> (usize, u32) {
     }
     let mut s = Search {
         start: Instant::now(),
-        deadline: Duration::from_millis(budget_ms * 6 / 10),
+        deadline,
         nodes: 0,
         stopped: false,
     };
     let empties = (!(g.get()[0] | g.get()[1])).count_ones();
     let mut done = 0;
-    for depth in 1..=empties {
+    for depth in 1..=empties.min(max_depth) {
         let mut alpha = -INF;
         let mut iter_best = None;
         for i in ordered(avail, Some(best)) {
@@ -346,27 +351,43 @@ mod tests {
 
     #[test]
     fn takes_a_free_corner_over_an_x_square() {
-        // A position where both a corner and squares next to it are legal: the search must
-        // not prefer the X-square that hands the corner away.
-        let mut moves = Vec::new();
+        // In the midgame (20+ empties), wherever a corner is legal and so is the X-square
+        // touching that same corner, a fixed-depth search (no clock in play) must not choose
+        // that X-square: it would hand the corner away. Endgames are left out on purpose:
+        // there the disc count decides and an X-square can be the right move. Positions come
+        // from seeded pseudo-random games, so every run checks the same positions.
         let mut checked = 0;
-        for _ in 0..130 {
-            let Some(g) = replay(&moves) else { break };
-            let avail = g.available_moves();
-            let xs: u64 = X_SQUARES.iter().map(|&(x, _)| 1u64 << x).sum();
-            if avail & CORNERS != 0 && avail & xs != 0 {
-                let c = parse_square(&choose(&moves, 50).unwrap()).unwrap();
-                assert!(xs >> c & 1 == 0, "played an X-square with a corner available");
-                checked += 1;
+        for game in 0..40u64 {
+            let mut seed = 0x9e37_79b9_7f4a_7c15 ^ game;
+            let mut moves: Vec<String> = Vec::new();
+            loop {
+                let g = replay(&moves).unwrap();
+                let avail = g.available_moves();
+                let mut o = g.clone();
+                o.pass_move();
+                if avail == 0 {
+                    if o.available_moves() == 0 {
+                        break;
+                    }
+                    moves.push("pass".into());
+                    continue;
+                }
+                let empties = (!(g.get()[0] | g.get()[1])).count_ones();
+                for &(x, corner) in &X_SQUARES {
+                    if empties >= 20 && avail >> corner & 1 == 1 && avail >> x & 1 == 1 {
+                        let (m, depth) = search_limited(&g, 3, Duration::from_secs(60));
+                        assert_eq!(depth, 3, "search did not complete depth 3");
+                        assert_ne!(m, x, "played {} with its corner {} legal: {moves:?}", square_name(x), square_name(corner));
+                        checked += 1;
+                    }
+                }
+                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                let k = (seed >> 33) as u32 % avail.count_ones();
+                let i = (0..64).filter(|i| avail >> i & 1 == 1).nth(k as usize).unwrap();
+                moves.push(square_name(i));
             }
-            let mut o = g.clone();
-            o.pass_move();
-            if avail == 0 && o.available_moves() == 0 {
-                break;
-            }
-            moves.push(choose(&moves, 20).unwrap());
         }
-        let _ = checked;
+        assert!(checked >= 5, "only {checked} midgame positions with a legal corner and its X-square");
     }
 
     #[test]
