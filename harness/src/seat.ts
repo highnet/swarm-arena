@@ -230,15 +230,23 @@ const logVerdict = (trackId: string, line: string) => {
     );
 };
 
-const CONCEPTS = resolve(ARENA_ROOT, ".claude/skills/concepts/SKILL.md");
+/**
+ * Cross-game evidence lives one file per verdict, named by the task. Every pull request adds a file
+ * nobody else touches, so two engine PRs in flight never conflict on the evidence log (they did when
+ * every verdict appended to the end of the same SKILL.md).
+ */
+const EVIDENCE = resolve(ARENA_ROOT, ".claude/skills/concepts/evidence");
 
-/** One line of cross-game evidence: what a concept did for one engine. */
-const logConcept = (task: Task, outcome: string) => {
-  if (!task.concept || !existsSync(CONCEPTS)) return;
-  appendFileSync(
-    CONCEPTS,
+/** One line of cross-game evidence: what a concept did for one engine. Returns the file written. */
+const logConcept = (task: Task, outcome: string): string | null => {
+  if (!task.concept) return null;
+  mkdirSync(EVIDENCE, { recursive: true });
+  const file = resolve(EVIDENCE, `${task.id}.md`);
+  writeFileSync(
+    file,
     `- ${now().slice(0, 10)} · **${task.concept}** · ${GAMES[task.track_id].name} · ${outcome} · ${task.title}\n`,
   );
+  return file;
 };
 
 /** Take back the last verdict line (a ship that could not be pushed). */
@@ -257,8 +265,14 @@ const currentBranch = async () => {
 };
 
 /**
- * Commit on the agent branch, rebase onto main, push the branch, and open (or update) the pull
- * request. Nothing goes to main here: an independent reviewer and a merger do that.
+ * Commit on the agent branch, bring main in, push the branch, and open (or update) the pull request.
+ * Nothing goes to main here: an independent reviewer and a merger do that.
+ *
+ * Main is MERGED in, never rebased: a rebase rewrites the branch, needs a force-push, and fails
+ * outright on a branch that already merged main (a fixer's conflict resolution), which used to bury
+ * results that had passed the referee. A merge keeps the branch's own commits, so an earlier
+ * verdict can carry forward. If main genuinely conflicts, the merge is abandoned and the branch is
+ * pushed as it is: the measured result stands and the pull request says a fixer must resolve it.
  */
 const deliver = async (
   task: Task,
@@ -272,15 +286,26 @@ const deliver = async (
   await git(["add", "-A", ...paths.map((p) => relative(ARENA_ROOT, p))]);
   await git(["commit", "-m", message]);
   await git(["fetch", "origin", "main"]);
-  if ((await git(["rebase", "--autostash", "origin/main"])).code !== 0) {
-    await git(["rebase", "--abort"]);
-    return null;
+  let conflicts = false;
+  if ((await git(["merge", "--no-edit", "origin/main"])).code !== 0) {
+    await git(["merge", "--abort"]);
+    conflicts = true;
   }
-  if (
-    (await git(["push", "--force-with-lease", "-u", "origin", branch])).code !==
-    0
-  )
-    return null;
+  const push = () => git(["push", "-u", "origin", branch]);
+  if ((await push()).code !== 0) {
+    // Somebody pushed to the branch meanwhile (a fixer): take their commits, never overwrite them.
+    await git(["fetch", "origin", branch]);
+    if ((await git(["merge", "--no-edit", `origin/${branch}`])).code !== 0) {
+      await git(["merge", "--abort"]);
+      return null;
+    }
+    if ((await push()).code !== 0) return null;
+  }
+  if (conflicts)
+    pr = {
+      ...pr,
+      body: `${pr.body}\n\n> **Conflicts with main.** The referee could not merge main into this branch. A fixer merges \`origin/main\` in (never rebase) and resolves it; the measured result above still applies to this branch's own change.`,
+    };
   const existing = await ghApi<{ number: number; html_url: string }[]>(
     "GET",
     `repos/${REPO}/pulls?state=open&head=${REPO.split("/")[0]}:${encodeURIComponent(branch)}`,
@@ -436,7 +461,7 @@ export const prepare = async () => {
 
 /**
  * Referee a finished task: build gate, legality smoke test, gate match against the next
- * uncleared rung, then ship to main (rebase + push) or bury with the measured reason.
+ * uncleared rung, then open the pull request (main merged in) or bury with the measured reason.
  */
 export const submit = async (taskId: string) => {
   const db = getStore();
@@ -457,10 +482,10 @@ export const submit = async (taskId: string) => {
     ]);
     await git(["clean", "-fdq", "--", relative(ARENA_ROOT, crateDir)]);
     logVerdict(task.track_id, `buried · ${task.title} · ${why}`);
-    logConcept(task, `buried: ${why}`);
+    const evidence = logConcept(task, `buried: ${why}`);
     const lesson = await deliver(
       task,
-      [playbook(task.track_id), CONCEPTS],
+      [playbook(task.track_id), ...(evidence ? [evidence] : [])],
       `docs(${task.track_id}): playbook lesson from “${task.title}”\n\nBuried: ${why}`,
       {
         title: `docs(${task.track_id}): lesson from “${task.title}”`,
@@ -656,7 +681,10 @@ export const submit = async (taskId: string) => {
       task.track_id,
       `${version} passed the referee · ${task.title} · rated ${Math.round(gate.est.elo)} (${delta})`,
     );
-    logConcept(task, `${version} rated ${Math.round(gate.est.elo)} (${delta})`);
+    const evidence = logConcept(
+      task,
+      `${version} rated ${Math.round(gate.est.elo)} (${delta})`,
+    );
     const wasm = await buildWasm(task.track_id, {
       version,
       elo: Math.round(gate.est.elo),
@@ -681,7 +709,7 @@ export const submit = async (taskId: string) => {
         crateDir,
         resolve(ENGINES_DIR, "Cargo.lock"),
         playbook(task.track_id),
-        CONCEPTS,
+        ...(evidence ? [evidence] : []),
         ...(wasm ? wasmPaths(task.track_id) : []),
       ],
       `feat(${task.track_id}): ${task.title}\n\nArena ${version}, rated ${Math.round(gate.est.elo)} (${delta}).`,
@@ -709,7 +737,7 @@ Arena task: \`${task.id}\``,
     if (!pull) {
       unlogVerdict(task.track_id);
       return await bury(
-        "Passed the referee, but the branch no longer rebases on main.",
+        "Passed the referee, but the branch could not be pushed.",
         gate.matchId,
       );
     }
@@ -741,7 +769,8 @@ Arena task: \`${task.id}\``,
   } catch (e) {
     return await bury(`Referee error: ${String(e).slice(0, 160)}`);
   } finally {
-    await setAgent(seatId, { status: "idle" });
+    // The seat stays working until its session's retro; only the clock moves here.
+    await setAgent(seatId, {});
   }
 };
 

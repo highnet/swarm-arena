@@ -1,4 +1,4 @@
-import { agentName, type Message, type Task } from "@arena/shared";
+import { agentName, type Agent, type Message, type Task } from "@arena/shared";
 import {
   agent,
   bumpSessions,
@@ -10,6 +10,7 @@ import {
 } from "./board";
 import { log, RUN_ID } from "./config";
 import { readMessages } from "./messages";
+import { getStore } from "./store";
 import {
   APPROVED,
   CHANGES,
@@ -390,7 +391,11 @@ export const verdict = async (pr: number, decision: string, note: string) => {
       detail: note,
     });
   }
-  await setAgent(reviewer, { status: "idle", activity: null });
+  // Still working: the session goes on to its retro, which is what marks the seat idle.
+  await setAgent(reviewer, {
+    activity:
+      decision === "approve" ? `Approved #${pr}` : `Requested changes on #${pr}`,
+  });
   log(`${decision} recorded on #${pr}`);
 };
 
@@ -474,14 +479,26 @@ export const merge = async (pr: number) => {
     log(
       `close-referenced-issues exited ${reconciled.code} for ${merged.sha}: ${(reconciled.stderr || reconciled.stdout).trim().slice(0, 300)} (a janitor pass will reconcile it)`,
     );
-  await setAgent(merger, { status: "idle", activity: null });
+  // Still working: the session goes on to its retro, which is what marks the seat idle.
+  await setAgent(merger, { activity: `Merged #${pr}` });
   log(`merged #${pr}${taskId ? ` (${taskId})` : ""}`);
 };
 
 /** A retro: what slowed this session down, or what would make the protocol better. */
 export const retro = async (seat: string, body: string) => {
   const { postMessage } = await import("./messages");
-  await postMessage({ seat, body, kind: "retro" });
+  const msg = await postMessage({ seat, body, kind: "retro" });
+  // The retro is a session's last step, so it is what takes the seat off the fleet. A session
+  // may retro under another name than the seat it was dispatched as; the session id joins them.
+  const ids = new Set<string>(msg.agent_id ? [msg.agent_id] : []);
+  const session = process.env.CLAUDE_CODE_REMOTE_SESSION_ID;
+  if (session)
+    for (const a of await getStore().select<Agent>("agents", {
+      session_id: session,
+      status: "working",
+    }))
+      ids.add(a.id);
+  for (const id of ids) await setAgent(id, { status: "idle", activity: null });
   log("retro posted");
 };
 

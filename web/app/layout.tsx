@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from 'next/font/google';
 import { SiteFooter } from '@/components/arena/SiteFooter';
 import { SceneBackground } from '@/components/arena/SceneBackground';
 import { SiteHeader } from '@/components/arena/SiteHeader';
+import { liveAgents } from '@/components/arena/seats';
 import { getSnapshot } from '@/lib/data';
 import { SITE_DESCRIPTION, SITE_NAME, SITE_TITLE, SITE_URL } from '@/lib/site';
 import './globals.css';
@@ -62,7 +63,7 @@ const RootLayout = async ({ children }: RootLayoutProps) => {
         <SceneBackground />
         <SiteHeader
           runId={snapshot.run.id}
-          working={snapshot.agents.filter((a) => a.status === 'working').length}
+          working={liveAgents(snapshot.agents, snapshot.asOf ?? snapshot.run.started_at).length}
           slots={Object.fromEntries(snapshot.tracks.map((t) => [t.id, t.color_slot]))}
         />
         <div id="content" className="relative z-10 flex flex-1 flex-col">

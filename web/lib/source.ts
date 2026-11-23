@@ -164,8 +164,16 @@ export const getConcepts = async (): Promise<Concepts> => {
     .map((l) => l.split('|').map((c) => c.trim()))
     .map(([, name, idea]) => ({ name, idea }))
     .filter((c) => c.name);
-  const evidence = section('Evidence log')
-    .split('\n')
+  // One file per verdict under evidence/ (plus any lines still written inline in the old format).
+  const dir = join(REPO, '.claude', 'skills', 'concepts', 'evidence');
+  const files = (await readdir(dir).catch(() => [] as string[])).filter((f) => f.endsWith('.md'));
+  const lines = [
+    ...section('Evidence log').split('\n'),
+    ...(
+      await Promise.all(files.map((f) => readFile(join(dir, f), 'utf8').catch(() => '')))
+    ).flatMap((t) => t.split('\n')),
+  ];
+  const evidence = lines
     .map((l) => /^- (\S+) · \*\*(.+?)\*\* · (.+?) · (.+?) · (.+)$/.exec(l))
     .filter((m): m is RegExpExecArray => Boolean(m))
     .map(([, date, concept, game, outcome, title]) => ({ date, concept, game, outcome, title }));

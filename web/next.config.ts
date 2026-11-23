@@ -3,7 +3,7 @@ import type { NextConfig } from 'next';
 const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
-  transpilePackages: ['@arena/shared'],
+  transpilePackages: ['@arena/shared', '@rallypoint/swarm-graph'],
   // Playbooks live beside the site in the repo; ship them with the server for cache refreshes.
   outputFileTracingIncludes: {
     '/engines/[id]': [
@@ -13,7 +13,10 @@ const nextConfig: NextConfig = {
     ],
     '/skills': ['../.claude/skills/*/SKILL.md'],
     '/skills/[name]': ['../.claude/skills/*/SKILL.md'],
-    '/concepts': ['../.claude/skills/concepts/SKILL.md'],
+    '/concepts': [
+      '../.claude/skills/concepts/SKILL.md',
+      '../.claude/skills/concepts/evidence/*.md',
+    ],
   },
   async redirects() {
     return [

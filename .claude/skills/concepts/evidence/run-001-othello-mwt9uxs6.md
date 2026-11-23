@@ -1,0 +1,1 @@
+- 2026-11-23 · **alpha-beta** · Othello · v0.2 rated 1459 (+1218) · Alpha-beta with iterative deepening and X/C-square evaluation
