@@ -12,6 +12,7 @@ import { counters } from '@/lib/derive';
 import { formatDay, formatInt, formatTime } from '@/lib/format';
 import { EXPORT_FORMATS, FORMAT_GAME, FORMAT_LABEL } from '@/lib/gameExport';
 import { pageMeta } from '@/lib/site';
+import { gameHref, matchHref } from '@/lib/routes';
 import { SHORT_NAME, TRACK_ORDER } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
 
@@ -124,15 +125,22 @@ const GamesContent = async ({ searchParams }: GamesPageProps) => {
                   const score = g.engine_first ? g.outcome : 1 - g.outcome;
                   const result = score === 1 ? 'Won' : score === 0 ? 'Lost' : 'Draw';
                   return (
-                    <tr key={g.id}>
+                    <tr key={g.id} className="relative hover:bg-panel-raised">
                       <td className="whitespace-nowrap px-4 py-2 text-fg-3">
-                        <time dateTime={g.finished_at}>
-                          {formatDay(g.finished_at)}, {formatTime(g.finished_at)}
-                        </time>
+                        <Link
+                          href={gameHref(g.id)}
+                          className="hover:text-fg after:absolute after:inset-0 after:content-['']"
+                        >
+                          <time dateTime={g.finished_at}>
+                            {formatDay(g.finished_at)}, {formatTime(g.finished_at)}
+                          </time>
+                        </Link>
                       </td>
                       <td className="whitespace-nowrap px-2 py-2">
                         <span className="inline-flex items-center gap-2">
-                          <EngineChip track={g.track_id} slots={slots} />
+                          <span className="relative z-1">
+                            <EngineChip track={g.track_id} slots={slots} />
+                          </span>
                           <span className="font-mono text-fg">{m?.engine_version}</span>
                         </span>
                       </td>
@@ -154,7 +162,10 @@ const GamesContent = async ({ searchParams }: GamesPageProps) => {
                         {g.ply_count}
                       </td>
                       <td className="px-4 py-2">
-                        <Link href={`/matches/${g.match_id}`} className="text-fg-2 hover:text-fg">
+                        <Link
+                          href={matchHref(g.match_id)}
+                          className="relative z-1 text-fg-2 hover:text-fg"
+                        >
                           {m?.purpose ?? 'match'}
                         </Link>
                       </td>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import {
   CircleHelp,
   Handshake,
@@ -15,6 +16,7 @@ import type { GameId, Message, MessageKind } from '@arena/shared';
 import { Button } from '@/components/ui/Button';
 import { Typography } from '@/components/ui/Typography';
 import { formatDay, formatTime } from '@/lib/format';
+import { messageHref } from '@/lib/routes';
 import { SHORT_NAME, TRACK_ORDER } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
 import { AgentTag } from './AgentAvatar';
@@ -34,13 +36,15 @@ type MessageItemProps = {
   seats: Record<string, string>;
   slots: Partial<Record<GameId, number>>;
   replies: Message[];
+  /** Message this page is about, marked in its thread. */
+  highlight?: number;
 };
 
-const MessageItem = ({ m, seats, slots, replies }: MessageItemProps) => {
+const MessageItem = ({ m, seats, slots, replies, highlight }: MessageItemProps) => {
   const kind = KIND[m.kind] ?? KIND.note;
   const Icon = kind.icon;
   return (
-    <li className="px-4 py-3">
+    <li className={cn('px-4 py-3', highlight === m.id && 'bg-panel-raised')}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
         <Icon className={cn('size-3.5 shrink-0', kind.tone)} aria-hidden="true" />
         <span className={cn('font-medium', kind.tone)}>{kind.label}</span>
@@ -60,9 +64,14 @@ const MessageItem = ({ m, seats, slots, replies }: MessageItemProps) => {
             {SHORT_NAME[m.track_id]}
           </span>
         )}
-        <time dateTime={m.at} className="ml-auto font-mono tabular text-fg-3">
-          {formatDay(m.at)} {formatTime(m.at)}
-        </time>
+        <Link
+          href={messageHref(m.id)}
+          className="ml-auto font-mono tabular text-fg-3 hover:text-fg hover:underline"
+        >
+          <time dateTime={m.at}>
+            {formatDay(m.at)} {formatTime(m.at)}
+          </time>
+        </Link>
       </div>
       <p className="mt-1.5 max-w-prose whitespace-pre-wrap text-[14px] leading-6 text-fg-2 text-pretty">
         {m.body}
@@ -73,7 +82,10 @@ const MessageItem = ({ m, seats, slots, replies }: MessageItemProps) => {
             const rk = KIND[r.kind] ?? KIND.answer;
             const RIcon = rk.icon;
             return (
-              <li key={r.id}>
+              <li
+                key={r.id}
+                className={cn(highlight === r.id && '-mx-2 rounded-md bg-panel-raised px-2 py-1')}
+              >
                 <div className="flex flex-wrap items-center gap-x-2 text-xs">
                   <RIcon className={cn('size-3.5', rk.tone)} aria-hidden="true" />
                   {r.agent_id ? (
@@ -81,9 +93,12 @@ const MessageItem = ({ m, seats, slots, replies }: MessageItemProps) => {
                   ) : (
                     <span className="text-fg-3">unknown</span>
                   )}
-                  <time dateTime={r.at} className="font-mono tabular text-fg-3">
-                    {formatTime(r.at)}
-                  </time>
+                  <Link
+                    href={messageHref(r.id)}
+                    className="font-mono tabular text-fg-3 hover:text-fg hover:underline"
+                  >
+                    <time dateTime={r.at}>{formatTime(r.at)}</time>
+                  </Link>
                 </div>
                 <p className="mt-1 max-w-prose whitespace-pre-wrap text-[13px] leading-6 text-fg-2">
                   {r.body}
@@ -165,4 +180,4 @@ const MessageBoard = ({ messages, seats, slots, limit }: MessageBoardProps) => {
   );
 };
 
-export { MessageBoard };
+export { MessageBoard, MessageItem };

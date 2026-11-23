@@ -38,6 +38,7 @@ import {
   trackSummaries,
 } from '@/lib/derive';
 import { formatInt } from '@/lib/format';
+import { gameHref, matchHref } from '@/lib/routes';
 import { SERIES, SHORT_NAME } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
 
@@ -225,13 +226,24 @@ const HomeContent = async () => {
           title="Latest game"
           actions={
             gameMatch && (
-              <Link
-                href={`/matches/${gameMatch.id}`}
-                className="inline-flex items-center gap-0.5 text-xs text-fg-2 hover:text-fg"
-              >
-                Match
-                <ArrowUpRight className="size-3" aria-hidden="true" />
-              </Link>
+              <>
+                {game && (
+                  <Link
+                    href={gameHref(game.id)}
+                    className="inline-flex items-center gap-0.5 text-xs text-fg-2 hover:text-fg"
+                  >
+                    Game
+                    <ArrowUpRight className="size-3" aria-hidden="true" />
+                  </Link>
+                )}
+                <Link
+                  href={matchHref(gameMatch.id)}
+                  className="inline-flex items-center gap-0.5 text-xs text-fg-2 hover:text-fg"
+                >
+                  Match
+                  <ArrowUpRight className="size-3" aria-hidden="true" />
+                </Link>
+              </>
             )
           }
         >

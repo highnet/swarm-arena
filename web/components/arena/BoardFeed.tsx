@@ -7,6 +7,7 @@ import { agentName, type BoardRecord, type GameId } from '@arena/shared';
 import { Button } from '@/components/ui/Button';
 import { Typography } from '@/components/ui/Typography';
 import { formatDay, formatTime } from '@/lib/format';
+import { matchHref, recordHref, taskHref } from '@/lib/routes';
 import { SERIES, SHORT_NAME, TRACK_ORDER } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
 import { AgentTag } from './AgentAvatar';
@@ -59,31 +60,38 @@ const RecordRow = ({ record, fresh, slot, seat }: RecordRowProps) => {
             <AgentTag id={record.agent_id} seat={seat} size={16} className="text-[11px]" />
           )}
         </div>
-        {record.task_id ? (
-          <Link href={`/tasks/${record.task_id}`} className="mt-0.5 block hover:underline">
-            <Typography variant="small" color="primary" as="span" className="text-pretty">
-              {record.title}
-            </Typography>
-          </Link>
-        ) : (
-          <Typography variant="small" color="primary" className="mt-0.5 text-pretty">
+        <Link href={recordHref(record)} className="mt-0.5 block hover:underline">
+          <Typography variant="small" color="primary" as="span" className="text-pretty">
             {record.title}
           </Typography>
-        )}
+        </Link>
         {record.detail && (
           <Typography variant="meta" as="p" className="mt-0.5 max-w-prose text-pretty">
             {record.detail}
           </Typography>
         )}
       </div>
-      {record.match_id ? (
-        <Link
-          href={`/matches/${record.match_id}`}
-          className="col-start-3 mt-1 inline-flex items-center gap-0.5 self-start text-xs text-fg-2 hover:text-fg sm:col-start-auto sm:mt-0"
-        >
-          Games
-          <ArrowUpRight className="size-3" aria-hidden="true" />
-        </Link>
+      {record.match_id || record.task_id ? (
+        <div className="col-start-3 mt-1 flex gap-3 self-start text-xs sm:col-start-auto sm:mt-0">
+          {record.task_id && (
+            <Link
+              href={taskHref(record.task_id)}
+              className="inline-flex items-center gap-0.5 text-fg-2 hover:text-fg"
+            >
+              Task
+              <ArrowUpRight className="size-3" aria-hidden="true" />
+            </Link>
+          )}
+          {record.match_id && (
+            <Link
+              href={matchHref(record.match_id)}
+              className="inline-flex items-center gap-0.5 text-fg-2 hover:text-fg"
+            >
+              Games
+              <ArrowUpRight className="size-3" aria-hidden="true" />
+            </Link>
+          )}
+        </div>
       ) : (
         <span className="hidden sm:block" />
       )}

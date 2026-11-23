@@ -32,6 +32,7 @@ import { Panel } from '@/components/ui/Panel';
 import { buttonVariants } from '@/components/ui/Button';
 import { Typography } from '@/components/ui/Typography';
 import { getSnapshot } from '@/lib/data';
+import { rungHref, taskHref } from '@/lib/routes';
 import { lineage, newestFirst, snapshotNow, trackSummaries } from '@/lib/derive';
 import { formatDay, formatElo, formatTime } from '@/lib/format';
 import { getPlaybook } from '@/lib/playbook';
@@ -165,7 +166,12 @@ const EngineContent = async ({ params }: EnginePageProps) => {
             {[...track.rungs].reverse().map((r) => (
               <li key={r.id} className="flex items-center gap-3 px-4 py-2.5">
                 <span className="w-12 font-mono text-xs tabular text-fg-3">{formatElo(r.elo)}</span>
-                <span className="min-w-0 flex-1 text-[13px] text-fg">{r.label}</span>
+                <Link
+                  href={rungHref(r)}
+                  className="min-w-0 flex-1 text-[13px] text-fg hover:underline"
+                >
+                  {r.label}
+                </Link>
                 {r.cleared_at ? (
                   <Link
                     href={`/matches/${r.cleared_by_match}`}
@@ -184,7 +190,12 @@ const EngineContent = async ({ params }: EnginePageProps) => {
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[23rem_minmax(0,1fr)]">
         <Panel icon={GitBranch} title="Lineage">
-          <Lineage nodes={nodes} beforeFirst={beforeFirst} slot={track.colorSlot} />
+          <Lineage
+            nodes={nodes}
+            beforeFirst={beforeFirst}
+            track={track.id}
+            slot={track.colorSlot}
+          />
         </Panel>
         <Panel
           icon={BookOpen}
@@ -308,9 +319,11 @@ const EngineContent = async ({ params }: EnginePageProps) => {
             {tasks.map((t) => (
               <li key={t.id} className="px-4 py-2.5">
                 <div className="flex items-start justify-between gap-2">
-                  <Typography variant="small" color="primary">
-                    {t.title}
-                  </Typography>
+                  <Link href={taskHref(t.id)} className="hover:underline">
+                    <Typography variant="small" color="primary" as="span">
+                      {t.title}
+                    </Typography>
+                  </Link>
                   <TaskBadge status={t.status} />
                 </div>
                 <Typography variant="meta" as="p" className="mt-0.5">

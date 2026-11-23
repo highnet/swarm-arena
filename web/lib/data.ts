@@ -129,6 +129,15 @@ export const getMatchGames = async (matchId: string): Promise<GameRow[]> => {
   return (data ?? []) as GameRow[];
 };
 
+export const getGame = async (id: string): Promise<GameRow | null> => {
+  'use cache';
+  cacheTag(SNAPSHOT_TAG);
+  cacheLife({ stale: 60, revalidate: 300, expire: 86400 });
+  if (!supabaseConfigured()) return null;
+  const { data } = await getSupabase().from('games').select('*').eq('id', id).maybeSingle();
+  return (data as GameRow | null) ?? null;
+};
+
 /** Every game of the run with its moves, oldest first. Paged past PostgREST's row cap. */
 export const getAllGames = async (): Promise<GameRow[]> => {
   'use cache';

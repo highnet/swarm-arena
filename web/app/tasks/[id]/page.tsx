@@ -25,6 +25,7 @@ import { Typography } from '@/components/ui/Typography';
 import { getSnapshot } from '@/lib/data';
 import { REPO_URL } from '@/lib/github';
 import { formatDay, formatElo, formatTime } from '@/lib/format';
+import { messageHref, recordHref } from '@/lib/routes';
 import { pageMeta } from '@/lib/site';
 import { cn } from '@/lib/utils';
 
@@ -222,9 +223,16 @@ const TaskContent = async ({ params }: TaskPageProps) => {
                           {formatTime(r.at)}
                         </time>
                       </div>
-                      <Typography variant="small" color="primary" className="mt-0.5 text-pretty">
-                        {r.title}
-                      </Typography>
+                      <Link href={recordHref(r)} className="mt-0.5 block hover:underline">
+                        <Typography
+                          variant="small"
+                          color="primary"
+                          as="span"
+                          className="text-pretty"
+                        >
+                          {r.title}
+                        </Typography>
+                      </Link>
                       {r.detail && (
                         <Typography
                           variant="meta"
@@ -288,9 +296,9 @@ const TaskContent = async ({ params }: TaskPageProps) => {
               <ul className="divide-y divide-line">
                 {talk.map((m) => (
                   <li key={m.id} className="px-4 py-2.5">
-                    <div className="text-xs text-fg-3">
+                    <Link href={messageHref(m.id)} className="text-xs text-fg-3 hover:text-fg">
                       {m.kind} · {formatTime(m.at)}
-                    </div>
+                    </Link>
                     <p className="mt-0.5 whitespace-pre-wrap text-[13px] leading-6 text-fg-2">
                       {m.body}
                     </p>

@@ -10,6 +10,7 @@ import { Typography } from '@/components/ui/Typography';
 import { getSnapshot } from '@/lib/data';
 import { newestFirst } from '@/lib/derive';
 import { formatDay, formatElo, formatTime } from '@/lib/format';
+import { matchHref, versionHref, versionOf } from '@/lib/routes';
 import { pageMeta } from '@/lib/site';
 
 export const metadata: Metadata = pageMeta(
@@ -57,9 +58,20 @@ const VersionsContent = async () => {
                         </Link>
                       )}
                     </div>
-                    <Typography variant="small" color="primary" className="mt-1">
-                      {r.title}
-                    </Typography>
+                    {r.track_id ? (
+                      <Link
+                        href={versionHref(r.track_id, versionOf(r))}
+                        className="mt-1 block hover:underline"
+                      >
+                        <Typography variant="small" color="primary" as="span">
+                          {r.title}
+                        </Typography>
+                      </Link>
+                    ) : (
+                      <Typography variant="small" color="primary" className="mt-1">
+                        {r.title}
+                      </Typography>
+                    )}
                     {r.detail && (
                       <Typography variant="meta" className="mt-0.5">
                         {r.detail}
@@ -68,7 +80,7 @@ const VersionsContent = async () => {
                   </div>
                   {m && (
                     <Link
-                      href={`/matches/${m.id}`}
+                      href={matchHref(m.id)}
                       className="shrink-0 text-right text-xs text-fg-3 hover:text-fg"
                     >
                       <span className="block font-mono text-[13px] tabular text-fg">

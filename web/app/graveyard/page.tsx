@@ -9,6 +9,7 @@ import { Typography } from '@/components/ui/Typography';
 import { getSnapshot } from '@/lib/data';
 import { newestFirst } from '@/lib/derive';
 import { formatDay, formatTime } from '@/lib/format';
+import { ideaHref, matchHref, taskHref } from '@/lib/routes';
 import { pageMeta } from '@/lib/site';
 
 export const metadata: Metadata = pageMeta(
@@ -45,26 +46,26 @@ const GraveyardContent = async () => {
                     {formatDay(r.at)}, {formatTime(r.at)} UTC
                   </time>
                   {r.task_id && (
-                    <Link
-                      href={`/tasks/${encodeURIComponent(r.task_id)}`}
-                      className="hover:text-fg"
-                    >
+                    <Link href={taskHref(r.task_id)} className="hover:text-fg">
                       Task
                     </Link>
                   )}
                   {r.match_id && (
-                    <Link href={`/matches/${r.match_id}`} className="hover:text-fg">
+                    <Link href={matchHref(r.match_id)} className="hover:text-fg">
                       Match
                     </Link>
                   )}
                 </div>
-                <Typography
-                  variant="small"
-                  color="primary"
-                  className="mt-1 line-through decoration-fg-3/60"
-                >
-                  {r.title}
-                </Typography>
+                <Link href={ideaHref(r.id)} className="mt-1 block hover:underline">
+                  <Typography
+                    variant="small"
+                    color="primary"
+                    as="span"
+                    className="line-through decoration-fg-3/60"
+                  >
+                    {r.title}
+                  </Typography>
+                </Link>
                 {r.detail && (
                   <Typography variant="meta" className="mt-0.5">
                     {r.detail}
