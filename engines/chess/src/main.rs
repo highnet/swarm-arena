@@ -275,76 +275,10 @@ fn order_key(m: &Move, best: Option<Move>) -> i32 {
     k
 }
 
-/// A quiet move: neither a capture nor a promotion. Only quiets go into the killer slots and the
-/// history table; captures and promotions already have their own ordering.
-fn is_quiet(m: &Move) -> bool {
-    !m.is_capture() && m.promotion().is_none()
-}
-
-/// Ordering keys for the two killer slots: below every capture and promotion, above every quiet
-/// move's history score (which `HISTORY_MAX` keeps under them).
-const KILLER_KEY: [i32; 2] = [400_000, 399_000];
-/// History scores are halved once any entry passes this, so they never reach the killer keys.
-const HISTORY_MAX: i32 = 300_000;
-
-/// Killer slots (two per ply) and the history table for quiet-move ordering. Fresh at each `go`.
-struct Ordering {
-    killers: Vec<[Option<Move>; 2]>,
-    /// history[side][from][to]: grows by depth*depth whenever that quiet move causes a beta cut-off.
-    history: Vec<[[i32; 64]; 64]>,
-}
-
-impl Ordering {
-    fn new() -> Ordering {
-        Ordering { killers: vec![[None; 2]; MAX_DEPTH as usize + 2], history: vec![[[0; 64]; 64]; 2] }
-    }
-
-    fn slot(m: &Move) -> (usize, usize) {
-        (m.from().map_or(0, |s| s as usize), m.to() as usize)
-    }
-
-    /// Ordering key for a move at `ply`: the TT move, captures and promotions as `order_key`, then
-    /// the two killers, then quiet moves by history score.
-    fn key(&self, m: &Move, tt_move: Option<Move>, side: Color, ply: i32) -> i32 {
-        if Some(*m) == tt_move || !is_quiet(m) {
-            return order_key(m, tt_move);
-        }
-        if let Some(k) = self.killers.get(ply as usize) {
-            if k[0] == Some(*m) {
-                return KILLER_KEY[0];
-            }
-            if k[1] == Some(*m) {
-                return KILLER_KEY[1];
-            }
-        }
-        let (from, to) = Self::slot(m);
-        self.history[side as usize][from][to]
-    }
-
-    /// Records a quiet move that caused a beta cut-off at `ply` with `depth` plies left.
-    fn cutoff(&mut self, m: &Move, side: Color, ply: i32, depth: u32) {
-        if let Some(k) = self.killers.get_mut(ply as usize) {
-            if k[0] != Some(*m) {
-                k[1] = k[0];
-                k[0] = Some(*m);
-            }
-        }
-        let (from, to) = Self::slot(m);
-        let h = &mut self.history[side as usize][from][to];
-        *h += (depth * depth) as i32;
-        if *h > HISTORY_MAX {
-            self.history.iter_mut().flatten().flatten().for_each(|v| *v /= 2);
-        }
-    }
-}
-
 struct Search<'a> {
     seen: &'a HashSet<u64>,
     tt: &'a mut Tt,
     use_tt: bool,
-    /// Killer moves and history ordering for quiet moves (off: quiets in generation order).
-    order: Ordering,
-    use_order: bool,
     /// Probes that found this position's entry, and those that cut the node off.
     tt_hits: u64,
     tt_cuts: u64,
@@ -416,13 +350,7 @@ impl Search<'_> {
             }
         }
         let alpha0 = alpha;
-        if self.use_order {
-            let side = pos.turn();
-            let order = &self.order;
-            moves.sort_by_cached_key(|m| -order.key(m, tt_move, side, ply));
-        } else {
-            moves.sort_unstable_by_key(|m| -order_key(m, tt_move));
-        }
+        moves.sort_unstable_by_key(|m| -order_key(m, tt_move));
         self.path.push(h);
         let mut best = -INF;
         let mut best_move = None;
@@ -439,9 +367,6 @@ impl Search<'_> {
                 if s > alpha {
                     alpha = s;
                     if alpha >= beta {
-                        if self.use_order && is_quiet(m) {
-                            self.order.cutoff(m, pos.turn(), ply, depth);
-                        }
                         break;
                     }
                 }
@@ -569,7 +494,7 @@ struct Outcome {
 fn search(pos: &Chess, seen: &HashSet<u64>, budget_ms: u64) -> Option<Outcome> {
     let hard = Duration::from_millis(budget_ms * 6 / 10);
     let soft = Duration::from_millis(budget_ms * 3 / 10);
-    TT.with(|tt| run(pos, seen, hard, soft, MAX_DEPTH, &mut tt.borrow_mut(), true, true))
+    TT.with(|tt| run(pos, seen, hard, soft, MAX_DEPTH, &mut tt.borrow_mut(), true))
 }
 
 /// Fixed-depth search with no clock and a fresh table: deterministic, for tests and measurement.
@@ -581,21 +506,8 @@ fn search_depth(pos: &Chess, seen: &HashSet<u64>, depth: u32) -> Option<Outcome>
 /// Fixed-depth search on a given table, with the table on or off.
 #[cfg(test)]
 fn search_depth_with(pos: &Chess, seen: &HashSet<u64>, depth: u32, tt: &mut Tt, use_tt: bool) -> Option<Outcome> {
-    search_depth_opts(pos, seen, depth, tt, use_tt, true)
-}
-
-/// Fixed-depth search with the table and the killer/history ordering each on or off.
-#[cfg(test)]
-fn search_depth_opts(
-    pos: &Chess,
-    seen: &HashSet<u64>,
-    depth: u32,
-    tt: &mut Tt,
-    use_tt: bool,
-    use_order: bool,
-) -> Option<Outcome> {
     let day = Duration::from_secs(86_400);
-    run(pos, seen, day, day, depth, tt, use_tt, use_order)
+    run(pos, seen, day, day, depth, tt, use_tt)
 }
 
 /// Iterative deepening up to `max_depth`, stopping at `hard` and not starting a depth after `soft`.
@@ -607,7 +519,6 @@ fn run(
     max_depth: u32,
     tt: &mut Tt,
     use_tt: bool,
-    use_order: bool,
 ) -> Option<Outcome> {
     let start = Instant::now();
     let mut moves: Vec<Move> = pos.legal_moves().into_iter().collect();
@@ -624,8 +535,6 @@ fn run(
         seen,
         tt,
         use_tt,
-        order: Ordering::new(),
-        use_order,
         tt_hits: 0,
         tt_cuts: 0,
         path: Vec::with_capacity(MAX_DEPTH as usize + 1),
@@ -906,8 +815,6 @@ mod tests {
             seen: &HashSet::new(),
             tt: &mut tt,
             use_tt: false,
-            order: Ordering::new(),
-            use_order: false,
             tt_hits: 0,
             tt_cuts: 0,
             path: Vec::new(),
@@ -965,9 +872,8 @@ mod tests {
         let (mut off_nodes, mut on_nodes, mut cuts) = (0u64, 0u64, 0u64);
         for fen in TT_FENS {
             let pos = from_fen(fen);
-            // Killer/history ordering off on both sides, so this measures the table alone.
-            let off = search_depth_opts(&pos, &HashSet::new(), 4, &mut Tt::new(4), false, false).unwrap();
-            let on = search_depth_opts(&pos, &HashSet::new(), 4, &mut Tt::new(18), true, false).unwrap();
+            let off = search_depth_with(&pos, &HashSet::new(), 4, &mut Tt::new(4), false).unwrap();
+            let on = search_depth_with(&pos, &HashSet::new(), 4, &mut Tt::new(18), true).unwrap();
             assert_eq!((off.best, off.score), (on.best, on.score), "{fen}");
             assert!(on.nodes <= off.nodes, "{fen}: {} vs {}", on.nodes, off.nodes);
             cuts += on.tt_cuts;
@@ -1048,99 +954,10 @@ mod tests {
             let pos = from_fen(fen);
             let hard = Duration::from_millis(120);
             let soft = Duration::from_millis(60);
-            let off = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(4), false, true).unwrap();
-            let on = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true, true).unwrap();
+            let off = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(4), false).unwrap();
+            let on = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true).unwrap();
             println!("go 200 {name}: off depth {} nodes {} | on depth {} nodes {} hits {} cuts {}", off.depth, off.nodes, on.depth, on.nodes, on.tt_hits, on.tt_cuts);
         }
     }
 
-    #[test]
-    fn ordering_keeps_move_and_score_with_fewer_nodes() {
-        // Same fixed depth and table, killers/history off vs on: ordering must not change the
-        // minimax result, and it must save nodes overall.
-        let (mut off_nodes, mut on_nodes) = (0u64, 0u64);
-        for fen in TT_FENS {
-            let pos = from_fen(fen);
-            let off = search_depth_opts(&pos, &HashSet::new(), 5, &mut Tt::new(18), true, false).unwrap();
-            let on = search_depth_opts(&pos, &HashSet::new(), 5, &mut Tt::new(18), true, true).unwrap();
-            assert_eq!(off.score, on.score, "{fen}");
-            off_nodes += off.nodes;
-            on_nodes += on.nodes;
-        }
-        assert!(on_nodes < off_nodes, "{on_nodes} vs {off_nodes}");
-    }
-
-    #[test]
-    fn ordering_keeps_tactical_results() {
-        // The fixed-depth tactical positions give the same move and score with ordering on or off.
-        let cases: [(&str, u32); 5] = [
-            ("7k/8/8/8/8/8/1R6/R1K5 w - - 0 1", 4),
-            ("7k/8/5KQ1/8/8/8/8/8 w - - 0 1", 3),
-            ("4k3/8/4p3/3p4/8/8/8/3QK3 w - - 0 1", 3),
-            ("8/8/7k/8/8/8/1R6/R1K5 w - - 0 1", 6),
-            ("7k/8/6K1/8/8/8/8/5Q2 w - - 0 1", 4),
-        ];
-        for (fen, depth) in cases {
-            let pos = from_fen(fen);
-            let off = search_depth_opts(&pos, &HashSet::new(), depth, &mut Tt::new(16), true, false).unwrap();
-            let on = search_depth_opts(&pos, &HashSet::new(), depth, &mut Tt::new(16), true, true).unwrap();
-            assert_eq!((off.best, off.score), (on.best, on.score), "{fen}");
-        }
-    }
-
-    #[test]
-    fn killers_and_history_record_quiet_cutoffs_only() {
-        let pos = from_fen("r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQ1RK1 b kq - 5 4");
-        let moves: Vec<Move> = pos.legal_moves().into_iter().collect();
-        let quiet = *moves.iter().find(|m| is_quiet(m)).unwrap();
-        let capture = *moves.iter().find(|m| m.is_capture()).unwrap();
-        let mut o = Ordering::new();
-        o.cutoff(&quiet, Color::Black, 3, 4);
-        assert_eq!(o.key(&quiet, None, Color::Black, 3), KILLER_KEY[0]);
-        // Another ply: not a killer there, so the history score (4*4) orders it.
-        assert_eq!(o.key(&quiet, None, Color::Black, 4), 16);
-        // Captures keep their MVV-LVA key above any killer; the TT move stays first.
-        assert!(o.key(&capture, None, Color::Black, 3) > KILLER_KEY[0]);
-        assert_eq!(o.key(&quiet, Some(quiet), Color::Black, 3), i32::MAX);
-        // A second killer pushes the first into slot two.
-        let other = *moves.iter().filter(|m| is_quiet(m)).nth(1).unwrap();
-        o.cutoff(&other, Color::Black, 3, 2);
-        assert_eq!(o.key(&other, None, Color::Black, 3), KILLER_KEY[0]);
-        assert_eq!(o.key(&quiet, None, Color::Black, 3), KILLER_KEY[1]);
-        // History is halved before it can climb into the killer keys.
-        for _ in 0..100 {
-            o.cutoff(&quiet, Color::Black, 10, 64);
-        }
-        assert!(o.key(&quiet, None, Color::Black, 4) <= HISTORY_MAX);
-    }
-
-    #[test]
-    #[ignore = "measurement: cargo test --release -p chess-engine order_report -- --ignored --nocapture"]
-    fn order_report() {
-        for depth in [4u32, 5, 6] {
-            let (mut off_n, mut on_n, mut same) = (0u64, 0u64, 0);
-            for fen in TT_FENS {
-                let pos = from_fen(fen);
-                let off = search_depth_opts(&pos, &HashSet::new(), depth, &mut Tt::new(TT_BITS), true, false).unwrap();
-                let on = search_depth_opts(&pos, &HashSet::new(), depth, &mut Tt::new(TT_BITS), true, true).unwrap();
-                if (off.best, off.score) == (on.best, on.score) {
-                    same += 1;
-                } else {
-                    println!("  d{depth} differs {fen}: off {:?} {} on {:?} {}", off.best, off.score, on.best, on.score);
-                }
-                println!("  d{depth} {fen}: off {} on {}", off.nodes, on.nodes);
-                off_n += off.nodes;
-                on_n += on.nodes;
-            }
-            println!("depth {depth}: nodes off {off_n} on {on_n} ({:+.1}%), same {same}/8", 100.0 * (on_n as f64 / off_n as f64 - 1.0));
-        }
-        for (name, fen) in [("start", TT_FENS[0]), ("italian", TT_FENS[1]), ("kiwipete", TT_FENS[2])] {
-            let pos = from_fen(fen);
-            let hard = Duration::from_millis(120);
-            let soft = Duration::from_millis(60);
-            let off = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true, false).unwrap();
-            let on = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true, true).unwrap();
-            println!("go 200 {name}: off depth {} nodes {} | on depth {} nodes {}", off.depth, off.nodes, on.depth, on.nodes);
-        }
-    }
 }
