@@ -131,6 +131,8 @@ You do not need to check worktrees by hand any more, and you must not release a
 claim the report holds out this way. If you find yourself wanting to, that is an
 operator conversation about a stale worktree, not a release.
 
+**Findings named in your dispatch prompt are hints to verify, not work owed.** They were read before you booted and are often stale by now; the pass and the report re-read every source, and what they find is what you act on.
+
 Perform one maintenance pass. Release claims the evidence says are over — a threshold the claim has outlived with no live issue branch or open pull request, or a branch whose own pull request has already merged or closed, which ends the session that pushed it whatever the commit clock says. Remind pull requests idle beyond the configured threshold. Clean closed-issue reservation refs with `.rallypoint/scripts/cleanup.mjs`. Clear a stale `status:*` label off a closed issue with `.rallypoint/scripts/clear-status-labels.mjs --issue <N> [--dry-run]` — unlike `cleanup.mjs`, it does take `--dry-run`, and it re-reads the issue's state and labels itself rather than trusting the survey, so it refuses (`notClosed`) if the issue has been reopened since.
 
 Release a stale claim only through the command, never by editing labels or deleting refs by hand:

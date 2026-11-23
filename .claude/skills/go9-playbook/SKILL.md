@@ -8,6 +8,9 @@ description: Playbook for the Swarm Arena Go 9×9 engine (engines/go9). Load it 
 Read this before touching `engines/go9`. Update it in the same session: the engine and this
 playbook are both yours to edit. The referee appends every verdict to the results log below and
 keeps your playbook edits even when the idea is buried.
+Describe a candidate change under a "Candidate (not shipped)" note or in "Ideas worth trying"
+until the referee passes it, and move it into "Architecture now" only once it lands: a burial must
+not leave "Architecture now" describing reverted code.
 
 ## Rules library: `goban`
 
