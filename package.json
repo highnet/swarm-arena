@@ -1,0 +1,13 @@
+{
+  "name": "swarm-arena",
+  "private": true,
+  "workspaces": ["shared", "web", "harness"],
+  "scripts": {
+    "dev": "npm run dev -w web",
+    "build": "npm run build -w web",
+    "lint": "npm run lint -w web",
+    "test": "npm test -w shared && npm test -w harness",
+    "sample": "npm run sample -w harness",
+    "arena": "npm run arena -w harness --"
+  }
+}
