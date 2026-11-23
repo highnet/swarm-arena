@@ -102,7 +102,14 @@ impl Rng {
 /// the side to move, so the side to move gets ⌈k/2⌉ of the k empty cells. A full Hex board
 /// always has exactly one winner, so one connection check at the end decides it.
 /// Returns true if Black wins.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn playout(black: u128, white: u128, black_to_move: bool, rng: &mut Rng) -> bool {
+    black_connects(fill(black, white, black_to_move, rng))
+}
+
+/// The fill-in of [`playout`] without the connection check: returns Black's final board
+/// (White owns every other cell). The search reads AMAF statistics from it.
+pub fn fill(black: u128, white: u128, black_to_move: bool, rng: &mut Rng) -> u128 {
     let mut empty = [0u8; CELLS];
     let mut k = 0;
     let mut bits = ALL & !(black | white);
@@ -120,12 +127,11 @@ pub fn playout(black: u128, white: u128, black_to_move: bool, rng: &mut Rng) -> 
         picked |= 1u128 << empty[i];
     }
     let rest = ALL & !(black | white | picked);
-    let final_black = if black_to_move {
+    if black_to_move {
         black | picked
     } else {
         black | rest
-    };
-    black_connects(final_black)
+    }
 }
 
 #[cfg(test)]
