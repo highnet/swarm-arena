@@ -6,6 +6,8 @@ import type { GameId } from '@arena/shared';
 import { BoardSearch } from '@/components/arena/BoardSearch';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
+import { PageSkeleton } from '@/components/arena/PageSkeleton';
+import { Skeleton } from '@/components/ui/Skeleton';
 import { getSnapshot } from '@/lib/data';
 import { newestFirst } from '@/lib/derive';
 
@@ -28,7 +30,7 @@ const BoardContent = async () => {
         Everything that happens, in order: plans, tasks, matches, new versions and dropped ideas.
       </Typography>
       <Panel className="mt-6" icon={ScrollText} title="Records">
-        <Suspense fallback={<div className="h-40" aria-busy="true" />}>
+        <Suspense fallback={<Skeleton variant="block" className="m-4 h-40" />}>
           <BoardSearch records={newestFirst(s.records)} slots={slots} seats={seats} />
         </Suspense>
       </Panel>
@@ -37,11 +39,7 @@ const BoardContent = async () => {
 };
 
 const Board = () => (
-  <Suspense
-    fallback={
-      <main className="mx-auto w-full max-w-[90rem] flex-1 px-4 pt-8 sm:px-6" aria-busy="true" />
-    }
-  >
+  <Suspense fallback={<PageSkeleton />}>
     <BoardContent />
   </Suspense>
 );
