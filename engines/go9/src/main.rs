@@ -11,10 +11,8 @@ use std::collections::HashSet;
 use std::io::{self, BufRead, Write};
 use std::time::{Duration, Instant};
 
-mod benson;
 mod board;
 mod search;
-mod solve;
 
 use board::{Board, Rng};
 use search::KOMI;
@@ -216,45 +214,13 @@ fn flat_board(pos: &Position) -> Board {
     b
 }
 
-/// Root moves: legal under goban and positional superko, not the mover's own eye, and not
-/// inside a Benson-settled area (`flat.forbid`).
+/// Root moves: legal under goban and positional superko, and not the mover's own eye.
 fn root_moves(pos: &Position, flat: &Board) -> Vec<u8> {
     pos.legal_moves()
         .into_iter()
         .map(|c| c.0 * N as u8 + c.1)
-        .filter(|&p| flat.forbid & (1u128 << p) == 0 && !flat.is_eye(p, flat.to_move))
+        .filter(|&p| !flat.is_eye(p, flat.to_move))
         .collect()
-}
-
-/// The exact solve runs when at most this many points are unsettled (`unsettled_points`):
-/// 16 at short budgets, 18 from one second up (timings in the playbook).
-fn solve_n(budget_ms: u64) -> u32 {
-    if budget_ms >= 1000 { 18 } else { 16 }
-}
-/// Share of `go <ms>` the solve may use before falling back to MCTS (per mille).
-const SOLVE_SHARE: u64 = 500;
-/// Table size of the solver, 2^bits entries of 16 bytes (4 MB).
-const SOLVE_TT_BITS: u32 = 18;
-
-/// A proven winning move, if the unsettled part is small enough and the null-window solve
-/// finishes in time. None when the position is too open, the clock ran out, or every move
-/// loses against perfect play (then MCTS plays on, for the opponent's mistakes).
-fn solve_endgame(flat: &Board, legal: &[u8], unsettled: u32, budget_ms: u64, deadline: Instant) -> Option<u8> {
-    if unsettled > solve_n(budget_ms) {
-        return None;
-    }
-    let mut solver = solve::Solver::new(deadline, SOLVE_TT_BITS, 3 * unsettled + 20);
-    let r = solver.solve_root(flat, legal, -1, 1);
-    let verdict = match r {
-        Some((_, v)) if v > 0 => "win",
-        Some(_) => "loss",
-        None => "timeout",
-    };
-    eprintln!("info solve unsettled {unsettled} nodes {} {verdict}", solver.nodes);
-    match r {
-        Some((m, v)) if v > 0 => Some(m),
-        _ => None,
-    }
 }
 
 /// Pick a move for the side to move, given the moves so far.
@@ -275,17 +241,10 @@ fn choose(moves: &[String], budget_ms: u64) -> Option<String> {
         }
     }
 
-    let mut flat = flat_board(&pos);
-    let settled = benson::settled(&flat.cell);
-    flat.forbid = settled.forbid();
+    let flat = flat_board(&pos);
     let legal = root_moves(&pos, &flat);
     if legal.is_empty() {
         return Some("pass".into());
-    }
-    let unsettled = benson::unsettled_points(&settled);
-    let solve_deadline = start + Duration::from_millis(budget_ms * SOLVE_SHARE / 1000);
-    if let Some(m) = solve_endgame(&flat, &legal, unsettled, budget_ms, solve_deadline) {
-        return Some(if m == board::PASS { "pass".into() } else { format_move(to_coord(m)) });
     }
     if legal.len() == 1 {
         return Some(format_move(to_coord(legal[0])));
@@ -293,7 +252,7 @@ fn choose(moves: &[String], budget_ms: u64) -> Option<String> {
     let mut rng = seeded_rng(moves);
     let deadline = start + Duration::from_millis(budget_ms * 7 / 10);
     let out = search::search(&flat, &legal, deadline, &mut rng);
-    eprintln!("info playouts {} winrate {:.3} unsettled {unsettled}", out.playouts, out.winrate);
+    eprintln!("info playouts {} winrate {:.3}", out.playouts, out.winrate);
     Some(format_move(to_coord(out.best)))
 }
 
