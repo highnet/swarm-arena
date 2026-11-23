@@ -94,11 +94,47 @@ type Particle = {
   onArrive?: () => void;
 };
 
-type Ripple = { key: number; node: SimNode; start: number; color: string };
+type Ripple = { key: number; node: SimNode; start: number; color: string; big?: boolean };
+
+/** A spark thrown out of a node when work lands there; merges throw the most. */
+type Burst = {
+  key: number;
+  node: SimNode;
+  start: number;
+  angle: number;
+  dist: number;
+  size: number;
+  color: string;
+};
+
+/** A word that rises off a node and fades: "+merged", "approved". */
+type Floater = { key: number; node: SimNode; start: number; text: string; color: string };
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const AMBIENT_MS = 1500;
 const RIPPLE_MS = 900;
+const BURST_MS = 1100;
+const FLOAT_MS = 1600;
+/** Head-to-tail length of a spark's comet trail, as a fraction of the link. */
+const TRAIL = 0.22;
+
+/** How far along the protocol an open work item is, for the arc around it. */
+const STAGE_PROGRESS: Partial<Record<SwarmStage, number>> = {
+  claimed: 0.25,
+  review: 0.5,
+  changes: 0.5,
+  approved: 0.75,
+};
+
+const arcPath = (r0: number, r1: number, from: number, to: number) =>
+  to - from <= 0.0005
+    ? ''
+    : (d3.arc().cornerRadius((r1 - r0) / 2)({
+        innerRadius: r0,
+        outerRadius: r1,
+        startAngle: from * Math.PI * 2,
+        endAngle: Math.min(1, to) * Math.PI * 2,
+      }) ?? '');
 
 const ROLE_GLYPH: Record<string, string> = {
   worker: 'W',
@@ -217,10 +253,11 @@ export const createSwarmGraph = (
     .style('touch-action', 'none')
     .style('user-select', 'none');
 
+  const uid = hash(String(Math.random())).toString(36);
   const defs = svg.append('defs');
   const glow = defs
     .append('filter')
-    .attr('id', `sg-glow-${hash(String(Math.random()))}`)
+    .attr('id', `sg-glow-${uid}`)
     .attr('x', '-100%')
     .attr('y', '-100%')
     .attr('width', '300%')
@@ -232,11 +269,19 @@ export const createSwarmGraph = (
   const glowUrl = `url(#${glow.attr('id')})`;
 
   const root = svg.append('g');
+  const gBloom = root.append('g').attr('pointer-events', 'none');
   const gRings = root.append('g').attr('pointer-events', 'none');
   const gLinks = root.append('g').attr('fill', 'none').attr('pointer-events', 'none');
   const gRipples = root.append('g').attr('pointer-events', 'none');
+  const gTrails = root
+    .append('g')
+    .attr('fill', 'none')
+    .attr('stroke-linecap', 'round')
+    .attr('pointer-events', 'none');
   const gParticles = root.append('g').attr('pointer-events', 'none');
   const gNodes = root.append('g');
+  const gBursts = root.append('g').attr('pointer-events', 'none');
+  const gFloaters = root.append('g').attr('pointer-events', 'none');
 
   const zoom = d3
     .zoom<SVGSVGElement, unknown>()
@@ -253,6 +298,8 @@ export const createSwarmGraph = (
   const seenFlows = new Set<string>();
   let particles: Particle[] = [];
   let ripples: Ripple[] = [];
+  let bursts: Burst[] = [];
+  let floaters: Floater[] = [];
   let nextKey = 0;
   const lastEmit = new Map<string, number>();
   let hovered: SimNode | null = null;
@@ -271,6 +318,9 @@ export const createSwarmGraph = (
   /** Sectors shrink on narrow canvases so the ring still fits a phone. */
   const sizeScale = () => Math.max(0.6, Math.min(1, Math.min(width, height) / 620));
   const rOf = (n: SimNode) => radiusOf(n, effortOf(n), sizeScale());
+  /** Room for the body plus the progress arc drawn around sectors and open work. */
+  const collideOf = (n: SimNode) =>
+    n.r + (n.kind === 'agent' ? 6 : n.kind === 'sector' ? 12 : n.kind === 'work' ? 7 : 4);
 
   /**
    * Where each node is drawn towards: sectors to their slot on the ring, the work and agents of
@@ -309,10 +359,7 @@ export const createSwarmGraph = (
         .forceManyBody<SimNode>()
         .strength((n) => (n.kind === 'sector' ? -420 : n.kind === 'work' ? -50 : -140)),
     )
-    .force(
-      'collide',
-      d3.forceCollide<SimNode>().radius((n) => n.r + (n.kind === 'agent' ? 6 : 4)),
-    )
+    .force('collide', d3.forceCollide<SimNode>().radius(collideOf))
     .force('ringX', d3.forceX<SimNode>((n) => anchorOf(n).x).strength(anchorStrength))
     .force('ringY', d3.forceY<SimNode>((n) => anchorOf(n).y).strength(anchorStrength))
     .on('tick', () => draw());
@@ -464,14 +511,44 @@ export const createSwarmGraph = (
             .style('cursor', 'pointer')
             .style('outline', 'none')
             .attr('opacity', 0);
-          g.append('path').attr('class', 'sg-body');
-          g.append('text')
+          // The inner group scales (pops) without fighting the per-tick translate.
+          const inner = g.append('g').attr('class', 'sg-inner');
+          inner.append('path').attr('class', 'sg-track').attr('stroke', 'none');
+          inner.append('path').attr('class', 'sg-arc-flight').attr('stroke', 'none');
+          inner.append('path').attr('class', 'sg-arc').attr('stroke', 'none');
+          const orbit = inner
+            .append('circle')
+            .attr('class', 'sg-orbit')
+            .attr('fill', 'none')
+            .attr('stroke-dasharray', '2 6')
+            .attr('stroke-linecap', 'round');
+          if (motion)
+            orbit
+              .append('animateTransform')
+              .attr('attributeName', 'transform')
+              .attr('type', 'rotate')
+              .attr('from', '0')
+              .attr('to', '360')
+              .attr('dur', '40s')
+              .attr('repeatCount', 'indefinite');
+          inner.append('path').attr('class', 'sg-body');
+          inner
+            .append('text')
             .attr('class', 'sg-glyph')
             .attr('text-anchor', 'middle')
             .attr('dominant-baseline', 'central');
           g.append('text').attr('class', 'sg-label').attr('text-anchor', 'middle');
           g.append('text').attr('class', 'sg-sub').attr('text-anchor', 'middle');
           g.transition().duration(500).attr('opacity', 1);
+          // New nodes spring in from nothing.
+          if (motion)
+            inner
+              .attr('transform', 'scale(0.01)')
+              .transition()
+              .delay(80)
+              .duration(900)
+              .ease(d3.easeElasticOut.amplitude(1).period(0.45))
+              .attr('transform', 'scale(1)');
           return g;
         },
         (update) => update,
@@ -533,6 +610,56 @@ export const createSwarmGraph = (
       }
     });
 
+    renderArcs(groups);
+
+    groups
+      .select<SVGCircleElement>('circle.sg-orbit')
+      .attr('display', (n) => (n.kind === 'hub' ? null : 'none'))
+      .attr('r', (n) => n.r + 7)
+      .style('stroke', theme.fgFaint)
+      .attr('stroke-opacity', 0.6);
+
+    // A soft bloom under every sector; brighter, and breathing, while an agent works there.
+    const sectors = [...nodeById.values()].filter((n) => n.kind === 'sector');
+    defs
+      .selectAll<SVGRadialGradientElement, SimNode>('radialGradient.sg-bloom')
+      .data(sectors, (n) => n.id)
+      .join((enter) => {
+        const g = enter.append('radialGradient').attr('class', 'sg-bloom');
+        g.append('stop').attr('offset', '0%').attr('stop-opacity', 0.55);
+        g.append('stop').attr('offset', '45%').attr('stop-opacity', 0.14);
+        g.append('stop').attr('offset', '100%').attr('stop-opacity', 0);
+        return g;
+      })
+      .attr('id', (n) => `sg-bloom-${uid}-${hash(n.id)}`)
+      .each(function (n) {
+        d3.select(this).selectAll('stop').style('stop-color', colorOf(n));
+      });
+    gBloom
+      .selectAll<SVGCircleElement, SimNode>('circle')
+      .data(sectors, (n) => n.id)
+      .join((enter) => {
+        const c = enter.append('circle').attr('opacity', 0);
+        if (motion)
+          c.append('animate')
+            .attr('attributeName', 'r')
+            .attr('dur', '3.2s')
+            .attr('repeatCount', 'indefinite');
+        return c;
+      })
+      .attr('fill', (n) => `url(#sg-bloom-${uid}-${hash(n.id)})`)
+      .each(function (n) {
+        const el = d3.select(this);
+        el.transition()
+          .duration(800)
+          .attr('opacity', n.active ? 0.9 : 0.4);
+        el.select('animate').attr(
+          'values',
+          n.active ? `${n.r * 2.4};${n.r * 3};${n.r * 2.4}` : `${n.r * 2.2};${n.r * 2.2}`,
+        );
+        if (!motion || !n.active) el.attr('r', n.r * 2.2);
+      });
+
     groups
       .select<SVGTextElement>('text.sg-glyph')
       .style('font-family', (n) => (n.kind === 'agent' ? theme.font : theme.monoFont))
@@ -546,10 +673,11 @@ export const createSwarmGraph = (
           return (
             ROLE_GLYPH[n.agent?.role ?? ''] ?? (n.agent?.role ?? n.label).charAt(0).toUpperCase()
           );
-        if (n.kind === 'sector') return String(Math.round(effortOf(n)));
+        if (n.kind === 'sector') return String(shownNumber.get(n.id) ?? Math.round(effortOf(n)));
         if (n.kind === 'hub') return n.label;
         return '';
       });
+    countUp();
 
     groups
       .select<SVGTextElement>('text.sg-label')
@@ -647,6 +775,125 @@ export const createSwarmGraph = (
       );
 
     applyHover();
+  };
+
+  /**
+   * Progress arcs. A sector's ring fills with its merged work (solid) and the work in flight
+   * (faint) out of everything aimed at it; an open branch or pull request's ring shows how far
+   * along the protocol it is. Arcs ease to their new value, so progress is something you watch.
+   */
+  const arcShown = new Map<string, { done: number; flight: number }>();
+  const arcTarget = (n: SimNode) => {
+    if (n.kind === 'sector') {
+      const t = n.tally;
+      if (!t || !t.total) return { done: 0, flight: 0 };
+      return { done: t.landed / t.total, flight: (t.branch + t.pr) / t.total };
+    }
+    if (n.kind === 'work' && n.workItem)
+      return { done: STAGE_PROGRESS[n.workItem.stage] ?? 0, flight: 0 };
+    return { done: 0, flight: 0 };
+  };
+  const arcRadii = (n: SimNode): [number, number] =>
+    n.kind === 'sector' ? [n.r + 5, n.r + 8.5] : [n.r + 3.5, n.r + 5.5];
+  const hasArc = (n: SimNode) =>
+    n.kind === 'sector' ||
+    (n.kind === 'work' && (n.phase === 'branch' || n.phase === 'pr') && !replayOverride);
+  const arcColor = (n: SimNode) => {
+    const stage = n.workItem?.stage;
+    return stage === 'approved' ? theme.good : stage === 'changes' ? theme.warning : colorOf(n);
+  };
+  const drawArcs = (el: SVGGElement, n: SimNode, v: { done: number; flight: number }) => {
+    const [r0, r1] = arcRadii(n);
+    const g = d3.select(el);
+    const on = hasArc(n);
+    g.select('path.sg-track')
+      .attr('d', on ? arcPath(r0, r1, 0, 1) : '')
+      .style('fill', theme.line)
+      .attr('fill-opacity', 0.55);
+    g.select('path.sg-arc-flight')
+      .attr('d', on ? arcPath(r0, r1, v.done, v.done + v.flight) : '')
+      .style('fill', colorOf(n))
+      .attr('fill-opacity', 0.38);
+    g.select('path.sg-arc')
+      .attr('d', on ? arcPath(r0, r1, 0, v.done) : '')
+      .style('fill', arcColor(n))
+      .attr('fill-opacity', 1);
+  };
+  const renderArcs = (groups: d3.Selection<SVGGElement, SimNode, SVGGElement, unknown>) => {
+    groups.select<SVGGElement>('g.sg-inner').each(function (n) {
+      const to = arcTarget(n);
+      const from = arcShown.get(n.id) ?? { done: 0, flight: 0 };
+      arcShown.set(n.id, to);
+      if (!motion || (from.done === to.done && from.flight === to.flight)) {
+        drawArcs(this, n, to);
+        return;
+      }
+      const done = d3.interpolateNumber(from.done, to.done);
+      const flight = d3.interpolateNumber(from.flight, to.flight);
+      d3.select(this)
+        .transition('arc')
+        .duration(1400)
+        .ease(d3.easeCubicOut)
+        .tween('arc', () => (t) => drawArcs(this, n, { done: done(t), flight: flight(t) }));
+    });
+  };
+
+  /** Sector effort numbers count up (or down) to their new value instead of jumping. */
+  const shownNumber = new Map<string, number>();
+  const countUp = () => {
+    gNodes
+      .selectAll<SVGGElement, SimNode>('g.sg-node')
+      .filter((n) => n.kind === 'sector')
+      .select<SVGTextElement>('text.sg-glyph')
+      .each(function (n) {
+        const to = Math.round(effortOf(n));
+        const from = shownNumber.get(n.id) ?? to;
+        shownNumber.set(n.id, to);
+        const el = d3.select(this);
+        if (!motion || from === to) {
+          el.interrupt('count').text(String(to));
+          return;
+        }
+        el.transition('count')
+          .duration(Math.min(1600, 300 + Math.abs(to - from) * 40))
+          .ease(d3.easeCubicOut)
+          .textTween(() => (t) => String(Math.round(from + (to - from) * t)));
+      });
+  };
+
+  /** A quick elastic bump on a node: something just happened to it. */
+  const pop = (node: SimNode, strength = 1) => {
+    if (!motion) return;
+    gNodes
+      .selectAll<SVGGElement, SimNode>('g.sg-node')
+      .filter((n) => n === node)
+      .select<SVGGElement>('g.sg-inner')
+      .interrupt('pop')
+      .transition('pop')
+      .duration(130)
+      .ease(d3.easeQuadOut)
+      .attr('transform', `scale(${1 + 0.16 * strength})`)
+      .transition()
+      .duration(750)
+      .ease(d3.easeElasticOut.amplitude(1).period(0.35))
+      .attr('transform', 'scale(1)');
+  };
+
+  /** Sparks thrown out of a node, and a word rising off it. */
+  const celebrate = (node: SimNode, color: string, count: number, text: string | null) => {
+    const now = performance.now();
+    if (motion)
+      for (let i = 0; i < count; i++)
+        bursts.push({
+          key: nextKey++,
+          node,
+          start: now + Math.random() * 60,
+          angle: (i / count) * Math.PI * 2 + Math.random() * 0.5,
+          dist: node.r + 14 + Math.random() * 26,
+          size: 1.4 + Math.random() * 2,
+          color,
+        });
+    if (text) floaters.push({ key: nextKey++, node, start: now, text, color });
   };
 
   /** Sectors, live agents, branches and pull requests are always named; the rest on hover. */
@@ -833,6 +1080,10 @@ export const createSwarmGraph = (
     gLinks
       .selectAll<SVGPathElement, SimLink>('path')
       .attr('d', (l) => curvePath(l.source, l.target));
+    gBloom
+      .selectAll<SVGCircleElement, SimNode>('circle')
+      .attr('cx', (n) => n.x ?? 0)
+      .attr('cy', (n) => n.y ?? 0);
     gRings
       .selectAll<SVGCircleElement, SimNode>('circle')
       .attr('cx', (n) => n.x ?? 0)
@@ -847,8 +1098,8 @@ export const createSwarmGraph = (
     particles.push({ ...p, key: nextKey++, start: now + (p.delay ?? 0) });
   };
 
-  const ripple = (node: SimNode, color: string, now: number) => {
-    ripples.push({ key: nextKey++, node, start: now, color });
+  const ripple = (node: SimNode, color: string, now: number, big = false) => {
+    ripples.push({ key: nextKey++, node, start: now, color, big });
   };
 
   /**
@@ -864,7 +1115,14 @@ export const createSwarmGraph = (
     const color = flow.kind === 'reject' ? theme.critical : coloured ? colorOf(coloured) : theme.fg;
     const last = path[path.length - 1];
     const land = () => {
-      ripple(last, color, performance.now());
+      ripple(last, color, performance.now(), flow.kind === 'merge');
+      pop(last, flow.kind === 'merge' ? 1.6 : 0.7);
+      if (flow.kind === 'merge') {
+        celebrate(last, color, 18, `+${flow.weight} merged`);
+        const hub = graph ? nodeById.get(graph.hubId) : undefined;
+        if (hub) pop(hub, 0.8);
+      } else if (flow.kind === 'milestone') celebrate(last, color, 10, 'milestone');
+      else if (flow.kind === 'reject') celebrate(last, color, 0, 'changes asked');
       if (replayOverride) {
         const sector =
           last.kind === 'sector'
@@ -897,7 +1155,12 @@ export const createSwarmGraph = (
           size: 3.2 + Math.min(3, flow.weight),
           spark: true,
           delay: i * step,
-          onArrive: final ? land : () => ripple(via, color, performance.now()),
+          onArrive: final
+            ? land
+            : () => {
+                ripple(via, color, performance.now());
+                pop(via, 0.5);
+              },
         },
         now,
       );
@@ -915,12 +1178,15 @@ export const createSwarmGraph = (
       .selectAll<SVGGElement, SimNode>('g.sg-node')
       .select<SVGTextElement>('text.sg-glyph')
       .filter((n) => n.kind === 'sector')
-      .text((n) => String(Math.round(effortOf(n))))
       .attr('font-size', (n) => Math.max(10, Math.min(15, n.r * 0.5)));
+    countUp();
+    renderArcs(gNodes.selectAll<SVGGElement, SimNode>('g.sg-node'));
+    gBloom
+      .selectAll<SVGCircleElement, SimNode>('circle')
+      .filter((n) => !motion || !n.active)
+      .attr('r', (n) => n.r * 2.2);
     layoutLabels();
-    (simulation.force('collide') as d3.ForceCollide<SimNode>).radius(
-      (n) => n.r + (n.kind === 'agent' ? 6 : 4),
-    );
+    (simulation.force('collide') as d3.ForceCollide<SimNode>).radius(collideOf);
     simulation.alpha(Math.max(simulation.alpha(), 0.05)).restart();
   };
 
@@ -961,9 +1227,35 @@ export const createSwarmGraph = (
       alive.push(p);
     }
     particles = alive;
-    ripples = ripples.filter((r) => now - r.start < RIPPLE_MS);
+    ripples = ripples.filter((r) => now - r.start < (r.big ? RIPPLE_MS * 1.6 : RIPPLE_MS));
+    bursts = bursts.filter((b) => now - b.start < BURST_MS);
+    floaters = floaters.filter((f) => now - f.start < FLOAT_MS);
 
     const visible = particles.filter((p) => now >= p.start);
+
+    // Sparks drag a comet tail behind them along the curve they travel.
+    gTrails
+      .selectAll<SVGPathElement, Particle>('path')
+      .data(
+        visible.filter((p) => p.spark),
+        (p) => p.key,
+      )
+      .join((enter) => enter.append('path'))
+      .each(function (p) {
+        const t = Math.max(0, Math.min(1, (now - p.start) / p.duration));
+        const head = d3.easeCubicInOut(t);
+        const tail = Math.max(0, head - TRAIL);
+        const pts: string[] = [];
+        for (let i = 0; i <= 10; i++) {
+          const q = pointAt(p.from, p.to, tail + ((head - tail) * i) / 10);
+          pts.push(`${q.x.toFixed(1)},${q.y.toFixed(1)}`);
+        }
+        d3.select(this)
+          .attr('d', `M${pts.join('L')}`)
+          .style('stroke', p.color)
+          .attr('stroke-width', p.size * 1.3)
+          .attr('stroke-opacity', 0.35);
+      });
     gParticles
       .selectAll<SVGCircleElement, Particle>('circle')
       .data(visible, (p) => p.key)
@@ -990,10 +1282,54 @@ export const createSwarmGraph = (
         d3.select(this)
           .attr('cx', r.node.x ?? 0)
           .attr('cy', r.node.y ?? 0)
-          .attr('r', r.node.r + 4 + t * 26)
+          .attr('r', r.node.r + 4 + d3.easeCubicOut(t) * (r.big ? 64 : 26))
           .style('stroke', r.color)
-          .attr('stroke-width', 2.5 * (1 - t))
+          .attr('stroke-width', (r.big ? 4 : 2.5) * (1 - t))
           .attr('stroke-opacity', 1 - t);
+      });
+
+    gBursts
+      .selectAll<SVGCircleElement, Burst>('circle')
+      .data(
+        bursts.filter((b) => now >= b.start),
+        (b) => b.key,
+      )
+      .join((enter) => enter.append('circle'))
+      .each(function (b) {
+        const t = (now - b.start) / BURST_MS;
+        const e = d3.easeCubicOut(t);
+        const d = b.node.r * 0.6 + e * b.dist;
+        d3.select(this)
+          .attr('cx', (b.node.x ?? 0) + Math.cos(b.angle) * d)
+          .attr('cy', (b.node.y ?? 0) + Math.sin(b.angle) * d + t * t * 10)
+          .attr('r', b.size * (1 - t * 0.7))
+          .style('fill', b.color)
+          .attr('fill-opacity', 1 - t);
+      });
+
+    gFloaters
+      .selectAll<SVGTextElement, Floater>('text')
+      .data(floaters, (f) => f.key)
+      .join((enter) =>
+        enter
+          .append('text')
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 12)
+          .attr('font-weight', 700)
+          .style('font-family', theme.monoFont)
+          .style('paint-order', 'stroke')
+          .style('stroke', theme.panel)
+          .attr('stroke-width', 3)
+          .text((f) => f.text),
+      )
+      .each(function (f) {
+        const t = (now - f.start) / FLOAT_MS;
+        const rise = d3.easeCubicOut(t) * 34;
+        d3.select(this)
+          .attr('x', f.node.x ?? 0)
+          .attr('y', (f.node.y ?? 0) - f.node.r - 12 - rise)
+          .style('fill', f.color)
+          .attr('opacity', t < 0.15 ? t / 0.15 : 1 - Math.max(0, (t - 0.55) / 0.45));
       });
 
     if (motion) {
@@ -1013,11 +1349,15 @@ export const createSwarmGraph = (
     const keep = new Set(next.nodes.map((n) => n.id));
     for (const id of [...nodeById.keys()]) if (!keep.has(id)) nodeById.delete(id);
 
+    const advanced: { node: SimNode; stage: SwarmStage }[] = [];
     for (const n of next.nodes) {
       const existing = nodeById.get(n.id);
       if (existing) {
+        const was = existing.workItem?.stage;
         Object.assign(existing, n);
         existing.r = rOf(existing);
+        const now = n.workItem?.stage;
+        if (!first && was && now && was !== now) advanced.push({ node: existing, stage: now });
       } else {
         // New nodes appear beside what they attach to, so they glide in rather than jump.
         const anchorId = next.links.find(
@@ -1062,6 +1402,20 @@ export const createSwarmGraph = (
     renderStatic();
     draw();
 
+    // A work item moving to its next stage (branch → pull request → approved) gets its moment.
+    for (const { node, stage } of advanced) {
+      const color =
+        stage === 'approved' ? theme.good : stage === 'changes' ? theme.warning : colorOf(node);
+      ripple(node, color, performance.now(), stage === 'merged');
+      pop(node, 1.2);
+      celebrate(
+        node,
+        color,
+        stage === 'approved' || stage === 'merged' ? 12 : 6,
+        STAGE_LABEL[stage],
+      );
+    }
+
     // Events new since the last update spark across the graph; the first load only marks them.
     let delay = 0;
     for (const f of next.flows) {
@@ -1083,6 +1437,8 @@ export const createSwarmGraph = (
     if (replayOverride) {
       replayOverride = null;
       particles = [];
+      bursts = [];
+      floaters = [];
       resize();
       renderStatic();
       options.onReplay?.(null);

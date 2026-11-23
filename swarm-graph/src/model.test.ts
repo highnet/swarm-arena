@@ -112,6 +112,11 @@ test('stages draw as issue, branch, pull request and landed; closed work drops o
   assert.ok(!node(g, workNodeId('x')));
   assert.equal(g.totals.branches, 1);
   assert.equal(g.totals.pullRequests, 1);
+  // Progress counts every item, not just the merged ones kept on the graph.
+  assert.equal(g.totals.stages.merged, 2);
+  assert.equal(g.totals.stages.closed, 1);
+  const chess = g.nodes.find((n) => n.id === sectorNodeId('chess'));
+  assert.deepEqual(chess?.tally, { issue: 0, branch: 1, pr: 0, landed: 2, total: 3 });
 });
 
 test('branches and pull requests fork from the integration branch; issues only target a sector', () => {
