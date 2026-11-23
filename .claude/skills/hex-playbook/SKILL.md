@@ -59,7 +59,7 @@ MCTS (UCT) since #42, with RAVE since #50. Three files in `engines/hex/src`:
   when both carrier cells are still unassigned, gives one (at random) to each colour. The rest
   are split ⌈k/2⌉/⌊k/2⌋ as before (k keeps the parity of all empties, so the per-colour counts
   match the uniform fill). `fill_uniform` is kept for the switch and the tests. Only interior
-  bridges: no edge templates, no ladders.
+  bridges: edge templates were tried and buried (#73, below), no ladders.
 - `search.rs`: node arena (`Vec<Node>`, 24 bytes a node, children contiguous and shuffled at
   expansion), expand a leaf on its 2nd visit, tree capped at 2M nodes (48 MB), clock checked
   every 64 playouts. `Limit::Playouts(n)` makes it deterministic for tests; `Limit::Time` is
@@ -113,9 +113,10 @@ order-dependent, so expect a smaller gain there; start its sweep at C = 0 too.
 - Heuristic prior (the old one-ply score: centre distance, neighbours, bridges) as virtual
   wins on new nodes; the issue left it optional and it was not measured.
 - Tree reuse between moves (the next position's subtree is already searched).
-- Bridge pairing worked (#60, 19–1 vs v0.3). Next in the same fill-in form: edge templates
-  (a stone on row 2 with both edge cells empty: pair them the same way), then K = 300–500 (only
-  1000 vs 3000 was tried with pairing). Two-distance or resistance evaluation as priors.
+- Bridge pairing worked (#60, 19–1 vs v0.3); second-row edge templates in the same pass did
+  not (#73, under 'What failed'). Next: K = 300–500 (only 1000 vs 3000 was tried with pairing); a template stone on row 3 (IIIa,
+  needs a 4-cell carrier: pair it as "respond inside the carrier" rather than a fixed split);
+  two-distance or resistance evaluation as priors.
 - Dead-cell and captured-cell pruning; parallel root search within the time budget.
 
 ## Novel experiments
@@ -132,6 +133,19 @@ Never re-propose an idea from this list unchanged.
 
 - RAVE with a UCB term (#50): C = 0.3 lost 1–7 to plain UCT, C = 0.1 3–5. AMAF already spreads
   statistics over all children; the exploration bonus just diverts real visits. Use C = 0.
+- Second-row edge-template pairing in the fill-in (#73, buried at 2607 ± 108, i.e. no gain over
+  v0.4 in the referee's 40 games vs v0.4). Design: a stone one row/column from its **own** edge
+  with both edge cells empty (Black (1, c) → (0, c), (0, c+1); (9, c) → (10, c−1), (10, c);
+  White (r, 1) → (r, 0), (r+1, 0); (r, 9) → (r−1, 10), (r, 10); corner cells k2/a10 and b11/j1
+  excluded) appended to the bridge list, one random order, one edge cell to each colour.
+  Detection was checked cell by cell against `hexgame`'s neighbours and the playout test held
+  5000/5000 per edge; playout rate unchanged (go 200: 39–51k on vs 38–51k off; go 1000:
+  255–294k vs 221–318k). Local `arena versus hex` said 14–6 over 20 games, but the referee's 40
+  did not confirm it: local matches have no opening variety and repeat. Likely why it adds
+  little: with uniform fill a lone second-row stone already reaches its edge ~94% of the time
+  (the uniform fill cut it in only 6.5% of 5000 fills in the test), so the pairing corrects few
+  playouts, unlike interior bridges. Try instead: larger templates (IIIa, row 3) whose uniform
+  cut rate is far higher, or count templates only when the stone also matters (part of a chain).
 
 ## Results log
 
@@ -141,3 +155,4 @@ Never re-propose an idea from this list unchanged.
 - 2026-11-23 15:42 UTC · v0.3 passed the referee · RAVE (AMAF) blended into UCT, read from the final fill-in bitboards · rated 2218 (+759)
 - 2026-11-23 15:59 UTC · v0.3 passed the referee · RAVE (AMAF) blended into UCT, read from the final fill-in bitboards · rated 1971 (+512)
 - 2026-11-23 16:48 UTC · v0.4 passed the referee · Bridge-preserving fill-in playouts: give each bridge's two carrier cells one to each colour · rated 2607 (+636)
+- 2026-11-23 17:44 UTC · buried · Edge-template pairing in the fill-in: a second-row stone's two edge cells go one to each colour · Rated 2607 ± 108, not above 2607.
