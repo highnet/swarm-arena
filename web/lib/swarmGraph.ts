@@ -1,32 +1,48 @@
 import { agentName, type BoardRecord, type Snapshot, type TaskStatus } from '@arena/shared';
-import type {
-  SwarmAgent,
-  SwarmEvent,
-  SwarmEventKind,
-  SwarmInput,
-  SwarmSector,
-  SwarmWorkItemStatus,
+import {
+  rallypointBranch,
+  type SwarmAgent,
+  type SwarmEvent,
+  type SwarmEventKind,
+  type SwarmInput,
+  type SwarmSector,
+  type SwarmStage,
+  type SwarmWorkItem,
 } from '@rallypoint/swarm-graph/model';
 import { isLive } from '@/components/arena/seats';
+import { stageOf, type RpItem } from './github';
+import rallypointConfig from '../../.rallypoint/config.json';
 
 /**
  * The arena's adapter onto `@rallypoint/swarm-graph`: the only place that knows how the arena's
- * snapshot (tracks, tasks, board records) maps onto Rallypoint's generic sectors, work items
- * and events. Everything else about the graph lives in the package.
+ * snapshot (tracks, tasks, board records) and its GitHub state (issues, pull requests and their
+ * Rallypoint labels) map onto the package's sectors, work items and events.
  */
+
+const INTEGRATION_BRANCH = rallypointConfig.integrationBranch;
+const BRANCH_PREFIX = rallypointConfig.branchPrefix;
 
 /** Rallypoint's own files: role prompts, scripts, skills and the harness that runs them. */
 const PROTOCOL: SwarmSector = {
   id: 'protocol',
   label: 'Protocol',
   color: 'var(--fg-2)',
-  paths: ['.rallypoint/', '.claude/skills/', 'harness/'],
+  paths: ['.rallypoint/', '.claude/skills/', 'harness/', 'docs/'],
+};
+
+/** The site itself. */
+const SITE: SwarmSector = {
+  id: 'site',
+  label: 'Site',
+  color: 'var(--fg-3)',
+  paths: ['web/', 'shared/', 'swarm-graph/'],
 };
 
 const ROLE: Record<string, string> = { builder: 'worker', strategist: 'planner' };
 
-const STATUS: Record<TaskStatus, SwarmWorkItemStatus> = {
-  open: 'open',
+/** The task's own status, used only when GitHub could not be read. */
+const TASK_STAGE: Record<TaskStatus, SwarmStage> = {
+  open: 'backlog',
   claimed: 'claimed',
   review: 'review',
   landed: 'merged',
@@ -55,8 +71,17 @@ const kindOf = (r: BoardRecord): SwarmEventKind => {
   }
 };
 
-export const toSwarmInput = (s: Snapshot, integrationBranch = 'main'): SwarmInput => {
+/** The sector a GitHub item with no arena task touches, from its Conventional Commit scope. */
+const sectorOfTitle = (title: string, engines: Set<string>) => {
+  const scope = /^\w+\(([^)]+)\)/.exec(title)?.[1]?.toLowerCase();
+  if (scope && engines.has(scope)) return scope;
+  if (scope && /^(web|site|ui|shared)$/.test(scope)) return SITE.id;
+  return PROTOCOL.id;
+};
+
+export const toSwarmInput = (s: Snapshot, rp: RpItem[] = []): SwarmInput => {
   const asOf = s.asOf ?? new Date().toISOString();
+  const engines = new Set(s.tracks.map((t) => t.id));
   const sectors: SwarmSector[] = [
     ...s.tracks.map((t) => ({
       id: t.id,
@@ -65,8 +90,56 @@ export const toSwarmInput = (s: Snapshot, integrationBranch = 'main'): SwarmInpu
       paths: [`engines/${t.id}/`],
     })),
     PROTOCOL,
+    SITE,
   ];
-  const taskTrack = new Map(s.tasks.map((t) => [t.id, t.track_id]));
+
+  // Work items: each arena task, staged by its GitHub issue and the pull request that closes it.
+  const issues = new Map(rp.filter((i) => !i.isPR).map((i) => [i.number, i]));
+  const prs = rp.filter((i) => i.isPR);
+  const prByNumber = new Map(prs.map((p) => [p.number, p]));
+  const prForIssue = (n: number) =>
+    prs.filter((p) => p.closes === n).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  const used = new Set<number>();
+  const workItems: SwarmWorkItem[] = s.tasks.map((t) => {
+    const issue = t.issue ? issues.get(t.issue) : undefined;
+    const pr =
+      (t.pr ? prByNumber.get(t.pr) : undefined) ?? (t.issue ? prForIssue(t.issue) : undefined);
+    if (issue) used.add(issue.number);
+    if (pr) used.add(pr.number);
+    const stage: SwarmStage = pr ? stageOf(pr) : issue ? stageOf(issue) : TASK_STAGE[t.status];
+    return {
+      id: t.id,
+      sector: t.track_id,
+      title: t.title,
+      stage: stage === 'closed' && t.status === 'landed' ? 'merged' : stage,
+      issue: t.issue ?? null,
+      pr: pr?.number ?? t.pr ?? null,
+      branch: t.issue ? rallypointBranch(t.issue, issue?.title ?? t.title, BRANCH_PREFIX) : null,
+      at: pr?.mergedAt ?? t.closed_at ?? issue?.updatedAt ?? t.created_at,
+    };
+  });
+  // Rallypoint work with no arena task (protocol and site changes): issues and their PRs.
+  for (const i of rp) {
+    if (used.has(i.number)) continue;
+    if (i.isPR && i.closes && issues.has(i.closes) && !used.has(i.closes)) continue; // via its issue
+    const pr = i.isPR ? i : prForIssue(i.number);
+    if (pr) used.add(pr.number);
+    used.add(i.number);
+    workItems.push({
+      id: `gh-${i.number}`,
+      sector: sectorOfTitle(pr?.title ?? i.title, engines),
+      title: i.title,
+      stage: stageOf(pr ?? i),
+      issue: i.isPR ? i.closes : i.number,
+      pr: pr?.number ?? null,
+      branch: i.isPR ? null : rallypointBranch(i.number, i.title, BRANCH_PREFIX),
+      at: pr?.mergedAt ?? i.closedAt ?? i.updatedAt,
+    });
+  }
+  const itemByPr = new Map(workItems.filter((w) => w.pr).map((w) => [w.pr!, w.id]));
+  const itemById = new Map(workItems.map((w) => [w.id, w]));
+  const prOf = (title: string) => Number(/#(\d+)/.exec(title)?.[1]) || null;
+
   const roles = new Map(s.agents.map((a) => [a.id, a.rp_role ?? a.role]));
   const roleOf = (id: string) => {
     const r = roles.get(id) ?? id;
@@ -75,16 +148,14 @@ export const toSwarmInput = (s: Snapshot, integrationBranch = 'main'): SwarmInpu
 
   const agents: SwarmAgent[] = s.agents.map((a) => {
     const role = roleOf(a.id);
+    const item = a.task_id ? itemById.get(a.task_id) : undefined;
     return {
       id: a.id,
       label: agentName(a.id),
       role,
       status: isLive(a, asOf) ? 'working' : 'idle',
-      sector:
-        a.track_id ??
-        (a.task_id ? (taskTrack.get(a.task_id) ?? null) : null) ??
-        (role === 'improver' ? PROTOCOL.id : null),
-      workItem: a.task_id ?? null,
+      sector: a.track_id ?? item?.sector ?? (role === 'improver' ? PROTOCOL.id : null),
+      workItem: a.task_id ?? (a.pr ? (itemByPr.get(a.pr) ?? null) : null),
       pr: a.pr ?? null,
       activity: a.activity ?? null,
       lastSeen: a.last_seen,
@@ -109,9 +180,12 @@ export const toSwarmInput = (s: Snapshot, integrationBranch = 'main'): SwarmInpu
 
   const events: SwarmEvent[] = s.records.map((r) => {
     const kind = kindOf(r);
+    // "Reviewing #37", "Merging #38": the pull request names the work when the record does not.
+    const pr = prOf(r.title);
+    const workItem = r.task_id ?? (pr ? (itemByPr.get(pr) ?? null) : null);
     const sector =
       r.track_id ??
-      (r.task_id ? (taskTrack.get(r.task_id) ?? null) : null) ??
+      (workItem ? (itemById.get(workItem)?.sector ?? null) : null) ??
       (kind === 'protocol' || (r.agent_id && roleOf(r.agent_id) === 'improver')
         ? PROTOCOL.id
         : null);
@@ -121,25 +195,10 @@ export const toSwarmInput = (s: Snapshot, integrationBranch = 'main'): SwarmInpu
       kind,
       agent: r.agent_id,
       sector,
-      workItem: r.task_id,
+      workItem,
       title: r.title,
     };
   });
 
-  return {
-    integrationBranch,
-    asOf,
-    sectors,
-    agents,
-    workItems: s.tasks.map((t) => ({
-      id: t.id,
-      sector: t.track_id,
-      title: t.title,
-      status: STATUS[t.status],
-      issue: t.issue ?? null,
-      pr: t.pr ?? null,
-      at: t.closed_at ?? t.created_at,
-    })),
-    events,
-  };
+  return { integrationBranch: INTEGRATION_BRANCH, asOf, sectors, agents, workItems, events };
 };

@@ -12,6 +12,7 @@ import {
   type SwarmInput,
   type SwarmNode,
   type SwarmReplayState,
+  type SwarmStage,
 } from '@rallypoint/swarm-graph';
 import { Button } from '@/components/ui/Button';
 import { Typography } from '@/components/ui/Typography';
@@ -31,6 +32,17 @@ const FLOW_VERB: Record<SwarmFlow['kind'], string> = {
   reject: 'rejected',
   milestone: 'milestone',
   protocol: 'protocol',
+};
+
+const STAGE_TEXT: Record<SwarmStage, string> = {
+  backlog: 'Open issue, claimable',
+  held: 'Issue on hold',
+  claimed: 'Claimed: worked in its branch',
+  review: 'Pull request waiting for review',
+  changes: 'Changes requested',
+  approved: 'Approved, waiting for the merger',
+  merged: 'Merged',
+  closed: 'Closed',
 };
 
 type Hover = { node: SwarmNode; x: number; y: number; width: number };
@@ -72,10 +84,15 @@ const NodeCard = ({ node }: NodeCardProps) => {
           {w.title}
         </Typography>
         <Typography variant="meta" as="div">
-          {w.status}
+          {STAGE_TEXT[w.stage]}
           {w.issue ? ` · issue #${w.issue}` : ''}
           {w.pr ? ` · PR #${w.pr}` : ''}
         </Typography>
+        {w.branch && node.phase !== 'issue' && (
+          <Typography variant="meta" as="div" className="mt-1 break-all font-mono text-fg-2">
+            {w.branch}
+          </Typography>
+        )}
       </>
     );
   }
@@ -116,6 +133,8 @@ type SwarmGraphProps = {
   seatIds: string[];
   /** Sector ids with an engine page. */
   engineIds: string[];
+  /** Where Rallypoint-only issues and pull requests open. */
+  repoUrl: string;
   className?: string;
 };
 
@@ -124,7 +143,7 @@ type SwarmGraphProps = {
  * on every realtime change (see `LiveIndicator`), so new props here mean new rows in Supabase;
  * the renderer diffs them and animates what changed.
  */
-const SwarmGraph = ({ input, seatIds, engineIds, className }: SwarmGraphProps) => {
+const SwarmGraph = ({ input, seatIds, engineIds, repoUrl, className }: SwarmGraphProps) => {
   const router = useRouter();
   const host = useRef<HTMLDivElement>(null);
   const renderer = useRef<SwarmGraphRenderer | null>(null);
@@ -141,6 +160,7 @@ const SwarmGraph = ({ input, seatIds, engineIds, className }: SwarmGraphProps) =
     engineIds: new Set(engineIds),
     router,
     setHovered,
+    repoUrl,
   });
   useEffect(() => {
     links.current = {
@@ -148,8 +168,9 @@ const SwarmGraph = ({ input, seatIds, engineIds, className }: SwarmGraphProps) =
       engineIds: new Set(engineIds),
       router,
       setHovered,
+      repoUrl,
     };
-  }, [seatIds, engineIds, router, setHovered]);
+  }, [seatIds, engineIds, router, setHovered, repoUrl]);
 
   useEffect(() => {
     const el = host.current;
@@ -170,9 +191,17 @@ const SwarmGraph = ({ input, seatIds, engineIds, className }: SwarmGraphProps) =
         const { seatIds: seats, engineIds: engines, router: nav } = links.current;
         if (node.kind === 'agent' && node.agent && seats.has(node.agent.id))
           nav.push(agentHref(node.agent.id));
-        else if (node.kind === 'work' && node.workItem)
-          nav.push(`/tasks/${encodeURIComponent(node.workItem.id)}`);
-        else if (node.kind === 'sector' && node.sectorId && engines.has(node.sectorId))
+        else if (node.kind === 'work' && node.workItem) {
+          const w = node.workItem;
+          // Arena tasks have a page; Rallypoint-only work opens on GitHub.
+          if (!w.id.startsWith('gh-')) nav.push(`/tasks/${encodeURIComponent(w.id)}`);
+          else if (w.pr ?? w.issue)
+            window.open(
+              `${links.current.repoUrl}/${w.pr ? 'pull' : 'issues'}/${w.pr ?? w.issue}`,
+              '_blank',
+              'noopener',
+            );
+        } else if (node.kind === 'sector' && node.sectorId && engines.has(node.sectorId))
           nav.push(`/engines/${node.sectorId}`);
       },
       onFlow: (flow, source) =>
@@ -223,8 +252,11 @@ const SwarmGraph = ({ input, seatIds, engineIds, className }: SwarmGraphProps) =
         <div className="min-w-0">
           <Typography variant="sectionTitle">Swarm graph</Typography>
           <Typography variant="meta">
-            Agents, the work they hold, and the sectors of the codebase their effort lands in.
-            Merges flow into <span className="font-mono text-fg-2">{input.integrationBranch}</span>.
+            Rallypoint, live: issues are claimed into <span className="font-mono">agent/</span>{' '}
+            branches forked from{' '}
+            <span className="font-mono text-fg-2">{input.integrationBranch}</span>, worked in
+            worktrees, opened as pull requests, reviewed, and merged back into the sector they
+            change.
           </Typography>
         </div>
         <div className="flex items-center gap-1.5">
@@ -332,14 +364,29 @@ const SwarmGraph = ({ input, seatIds, engineIds, className }: SwarmGraphProps) =
           <span className="size-2.5 rounded-full border border-fg-2" aria-hidden="true" /> agent
         </li>
         <li className="inline-flex items-center gap-1.5">
-          <span className="size-2 rounded-full border border-fg-3 bg-panel" aria-hidden="true" />{' '}
-          task
+          <span
+            className="size-2 rounded-full border border-dashed border-fg-3"
+            aria-hidden="true"
+          />{' '}
+          issue
+        </li>
+        <li className="inline-flex items-center gap-1.5">
+          <span className="size-2 rotate-45 border border-fg-2" aria-hidden="true" /> branch
+        </li>
+        <li className="inline-flex items-center gap-1.5">
+          <span className="size-2.5 rounded-sm border border-fg-2 bg-fg-3/30" aria-hidden="true" />{' '}
+          pull request
+        </li>
+        <li className="inline-flex items-center gap-1.5">
+          <span className="size-2 rounded-full bg-fg-3/60" aria-hidden="true" /> merged
         </li>
         <li className="inline-flex items-center gap-1.5">
           <span className="h-px w-4 bg-fg-3" aria-hidden="true" /> past effort
         </li>
         <li className="font-mono tabular">
-          {graph.totals.live} live · {graph.totals.agents} on graph
+          {graph.totals.live} live · {graph.totals.branches} branch
+          {graph.totals.branches === 1 ? '' : 'es'} · {graph.totals.pullRequests} PR
+          {graph.totals.pullRequests === 1 ? '' : 's'}
         </li>
       </ul>
     </section>
