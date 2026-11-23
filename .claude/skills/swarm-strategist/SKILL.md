@@ -8,8 +8,10 @@ description: Run one Swarm Arena strategist turn (the Rallypoint planner). Use w
 1. Setup: `npm run arena -- prepare` (seconds when the environment already ran it).
 2. `npm run arena -- brief` prints every engine's rating, ladder, open work, shipped and buried
    ideas, recent strategy calls, and the plan format.
-3. Read the message board (`brief` includes it). Answer questions addressed to the strategist and
-   weigh proposals: `npm run arena -- post "..." --as strategist --reply <id>`.
+3. Read the discussion board (`brief` lists open questions and proposals first). Answer questions
+   addressed to the strategist and weigh proposals: `npm run arena -- comment <id> "..." --as strategist`.
+   Settle each one you decide: `npm run arena -- resolve <id> --as strategist --note "the decision"`
+   (or `--close` if moot). When a task comes out of a thread, say so in its spec (`msg#42`).
 4. Skim each game's playbook (`.claude/skills/<track>-playbook/SKILL.md`): its architecture,
    ideas and failures should shape the next task. A task may target the engine, the playbook
    (for example: write up the search design before a rewrite), or both.

@@ -13,7 +13,13 @@ import { ensureRun, setAgent, records, rungs, tasks, tracks } from "./board";
 import { ARENA_HOME, ENGINES_DIR, log, MOVE_MS, run, RUN_ID } from "./config";
 import { arenaEngine } from "./engine";
 import { reference } from "./references";
-import { formatMessages, postMessage, readMessages } from "./messages";
+import {
+  formatThread,
+  formatThreads,
+  listThreads,
+  postMessage,
+  setThreadStatus,
+} from "./messages";
 import {
   currentVersion,
   land,
@@ -57,9 +63,19 @@ Agent sessions (run inside a Claude Code session on this repo):
   release <task-id>             put a claimed task back on the board
   progress <task-id> "<text>" [--detail "<more>"]
                                 log a step on your task; it shows live on the task's page
-  messages [track] [--limit N]  read the agent message board (engine-wide messages included)
-  post "<text>" --as <seat> [--track T] [--kind note|question|proposal|answer|handoff] [--reply ID]
-                                post to the agent message board
+Discussion board (threads, comments, tags, references):
+  messages [track] [--tag T] [--status open|resolved|closed|all] [--ref R] [--q text] [--limit N]
+                                list threads, newest activity first (engine-wide threads included)
+  thread <id>                   read a thread: post, comments, references and backlinks
+  post "<text>" --as <seat> [--title "..."] [--tags a,b] [--track T] [--ref R ...]
+       [--kind note|question|proposal|handoff|decision] [--reply ID]
+                                open a thread (or, with --reply, comment on a message)
+  comment <id> "<text>" --as <seat> [--kind comment|answer|decision] [--ref R ...]
+                                comment on a thread or on one of its comments
+  resolve <id> --as <seat> [--note "..."] [--close | --reopen]
+                                mark a thread answered/decided (--close: moot, --reopen: open again)
+  References in any text are linked and indexed: msg#42 (thread or comment), #12, pr#12,
+  issue#12 (GitHub). --ref adds one without writing it in the text.
   brief                         strategist: print the board and the plan format
   plan <plan.json>              strategist: post the strategy call and open tasks
 
@@ -79,6 +95,17 @@ const flag = (name: string, fallback: number) => {
   const i = process.argv.indexOf(`--${name}`);
   return i > 0 ? Number(process.argv[i + 1]) : fallback;
 };
+
+const opt = (name: string) => {
+  const i = process.argv.indexOf(`--${name}`);
+  return i > 0 ? process.argv[i + 1] : undefined;
+};
+
+/** Every value of a repeatable flag: --ref pr#3 --ref msg#4. */
+const opts = (name: string) =>
+  process.argv.flatMap((a, i) =>
+    a === `--${name}` && process.argv[i + 1] ? [process.argv[i + 1]] : [],
+  );
 
 /** npm runs workspace scripts from harness/; resolve paths from where the caller stood. */
 const fromCaller = (p: string) =>
@@ -229,28 +256,63 @@ const main = async () => {
     }
     case "messages": {
       const track = args[0] && !args[0].startsWith("--") ? args[0] : undefined;
+      const threads = await listThreads({
+        track,
+        tag: opt("tag"),
+        status: (opt("status") as never) ?? "all",
+        ref: opt("ref"),
+        q: opt("q"),
+        limit: flag("limit", 20),
+      });
+      console.log(formatThreads(threads) || "No threads match.");
+      return;
+    }
+    case "thread": {
+      const id = Number(args[0]);
+      if (!id) throw new Error("usage: thread <id>");
+      console.log(await formatThread(id));
+      return;
+    }
+    case "post":
+    case "comment": {
+      const seat = opt("as");
+      if (!seat)
+        throw new Error(`${cmd} needs --as <seat>, e.g. --as chess/search`);
+      const replyTo =
+        cmd === "comment" ? Number(args[0]) : opt("reply") ? Number(opt("reply")) : null;
+      if (cmd === "comment" && !replyTo)
+        throw new Error('usage: comment <id> "<text>" --as <seat>');
+      const { message, thread } = await postMessage({
+        seat,
+        body: (cmd === "comment" ? args[1] : args[0]) ?? "",
+        kind: opt("kind"),
+        title: opt("title"),
+        tags: opt("tags"),
+        refs: opts("ref"),
+        track: (opt("track") as GameId | undefined) ?? null,
+        replyTo,
+      });
       console.log(
-        formatMessages(await readMessages(track, flag("limit", 20))) ||
-          "No messages yet.",
+        message.reply_to
+          ? `Commented msg#${message.id} on thread msg#${thread}.`
+          : `Opened thread msg#${message.id}.`,
       );
       return;
     }
-    case "post": {
-      const opt = (name: string) => {
-        const i = process.argv.indexOf(`--${name}`);
-        return i > 0 ? process.argv[i + 1] : undefined;
-      };
+    case "resolve": {
       const seat = opt("as");
-      if (!seat)
-        throw new Error("post needs --as <seat>, e.g. --as chess/search");
-      const m = await postMessage({
-        seat,
-        body: args[0] ?? "",
-        kind: opt("kind"),
-        track: (opt("track") as GameId | undefined) ?? null,
-        replyTo: opt("reply") ? Number(opt("reply")) : null,
-      });
-      console.log(`Posted #${m.id}.`);
+      const id = Number(args[0]);
+      if (!seat || !id)
+        throw new Error(
+          'usage: resolve <id> --as <seat> [--note "..."] [--close | --reopen]',
+        );
+      const status = process.argv.includes("--reopen")
+        ? "open"
+        : process.argv.includes("--close")
+          ? "closed"
+          : "resolved";
+      const root = await setThreadStatus({ seat, id, status, note: opt("note") });
+      console.log(`Thread msg#${root} is ${status}.`);
       return;
     }
     case "release":

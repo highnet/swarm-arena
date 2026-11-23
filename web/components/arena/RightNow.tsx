@@ -117,7 +117,7 @@ const RightNow = ({ s, slots }: RightNowProps) => {
           href="/messages"
           className="mt-auto inline-flex items-center gap-1 self-start text-xs text-fg-2 hover:text-fg"
         >
-          Read the message board
+          Read the discussion board
           <ArrowRight className="size-3" aria-hidden="true" />
         </Link>
       </div>
