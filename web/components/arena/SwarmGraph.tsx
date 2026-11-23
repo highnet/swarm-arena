@@ -45,6 +45,88 @@ const STAGE_TEXT: Record<SwarmStage, string> = {
   closed: 'Closed',
 };
 
+/** The protocol's stages as a pipeline, left to right; the last one is where progress lands. */
+const PIPELINE: { key: string; label: string; stages: SwarmStage[]; bar: string }[] = [
+  { key: 'open', label: 'open', stages: ['backlog', 'held'], bar: 'bg-fg-3/30' },
+  { key: 'branch', label: 'in a branch', stages: ['claimed'], bar: 'bg-series-1/70' },
+  { key: 'review', label: 'in review', stages: ['review', 'changes'], bar: 'bg-warning/80' },
+  { key: 'approved', label: 'approved', stages: ['approved'], bar: 'bg-good/60' },
+  { key: 'merged', label: 'merged', stages: ['merged'], bar: 'bg-good' },
+];
+
+const AGO_UNITS: [number, string][] = [
+  [86_400_000, 'd'],
+  [3_600_000, 'h'],
+  [60_000, 'm'],
+];
+
+const ago = (at: string) => {
+  const ms = Date.now() - Date.parse(at);
+  if (!Number.isFinite(ms) || ms < 60_000) return 'now';
+  const [unit, label] = AGO_UNITS.find(([u]) => ms >= u)!;
+  return `${Math.floor(ms / unit)}${label}`;
+};
+
+type PipelineBarProps = {
+  stages: Record<SwarmStage, number>;
+};
+
+/** Every issue the swarm has taken on, by where it is in the protocol. Merged fills from the left. */
+const PipelineBar = ({ stages }: PipelineBarProps) => {
+  const parts = PIPELINE.map((p) => ({ ...p, n: p.stages.reduce((a, s) => a + stages[s], 0) }));
+  const total = parts.reduce((a, p) => a + p.n, 0);
+  if (!total) return null;
+  const merged = stages.merged;
+  // Merged first, so the filled share grows left to right like a progress bar.
+  const ordered = [parts[4], parts[3], parts[2], parts[1], parts[0]];
+  return (
+    <div className="relative border-b border-line px-4 py-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <Typography variant="meta" as="div">
+          <span className="font-mono text-lg font-semibold tabular text-fg">
+            {Math.round((merged / total) * 100)}%
+          </span>{' '}
+          of {total} issues merged
+        </Typography>
+        <ul className="flex flex-wrap justify-end gap-x-3 gap-y-1 text-[11px] text-fg-3">
+          {ordered.map((p) => (
+            <li key={p.key} className="inline-flex items-center gap-1.5">
+              <span className={cn('size-2 rounded-sm', p.bar)} aria-hidden="true" />
+              <span className="font-mono tabular text-fg-2">{p.n}</span> {p.label}
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div
+        className="mt-2 flex h-2 w-full gap-0.5 overflow-hidden rounded-full bg-line/50"
+        role="img"
+        aria-label={parts.map((p) => `${p.n} ${p.label}`).join(', ')}
+      >
+        {ordered.map(
+          (p) =>
+            p.n > 0 && (
+              <div
+                key={p.key}
+                className={cn(
+                  'relative h-full overflow-hidden transition-[width] duration-1000 ease-out first:rounded-l-full last:rounded-r-full',
+                  p.bar,
+                )}
+                style={{ width: `${(p.n / total) * 100}%` }}
+              >
+                {p.key === 'merged' && (
+                  <span
+                    className="absolute inset-y-0 left-0 w-1/3 animate-bar-shimmer bg-linear-to-r from-transparent via-white/35 to-transparent"
+                    aria-hidden="true"
+                  />
+                )}
+              </div>
+            ),
+        )}
+      </div>
+    </div>
+  );
+};
+
 type Hover = { node: SwarmNode; x: number; y: number; width: number };
 type Tick = SwarmFlow & { key: string; source: 'live' | 'replay' };
 
@@ -231,6 +313,13 @@ const SwarmGraph = ({ input, seatIds, engineIds, repoUrl, className }: SwarmGrap
   }, [fromCard, graph]);
 
   const sectors = graph.nodes.filter((n) => n.kind === 'sector');
+  const colorById = useMemo(() => new Map(graph.nodes.map((n) => [n.id, n.color])), [graph]);
+  /** A flow takes the colour of the sector-side node it touches last. */
+  const flowColor = (t: Tick) =>
+    [...t.path]
+      .reverse()
+      .map((id) => colorById.get(id))
+      .find(Boolean) ?? undefined;
   const startReplay = () => {
     setTicker([]);
     setReplaying(true);
@@ -283,6 +372,8 @@ const SwarmGraph = ({ input, seatIds, engineIds, repoUrl, className }: SwarmGrap
         </div>
       </div>
 
+      <PipelineBar stages={graph.totals.stages} />
+
       <div className="relative">
         <div ref={host} className="h-120 w-full sm:h-150" />
 
@@ -316,10 +407,17 @@ const SwarmGraph = ({ input, seatIds, engineIds, repoUrl, className }: SwarmGrap
               <li
                 key={t.key}
                 className={cn(
-                  'flex items-baseline gap-2 truncate rounded-md border border-line bg-panel-raised/90 px-2 py-1 text-xs animate-record-in',
-                  i > 0 && 'opacity-70',
+                  'flex items-center gap-2 truncate rounded-md border border-line bg-panel-raised/90 px-2 py-1 text-xs shadow-md backdrop-blur-sm transition-opacity duration-500 animate-record-in',
+                  i === 0 && t.kind === 'merge' && 'border-good/60',
+                  i > 0 && 'opacity-80',
+                  i > 2 && 'opacity-45',
                 )}
               >
+                <span
+                  className="size-2 shrink-0 rounded-full"
+                  style={{ background: flowColor(t) }}
+                  aria-hidden="true"
+                />
                 <span
                   className={cn(
                     'shrink-0 font-mono text-[10px] uppercase tracking-[0.15em]',
@@ -331,6 +429,11 @@ const SwarmGraph = ({ input, seatIds, engineIds, repoUrl, className }: SwarmGrap
                   {FLOW_VERB[t.kind]}
                 </span>
                 <span className="truncate text-fg-2">{t.title}</span>
+                {t.source === 'live' && (
+                  <span className="ml-auto shrink-0 font-mono text-[10px] text-fg-3">
+                    {ago(t.at)}
+                  </span>
+                )}
               </li>
             ))}
           </ol>

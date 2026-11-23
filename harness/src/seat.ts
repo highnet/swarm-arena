@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { outsideHelp } from "./rules";
 import { buildWasm, wasmPaths } from "./wasm";
-import { formatMessages, readMessages } from "./messages";
+import { boardDigest } from "./messages";
 import { relative, resolve } from "node:path";
 import { agentName, GAMES, randomPlayer, type Task } from "@arena/shared";
 import {
@@ -108,8 +108,8 @@ Ladder: ${ladder.map((r) => `${r.label} (${r.elo})${r.cleared_at ? " cleared" : 
 Recent results:
 ${recent || "- none yet"}
 
-Message board (latest for this engine and engine-wide):
-${formatMessages(await readMessages(task.track_id, 12)) || "- quiet"}
+Discussion board (this engine and engine-wide). Comment on threads that concern your task, and open\none (with --title and --tags) for a question or hand-off; cite issues and PRs as #12 or pr#12:
+${(await boardDigest(task.track_id, 8)) || "- quiet"}
 
 Log progress as you go: npm run arena -- progress ${task.id} "..."
 When cargo build --release and cargo test pass in the crate, run:

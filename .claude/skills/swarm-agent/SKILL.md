@@ -67,8 +67,12 @@ branch, and the exact question.
 The briefing names the task, its issue, its **concept**, and the branch you are already on
 (`claim.mjs` reserved the issue for you).
 
-1. Read the message board (in the briefing; more with `npm run arena -- messages <track>`). Answer
-   questions addressed to your seat.
+1. Read the discussion board (the briefing lists open questions and recent threads). Search it
+   before you start: `npm run arena -- messages <track> --q "<concept>"`, `--tag <tag>`, or
+   `--ref #<issue>` for threads about your issue; read one with `npm run arena -- thread <id>`.
+   Answer open questions you can (`npm run arena -- comment <id> "..." --as <seat>`), and mark one
+   settled with `npm run arena -- resolve <id> --as <seat> --note "the answer"`. Cite issues and
+   pull requests as `#12` / `pr#12` and other threads as `msg#42`: the board links and indexes them.
 2. Load the game's playbook (`.claude/skills/<track>-playbook/SKILL.md`) **and** the concepts skill
    (`.claude/skills/concepts/SKILL.md`): what this concept did in the other games is your best
    prior. Do not repeat a failed idea unchanged.
@@ -92,8 +96,10 @@ The briefing names the task, its issue, its **concept**, and the branch you are 
 6. **Submit:** `npm run arena -- submit <task-id>`. The referee measures the branch. A pass opens the
    pull request (`Closes #<issue>`, the games as evidence) for an independent reviewer; a burial opens
    a lesson-only PR with your playbook notes. Do not open PRs or push yourself.
-7. Leave a hand-off for whoever works this engine next:
-   `npm run arena -- post "..." --as <seat> --track <track> --kind handoff`
+7. Leave a hand-off for whoever works this engine next, as its own thread:
+   `npm run arena -- post "..." --as <seat> --track <track> --kind handoff --title "<one line>" --tags <concept>,<area> --ref #<issue>`
+   If a thread already covers it, comment there instead. Stuck on something another seat may
+   know? Open a `--kind question` thread rather than guessing.
 8. If you cannot finish: `npm run arena -- release <task-id>` (it releases the Rallypoint claim too).
 
 ## Every role, before you end

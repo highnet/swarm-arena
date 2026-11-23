@@ -59,6 +59,15 @@ Keep the dispatch ledger at `.arena/conductor.json` (gitignored): one entry per 
 started — `{ id, role, target, session, lease, tick, at }`. If it is missing, start a new one; the
 board is the truth, the ledger only tells you what *you* started.
 
+**The poke.** Handoffs are the swarm's bottleneck: a review ends in 2-3 minutes, and a merger
+that waits for the next heartbeat tick adds up to ten minutes to every pull request. So the conductor
+keeps one *poke* scheduled task bound to this session, with no schedule of its own
+(`create_trigger` with neither `cron_expression` nor `run_once_at`, named `Swarm conductor poke`,
+its prompt the loop's tick message). Create it once, store its id in the ledger as `poke`, and look
+for an existing one with `list_triggers` before creating another. Every dispatched session fires it
+as its last action, so the next tick starts the moment a role ends; the `send_later` heartbeat in
+step 5 is only the fallback for a session that ends without poking.
+
 Start from current `main`: if `git status --porcelain` is not empty, stop and report it (somebody's
 work is in this checkout); otherwise `git checkout -q main && git pull -q --ff-only origin main`.
 
@@ -104,11 +113,13 @@ report to say that role is `free` at the PR's head — `covered` means it is alr
 | janitor | `janitorCandidate` or another disagreement count is nonzero | at most one |
 | improver | `improvement.mjs status` exits `0` or `2`, and open PRs are under `maxOpenPullRequests` | at most one |
 | worker | claimable arena issues exist and open PRs are under `maxOpenPullRequests` | at most one per engine with nothing in progress or in review, never more than the claimable count |
-| planner | no claimable arena issue, no worker running, and at least one engine has nothing open | at most one |
+| planner | an engine in the run has no claimable issue, no claim and no open pull request (other engines' workers running is no reason to wait) | at most one, naming every such engine |
 
 Then apply the caps: at most **`CONCURRENCY` sessions running at once** (default 4, counting
-ones still open in the ledger), mergers first and workers last when the cap bites. Anything cut is
-simply next tick's work.
+ones still open in the ledger), mergers first and workers last when the cap bites. **Workers never
+take the last slot**: at most `CONCURRENCY - 1` workers run at once (at least one), so a pull request
+that a worker opens is reviewed and merged at once instead of waiting hours for a long referee gate
+to free a slot. Anything cut is simply next tick's work.
 
 Never dispatch for an issue or PR carrying `needs:human`, and never more than one session per
 target.
@@ -139,8 +150,12 @@ For each dispatch, in order:
    You were dispatched under the operator's standing authority. Do exactly this one role on this
    one target, then end. Work on the branch Rallypoint prescribes (agent/<issue>-…) or the PR's
    own branch — never a session default branch, never main. If `arena next` prints ROLE none,
-   stop: you were overtaken, which is normal.
+   stop: you were overtaken, which is normal. As your very last action, whatever the outcome
+   (including ROLE none), call mcp__claude-code-remote__fire_trigger with trigger_id <poke id>
+   so the conductor hands your result on at once.
    ```
+
+   A planner prompt names the engines it plans for (the ones that matched the planner line).
 
    An improver prompt adds: if the evidence does not yet support one specific change, propose
    nothing, leave a retro saying so, and end. A janitor prompt says `--role janitor` and runs
@@ -155,8 +170,11 @@ session link), what you released, and what is **escalated** — every `needs:hum
 never into a retry. If the run asked for a push notification and `PushNotification` is
 available, send one only when something new was escalated.
 
-Under `/loop` without an interval, pace with `ScheduleWakeup`: **600 s** while any session you
-started is running, **1800 s** when the board is idle (nothing dispatched, nothing running), and
+Arm exactly one heartbeat: delete any pending conductor `send_later` first (a poke may have started
+this tick while one was still pending), then arm the next. **5 minutes** while a reviewer, merger,
+fixer, janitor or planner is running; **15 minutes** while only workers are (their poke ends the
+wait); **30 minutes** when the board is idle. Under `/loop` without an interval, pace with
+`ScheduleWakeup` on the same clock (300 s / 900 s / 1800 s), and
 stop the loop (`stop: true`) only when the operator asked for a bounded run and it is done.
 
 ## Hard limits (every tick)

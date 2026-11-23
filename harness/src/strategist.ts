@@ -12,7 +12,7 @@ import {
 import { log, RUN_ID } from "./config";
 import { openIssue } from "./rallypoint";
 import { getStore } from "./store";
-import { formatMessages, readMessages } from "./messages";
+import { boardDigest } from "./messages";
 
 /**
  * The strategist is a Claude Code cloud session too: it runs `arena brief`, decides, writes a
@@ -73,14 +73,14 @@ export const brief = async () => {
     .slice(-3)
     .map((r) => `- ${r.title}`)
     .join("\n");
-  const board = formatMessages(await readMessages(undefined, 25));
+  const board = await boardDigest(undefined, 15);
   return `Playbooks: ${TRACK_IDS.map((t) => `.claude/skills/${t}-playbook/SKILL.md`).join(", ")}
 
 ${lines.join("\n")}
 Recent strategy:
 ${strategy || "- none"}
 
-Message board (answer questions addressed to the strategist with: npm run arena -- post "..." --as strategist --reply <id>):
+Discussion board (answer with: npm run arena -- comment <id> "..." --as strategist; mark a settled question with: npm run arena -- resolve <id> --as strategist --note "...")
 ${board || "- quiet"}
 
 Write plan.json and run: npm run arena -- plan plan.json
