@@ -22,4 +22,11 @@ export const isStale = (a: Agent, asOf: string) =>
 
 export const isLive = (a: Agent, asOf: string) => a.status === 'working' && !isStale(a, asOf);
 
+/** Seats live at `asOf`: the one rule every "working now" count and list on the site uses. */
+export const liveAgents = (agents: Agent[], asOf: string) => agents.filter((a) => isLive(a, asOf));
+
+/** A seat's status as shown: a `working` seat that has gone quiet reads as stale. */
+export const shownStatus = (a: Agent, asOf: string): Agent['status'] | 'stale' =>
+  isStale(a, asOf) ? 'stale' : a.status;
+
 export const agentHref = (id: string) => `/fleet/${encodeURIComponent(id)}`;

@@ -1,11 +1,15 @@
 /**
  * The swarm graph model. Pure and framework-free: it turns what a Rallypoint swarm already
- * records (agents and their roles, work items mirrored from issues, the events they log) into a
- * graph of the codebase's sectors, the work open in each, and the agents spending effort there.
+ * records (agents and their roles, issues and the pull requests that deliver them, the events
+ * agents log) into a graph that follows the protocol:
  *
- * Nothing here knows about a particular project. A host maps its own data onto these types
- * (see the adapter in the host app) and decides what a sector is: a directory, a package, a
- * label. The renderer in `render.ts` draws whatever this returns.
+ *   issue ──claim──▶ agent/<issue>-<slug> branch (forked from the integration branch, worked in
+ *   a worktree) ──▶ pull request ──independent review──▶ merge into the integration branch,
+ *   landing in the sector of the codebase the branch touched.
+ *
+ * Nothing reaches the integration branch except a merge. Nothing here knows about a particular
+ * project: a host maps its own data onto these types and decides what a sector is (a directory,
+ * a package, a label). The renderer in `render.ts` draws whatever this returns.
  */
 
 /** The Rallypoint roles (`.rallypoint/roles/`). Hosts may add their own. */
@@ -24,7 +28,7 @@ export type SwarmRole =
 
 export type SwarmAgentStatus = 'working' | 'idle' | 'stopped';
 
-/** A section of the codebase effort is spent on: a directory, a package, a label. */
+/** A part of the codebase (paths in the integration branch) that work lands in. */
 export type SwarmSector = {
   id: string;
   label: string;
@@ -44,30 +48,57 @@ export type SwarmAgent = {
   sector: string | null;
   /** The work item (issue) the agent holds, if any. */
   workItem?: string | null;
+  /** The pull request the agent is on (a reviewer's or merger's subject), if any. */
   pr?: number | null;
   /** One line: what the agent is doing this minute. */
   activity?: string | null;
   lastSeen: string;
 };
 
-export type SwarmWorkItemStatus = 'open' | 'claimed' | 'review' | 'merged' | 'closed';
+/**
+ * Where a work item is in the Rallypoint lifecycle; the same stages the protocol's labels give.
+ * `backlog`/`held` are issues, `claimed` is a branch, `review`/`changes`/`approved` an open pull
+ * request, `merged` landed on the integration branch, `closed` abandoned.
+ */
+export type SwarmStage =
+  'backlog' | 'held' | 'claimed' | 'review' | 'changes' | 'approved' | 'merged' | 'closed';
 
-/** One unit of claimable work: a Rallypoint issue and, later, its pull request. */
+/** How a stage is drawn: an issue, a branch in a worktree, a pull request, or landed code. */
+export type SwarmPhase = 'issue' | 'branch' | 'pr' | 'landed';
+
+export const phaseOf = (stage: SwarmStage): SwarmPhase | null => {
+  switch (stage) {
+    case 'backlog':
+    case 'held':
+      return 'issue';
+    case 'claimed':
+      return 'branch';
+    case 'review':
+    case 'changes':
+    case 'approved':
+      return 'pr';
+    case 'merged':
+      return 'landed';
+    case 'closed':
+      return null;
+  }
+};
+
+/** One unit of work: a Rallypoint issue, its branch and, later, its pull request. */
 export type SwarmWorkItem = {
   id: string;
   sector: string;
   title: string;
-  status: SwarmWorkItemStatus;
+  stage: SwarmStage;
   issue?: number | null;
   pr?: number | null;
-  /** When it reached its current status; orders the merged history. */
+  /** The branch it is worked on, e.g. `agent/29-mcts-uct-with-random-eye-respecting`. */
+  branch?: string | null;
+  /** When it reached its current stage; orders the merged history. */
   at?: string | null;
 };
 
-/**
- * What an event means for the flow of effort. `merge` carries a sector's work into the
- * integration branch; every other kind is effort spent in (or on) a sector.
- */
+/** What an event means on the graph. Only `merge` moves work into the integration branch. */
 export type SwarmEventKind =
   'plan' | 'claim' | 'progress' | 'review' | 'merge' | 'reject' | 'milestone' | 'protocol';
 
@@ -82,7 +113,7 @@ export type SwarmEvent = {
 };
 
 export type SwarmInput = {
-  /** Rallypoint's `integrationBranch`: the hub every merge flows into. */
+  /** Rallypoint's `integrationBranch`: the trunk every branch forks from and merges into. */
   integrationBranch: string;
   sectors: SwarmSector[];
   agents: SwarmAgent[];
@@ -95,7 +126,7 @@ export type SwarmInput = {
 export type SwarmGraphOptions = {
   /** Idle agents seen within this window stay on the graph (dimmed). Default 6 h. */
   recentAgentMs?: number;
-  /** Merged/closed work items kept per sector, newest first. Default 3. */
+  /** Merged work items kept per sector, newest first. Default 3. */
   mergedPerSector?: number;
   /** Keep idle agents that hold no work and logged no events (default false: they are noise). */
   showIdleWithoutEffort?: boolean;
@@ -114,6 +145,8 @@ export type SwarmNode = {
   effort: number;
   /** Live agent, or a sector / work item a live agent is in. */
   active: boolean;
+  /** For work nodes: how it is drawn. A node keeps its id as it moves through phases. */
+  phase?: SwarmPhase;
   /** The original record, for tooltips and links. */
   sector?: SwarmSector;
   agent?: SwarmAgent;
@@ -123,11 +156,17 @@ export type SwarmNode = {
 };
 
 export type SwarmLinkKind =
-  /** sector → hub: the sector's merged work feeding the integration branch. */
+  /** sector — hub: the sector is a set of paths in the integration branch. */
   | 'trunk'
-  /** work item → sector. */
-  | 'work'
-  /** agent → what it holds now (work item, sector, or the hub for gate roles). */
+  /** issue → sector it asks to change. */
+  | 'target'
+  /** hub → branch / pull request: forked from the integration branch's tip. */
+  | 'fork'
+  /** branch / pull request → the sector whose paths it changes. */
+  | 'scope'
+  /** landed work → its sector. */
+  | 'landed'
+  /** agent → what it is on now (its branch, the pull request it reviews, or the hub). */
   | 'assignment'
   /** agent → a sector it has spent effort on, weighted by that effort. */
   | 'contribution';
@@ -141,24 +180,31 @@ export type SwarmLink = {
   active: boolean;
 };
 
-export type SwarmGraph = {
-  hubId: string;
-  nodes: SwarmNode[];
-  links: SwarmLink[];
-  /** Events in time order, each resolved to the node ids its effort moves between. */
-  flows: SwarmFlow[];
-  totals: { effort: number; live: number; agents: number; sectors: number };
-};
-
-/** One event as a movement of effort on the graph: from an agent (or sector) to a target. */
+/** One event as a movement on the graph: along `path`, node by node. */
 export type SwarmFlow = {
   id: string;
   at: string;
   kind: SwarmEventKind;
   title: string;
-  from: string;
-  to: string;
+  /** At least two node ids. A merge runs branch → integration branch → sector. */
+  path: string[];
   weight: number;
+};
+
+export type SwarmGraph = {
+  hubId: string;
+  nodes: SwarmNode[];
+  links: SwarmLink[];
+  /** Events in time order, each resolved to the nodes its effort moves between. */
+  flows: SwarmFlow[];
+  totals: {
+    effort: number;
+    live: number;
+    agents: number;
+    sectors: number;
+    branches: number;
+    pullRequests: number;
+  };
 };
 
 export const DEFAULT_WEIGHTS: Record<SwarmEventKind, number> = {
@@ -172,6 +218,18 @@ export const DEFAULT_WEIGHTS: Record<SwarmEventKind, number> = {
   protocol: 1,
 };
 
+/** Rallypoint's branch slug (`.rallypoint/scripts/lib/claim.mjs`), so names match the real ones. */
+export const branchSlug = (title: string) =>
+  title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 42);
+
+/** The branch `claim.mjs` prescribes for an issue: `<branchPrefix><issue>-<slug>`. */
+export const rallypointBranch = (issue: number, title: string, branchPrefix = 'agent/') =>
+  `${branchPrefix}${issue}-${branchSlug(title)}`;
+
 const HOUR = 3_600_000;
 
 export const hubNodeId = (branch: string) => `hub:${branch}`;
@@ -179,7 +237,10 @@ export const sectorNodeId = (id: string) => `sector:${id}`;
 export const workNodeId = (id: string) => `work:${id}`;
 export const agentNodeId = (id: string) => `agent:${id}`;
 
-const OPEN: ReadonlySet<SwarmWorkItemStatus> = new Set(['open', 'claimed', 'review']);
+/** Roles that work inside a branch's worktree. */
+const BRANCH_ROLES = new Set(['worker', 'fixer', 'improver', 'janitor', 'tester']);
+/** Roles that act on an open pull request. */
+const GATE_ROLES = new Set(['reviewer', 'merger']);
 
 /** Build the graph a renderer draws. Deterministic: the same input gives the same graph. */
 export const buildSwarmGraph = (input: SwarmInput, options: SwarmGraphOptions = {}): SwarmGraph => {
@@ -201,7 +262,7 @@ export const buildSwarmGraph = (input: SwarmInput, options: SwarmGraphOptions = 
     return s && sectors.has(s) ? s : null;
   };
 
-  // Effort per sector, per agent, and per (agent, sector).
+  // Effort per sector, per agent, and per (agent, sector). Only merges count for the trunk.
   const sectorEffort = new Map<string, number>();
   const agentEffort = new Map<string, number>();
   const pairEffort = new Map<string, Map<string, number>>();
@@ -213,7 +274,7 @@ export const buildSwarmGraph = (input: SwarmInput, options: SwarmGraphOptions = 
     total += w;
     const s = sectorOfEvent(e);
     if (s) sectorEffort.set(s, (sectorEffort.get(s) ?? 0) + w);
-    if (e.kind === 'merge' || !s) hubEffort += w;
+    if (e.kind === 'merge') hubEffort += w;
     if (e.agent) {
       agentEffort.set(e.agent, (agentEffort.get(e.agent) ?? 0) + w);
       lastEventAt.set(e.agent, e.at);
@@ -225,8 +286,8 @@ export const buildSwarmGraph = (input: SwarmInput, options: SwarmGraphOptions = 
     }
   }
 
-  // Agents on the graph: live ones, idle ones seen recently, and event-only actors
-  // (a referee that never registers a seat) that acted recently.
+  // Agents on the graph: live ones, idle ones seen recently that did something, and event-only
+  // actors (a referee that never registers a seat) that acted recently.
   const shown = new Map<string, SwarmAgent>();
   for (const a of input.agents) {
     const seen = Math.max(Date.parse(a.lastSeen), Date.parse(lastEventAt.get(a.id) ?? '') || 0);
@@ -238,34 +299,62 @@ export const buildSwarmGraph = (input: SwarmInput, options: SwarmGraphOptions = 
     shown.set(id, { id, role: id, status: 'idle', sector: null, lastSeen: at });
   }
 
-  const agentSector = (a: SwarmAgent) => {
-    const s = a.sector ?? (a.workItem ? items.get(a.workItem)?.sector : null) ?? null;
-    return s && sectors.has(s) ? s : null;
-  };
-  const liveSectors = new Set<string>();
-  const liveItems = new Set<string>();
-  for (const a of shown.values()) {
-    if (a.status !== 'working') continue;
-    const s = agentSector(a);
-    if (s) liveSectors.add(s);
-    if (a.workItem) liveItems.add(a.workItem);
-  }
-
-  // Work items: everything open, plus the newest few merged per sector.
-  const keptItems: SwarmWorkItem[] = [];
+  // Work items: every open issue, branch and pull request, plus the newest merged per sector.
+  const kept: SwarmWorkItem[] = [];
   const mergedBySector = new Map<string, SwarmWorkItem[]>();
   for (const w of input.workItems) {
-    if (!sectors.has(w.sector)) continue;
-    if (OPEN.has(w.status) || liveItems.has(w.id)) keptItems.push(w);
+    const phase = phaseOf(w.stage);
+    if (!phase || !sectors.has(w.sector)) continue;
+    if (phase !== 'landed') kept.push(w);
     else mergedBySector.set(w.sector, [...(mergedBySector.get(w.sector) ?? []), w]);
   }
   for (const list of mergedBySector.values())
-    keptItems.push(
+    kept.push(
       ...list
         .sort((a, b) => (b.at ?? '').localeCompare(a.at ?? '') || a.id.localeCompare(b.id))
         .slice(0, mergedPerSector),
     );
-  const keptItemIds = new Set(keptItems.map((w) => w.id));
+  const keptById = new Map(kept.map((w) => [w.id, w]));
+  const byPr = new Map(kept.filter((w) => w.pr).map((w) => [w.pr!, w]));
+
+  const agentSector = (a: SwarmAgent) => {
+    const s = a.sector ?? (a.workItem ? items.get(a.workItem)?.sector : null) ?? null;
+    return s && sectors.has(s) ? s : null;
+  };
+
+  /** Where an agent is right now, by role: its branch, the pull request it gates, or the hub. */
+  const placeOf = (a: SwarmAgent): string => {
+    const own = a.workItem ? keptById.get(a.workItem) : undefined;
+    const onPr = a.pr ? byPr.get(a.pr) : undefined;
+    const open = (w?: SwarmWorkItem) =>
+      w && (phaseOf(w.stage) === 'branch' || phaseOf(w.stage) === 'pr');
+    if (GATE_ROLES.has(a.role)) {
+      const subject = onPr ?? own;
+      if (subject && phaseOf(subject.stage) === 'pr') return workNodeId(subject.id);
+      return hubId;
+    }
+    if (BRANCH_ROLES.has(a.role)) {
+      if (open(own)) return workNodeId(own!.id);
+      if (open(onPr)) return workNodeId(onPr!.id);
+      const s = agentSector(a);
+      return s ? sectorNodeId(s) : hubId;
+    }
+    if (a.role === 'planner') return hubId;
+    if (open(own)) return workNodeId(own!.id);
+    const s = agentSector(a);
+    return s ? sectorNodeId(s) : hubId;
+  };
+
+  const places = new Map([...shown.values()].map((a) => [a.id, placeOf(a)]));
+  const liveTargets = new Set<string>();
+  const liveSectors = new Set<string>();
+  for (const a of shown.values()) {
+    if (a.status !== 'working') continue;
+    const target = places.get(a.id)!;
+    liveTargets.add(target);
+    const s = agentSector(a);
+    if (s) liveSectors.add(s);
+  }
 
   const nodes: SwarmNode[] = [
     {
@@ -274,7 +363,7 @@ export const buildSwarmGraph = (input: SwarmInput, options: SwarmGraphOptions = 
       label: input.integrationBranch,
       color: null,
       effort: hubEffort,
-      active: liveSectors.size > 0,
+      active: false,
     },
   ];
   const links: SwarmLink[] = [];
@@ -297,37 +386,78 @@ export const buildSwarmGraph = (input: SwarmInput, options: SwarmGraphOptions = 
       source: id,
       target: hubId,
       weight: sectorEffort.get(s.id) ?? 0,
-      active: liveSectors.has(s.id),
+      active: false,
     });
   }
 
-  for (const w of keptItems) {
+  let branches = 0;
+  let pullRequests = 0;
+  for (const w of kept) {
     const id = workNodeId(w.id);
-    const s = sectors.get(w.sector);
+    const phase = phaseOf(w.stage)!;
+    const active = liveTargets.has(id);
+    const sid = sectorNodeId(w.sector);
+    if (phase === 'branch') branches++;
+    if (phase === 'pr') pullRequests++;
     nodes.push({
       id,
       kind: 'work',
-      label: w.title,
-      color: s?.color ?? null,
+      phase,
+      label:
+        phase === 'issue' || phase === 'landed'
+          ? w.title
+          : phase === 'pr' && w.pr
+            ? `#${w.pr}`
+            : (w.branch ?? w.title),
+      color: sectors.get(w.sector)?.color ?? null,
       effort: 0,
-      active: liveItems.has(w.id),
+      active,
       workItem: w,
       sectorId: w.sector,
     });
-    links.push({
-      id: `work:${w.id}`,
-      kind: 'work',
-      source: id,
-      target: sectorNodeId(w.sector),
-      weight: 1,
-      active: liveItems.has(w.id),
-    });
+    if (phase === 'issue')
+      links.push({
+        id: `target:${w.id}`,
+        kind: 'target',
+        source: id,
+        target: sid,
+        weight: 1,
+        active: false,
+      });
+    else if (phase === 'landed')
+      links.push({
+        id: `landed:${w.id}`,
+        kind: 'landed',
+        source: id,
+        target: sid,
+        weight: 1,
+        active: false,
+      });
+    else {
+      links.push({
+        id: `fork:${w.id}`,
+        kind: 'fork',
+        source: hubId,
+        target: id,
+        weight: 1,
+        active,
+      });
+      links.push({
+        id: `scope:${w.id}`,
+        kind: 'scope',
+        source: id,
+        target: sid,
+        weight: 1,
+        active: false,
+      });
+    }
   }
 
   for (const a of [...shown.values()].sort((x, y) => x.id.localeCompare(y.id))) {
     const id = agentNodeId(a.id);
     const s = agentSector(a);
     const live = a.status === 'working';
+    const target = places.get(a.id)!;
     nodes.push({
       id,
       kind: 'agent',
@@ -338,12 +468,6 @@ export const buildSwarmGraph = (input: SwarmInput, options: SwarmGraphOptions = 
       agent: a,
       sectorId: s,
     });
-    const target =
-      a.workItem && keptItemIds.has(a.workItem)
-        ? workNodeId(a.workItem)
-        : s
-          ? sectorNodeId(s)
-          : hubId;
     links.push({
       id: `assign:${a.id}`,
       kind: 'assignment',
@@ -353,7 +477,6 @@ export const buildSwarmGraph = (input: SwarmInput, options: SwarmGraphOptions = 
       active: live,
     });
     for (const [sec, w] of pairEffort.get(a.id) ?? []) {
-      // The assignment already ties an agent to its own sector.
       if (target === sectorNodeId(sec)) continue;
       links.push({
         id: `contrib:${a.id}:${sec}`,
@@ -371,25 +494,38 @@ export const buildSwarmGraph = (input: SwarmInput, options: SwarmGraphOptions = 
   for (const e of events) {
     const s = sectorOfEvent(e);
     const sectorNode = s ? sectorNodeId(s) : null;
-    const itemNode = e.workItem && keptItemIds.has(e.workItem) ? workNodeId(e.workItem) : null;
+    const itemNode = e.workItem && keptById.has(e.workItem) ? workNodeId(e.workItem) : null;
     const agentNode = e.agent && nodeIds.has(agentNodeId(e.agent)) ? agentNodeId(e.agent) : null;
-    let from: string | null;
-    let to: string | null;
-    if (e.kind === 'merge') {
-      from = itemNode ?? sectorNode ?? agentNode;
-      to = hubId;
-    } else {
-      from = agentNode ?? hubId;
-      to = itemNode ?? sectorNode ?? hubId;
+    const actor = agentNode ?? hubId;
+    let path: (string | null)[];
+    switch (e.kind) {
+      case 'merge':
+        // The only way into the integration branch: the branch merges, the code lands in its sector.
+        path = [itemNode ?? agentNode, hubId, sectorNode];
+        break;
+      case 'claim':
+        // The claim prescribes a branch at the integration branch's tip.
+        path = [hubId, itemNode ?? sectorNode];
+        break;
+      case 'plan':
+        path = [actor, itemNode ?? sectorNode ?? hubId];
+        break;
+      case 'milestone':
+        // Gate matches measure a branch; rungs are cleared by what is on the integration branch.
+        path = itemNode ? [actor, itemNode] : [hubId, sectorNode];
+        break;
+      default:
+        path = [actor, itemNode ?? sectorNode ?? hubId];
     }
-    if (!from || from === to) continue;
+    const clean = path.filter((p): p is string => Boolean(p));
+    const deduped = clean.filter((p, i) => i === 0 || p !== clean[i - 1]);
+    if (deduped.length < 2) continue;
     flows.push({
       id: e.id,
       at: e.at,
       kind: e.kind,
       title: e.title,
-      from,
-      to,
+      path: deduped,
       weight: weights[e.kind],
     });
   }
@@ -404,6 +540,8 @@ export const buildSwarmGraph = (input: SwarmInput, options: SwarmGraphOptions = 
       live: [...shown.values()].filter((a) => a.status === 'working').length,
       agents: shown.size,
       sectors: input.sectors.length,
+      branches,
+      pullRequests,
     },
   };
 };

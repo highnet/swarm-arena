@@ -15,7 +15,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Typography } from '@/components/ui/Typography';
 import { getSnapshot } from '@/lib/data';
 import { formatDay, formatTime } from '@/lib/format';
-import { REPO_URL } from '@/lib/github';
+import { getRallypoint, REPO_URL } from '@/lib/github';
 import { pageMeta } from '@/lib/site';
 import { toSwarmInput } from '@/lib/swarmGraph';
 import { cn } from '@/lib/utils';
@@ -162,7 +162,7 @@ const SeatCard = ({
 const FleetContent = async () => {
   // Live by nature: who is working right now is a request-time question.
   await connection();
-  const s = await getSnapshot();
+  const [s, rp] = await Promise.all([getSnapshot(), getRallypoint()]);
   const asOf = s.asOf ?? new Date().toISOString();
   const slots = Object.fromEntries(s.tracks.map((t) => [t.id, t.color_slot])) as Partial<
     Record<GameId, number>
@@ -200,9 +200,10 @@ const FleetContent = async () => {
 
         <SwarmGraph
           className="mt-6"
-          input={toSwarmInput(s)}
+          input={toSwarmInput(s, rp.items)}
           seatIds={s.agents.map((a) => a.id)}
           engineIds={s.tracks.map((t) => t.id)}
+          repoUrl={REPO_URL}
         />
 
         {working.length === 0 ? (
