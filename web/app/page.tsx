@@ -262,7 +262,7 @@ const HomeContent = async () => {
         <div className="flex flex-col gap-4">
           <Panel
             icon={MessagesSquare}
-            title="Message board"
+            title="Discussion board"
             actions={<MoreLink href="/messages">All threads</MoreLink>}
           >
             <MessageBoard messages={s.messages ?? []} seats={seats} slots={slots} limit={4} />
