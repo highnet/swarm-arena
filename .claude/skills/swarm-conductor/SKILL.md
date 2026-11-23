@@ -129,17 +129,21 @@ For each dispatch, in order:
    Exit `2`: somebody else is already on it — skip, it is the loop working. Exit `3`: unknown,
    report it and skip. Any other non-zero: report and skip.
 3. Start the session with this prompt (fill the brackets; drop `--pr` for targetless roles and
-   pass the engine as the track for a worker):
+   pass the engine as the track for a worker). It opens with words, not `/swarm-agent`:
+   `create_session` refuses a prompt that opens with `/`.
 
    ```text
-   /swarm-agent --role <role> [--pr <N>] [<track>] --agent-id <id>
-   You were dispatched by the swarm conductor under the operator's standing authority. Do exactly
-   this one role on this one target, then end. Work on the branch Rallypoint prescribes
-   (agent/<issue>-…) or the PR's own branch — never a session default branch, never main. If
-   `arena next` prints ROLE none, stop: you were overtaken, which is normal.
+   Run a swarm agent dispatched by the swarm conductor. Follow .claude/skills/swarm-agent/SKILL.md
+   with these dispatch flags: --role <role> [--pr <N>] [<track>] --agent-id <id> (that is:
+   npm run arena -- next --role <role> [--pr <N>] [<track>] --agent-id <id>).
+   You were dispatched under the operator's standing authority. Do exactly this one role on this
+   one target, then end. Work on the branch Rallypoint prescribes (agent/<issue>-…) or the PR's
+   own branch — never a session default branch, never main. If `arena next` prints ROLE none,
+   stop: you were overtaken, which is normal.
    ```
 
-   An improver or janitor prompt says `--role improver` / `--role janitor` instead; a janitor runs
+   An improver prompt adds: if the evidence does not yet support one specific change, propose
+   nothing, leave a retro saying so, and end. A janitor prompt says `--role janitor` and runs
    `.rallypoint/roles/janitor.md` (`janitor-pass.mjs --agent-id <id>`) rather than `arena next`.
 4. Write the ledger entry.
 
