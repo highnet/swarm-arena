@@ -54,7 +54,7 @@ command applies to it, and it clears itself when the pull request merges —
 report it, and do not recommend a session for it. Do not count an issue under
 either kind as available backlog when sizing worker sessions. `needsFixer` — a claimed issue whose open pull request has a
 request-changes verdict at its current head — sizes fixer sessions directly;
-`.github/workflows/changes-requested.yml` also mirrors this onto the
+`review.mjs record` also mirrors this onto the
 `status:changes-requested` label on both the issue and the pull request as a
 faster, lower-fidelity signal, but the report's own classification is ground
 truth. A source it reports as `unknown` is not evidence either way; do not
