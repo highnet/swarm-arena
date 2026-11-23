@@ -42,19 +42,30 @@ Negamax alpha-beta with iterative deepening (`engines/chess/src/main.rs`):
   material and any repetition (game history or search path) score as a draw with contempt 50
   against the root side (it plays weaker opponents, so draws are thrown-away points).
 - Ordering: previous iteration's best move first at the root, then MVV-LVA captures, promotions,
-  quiets. No TT, no killers, no quiescence yet.
+  quiets. No TT, no killers yet.
+- `quiesce` replaces the static eval at depth 0: stand pat on `evaluate` (fail high at beta), then
+  captures and queen promotions only, MVV-LVA first. Delta pruning skips a capture whose victim
+  (+ promotion gain) + 200 cp cannot reach alpha, except at phase <= 6 (late endgames). In check
+  it searches every evasion instead of standing pat, so a mated leaf scores as mate. A 32-ply
+  quiescence cap guards check-evasion chains. The node-count clock check runs inside it too.
+- `search_depth` runs the same iterative deepening to a fixed depth with no clock: use it for
+  deterministic tests (never a wall-clock budget for an assertion about the chosen move).
 - `evaluate`: material P100 N320 B330 R500 Q900 plus formula-built piece-square terms (centrality
   for N/B/Q, pawn advance and centre pawns, rook on 7th, king shelter in the middlegame vs king
   centralisation in the endgame), tapered by a 24-point phase; bishop pair +30.
-- Prints `info depth <d> score <cp>` before `bestmove`.
-- Measured: depth 5 at 200 ms from the start position and a busy Italian middlegame (native
-  release build). `arena versus chess` vs the v0.1 greedy mover: +10 -0 =0.
+- Prints `info depth <d> score <cp> nodes <n> qnodes <q>` before `bestmove`.
+- Measured at `go 200` (native release): start position depth 4, ~300k nodes of which ~150k
+  quiescence; Italian middlegame after 6.O-O depth 4, ~294k nodes, ~200k quiescence. Without
+  quiescence it reached depth 5 but scored that middlegame +239 for b2b4 — horizon optimism.
+  Quiescence costs one ply of nominal depth and buys honest leaf scores. `arena versus chess`
+  vs main (v0.2, no quiescence): +7 -2 =1.
 
 ## Ideas worth trying
 
-- Next step: quiescence search on captures. Without it the horizon is visible: at depth 5 the
-  engine likes early queen sorties (e.g. Qb3 hitting f7) whose refutation sits one capture deeper.
-- Transposition table: also lets the TT move order every node, not just the root.
+- Next step: transposition table. It also lets the TT move order every node, not just the root,
+  and would win back the ply quiescence costs. Store quiescence results too (depth 0 entries).
+- Quiescence extras: SEE (static exchange) to skip losing captures like QxP defended by a pawn,
+  which is most of the remaining qnode waste; checks in the first quiescence ply.
 - The 30%/60% time split is conservative; with a TT, re-searches get cheaper and the soft limit
   could rise.
 - Transposition table keyed by Zobrist hash.

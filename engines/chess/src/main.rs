@@ -46,6 +46,21 @@ const MATE_BOUND: i32 = MATE - 1_000;
 /// weaker opponents, so a draw is usually a half point thrown away.
 const CONTEMPT: i32 = 50;
 const MAX_DEPTH: u32 = 64;
+/// Delta-pruning margin: a capture whose victim plus this cannot lift the stand-pat score to
+/// alpha is skipped in quiescence.
+const DELTA_MARGIN: i32 = 200;
+/// At or below this game phase (24 = all pieces, 0 = bare kings and pawns) delta pruning is off:
+/// in late endgames a single capture can decide the game beyond its material value.
+const ENDGAME_PHASE: i32 = 6;
+/// Plies of quiescence beyond which a node is scored statically (guards check-evasion chains).
+const MAX_QPLY: i32 = 32;
+
+/// Game phase from the pieces on the board, 0 (pawn endgame) to 24 (all pieces).
+fn phase(pos: &Chess) -> i32 {
+    let b = pos.board();
+    let minors = (b.knights() | b.bishops()).count() as i32;
+    (minors + 2 * b.rooks().count() as i32 + 4 * b.queens().count() as i32).min(24)
+}
 
 /// Distance-to-centre score of a square, 0 (corner) to 14 (the four centre squares).
 fn centrality(file: i32, rank: i32) -> i32 {
@@ -142,7 +157,10 @@ struct Search<'a> {
     path: Vec<u64>,
     root_turn: Color,
     deadline: Instant,
+    /// All nodes visited, quiescence included (drives the clock check).
     nodes: u64,
+    /// Quiescence nodes only.
+    qnodes: u64,
     stopped: bool,
 }
 
@@ -180,7 +198,7 @@ impl Search<'_> {
             return self.draw(pos.turn());
         }
         if depth == 0 {
-            return evaluate(pos);
+            return self.quiesce(pos, ply, 0, alpha, beta);
         }
         moves.sort_unstable_by_key(|m| -order_key(m, None));
         self.path.push(h);
@@ -203,6 +221,70 @@ impl Search<'_> {
             }
         }
         self.path.pop();
+        best
+    }
+
+    /// Quiescence search at the alpha-beta leaves: settle captures before trusting the static
+    /// evaluation. Out of check the side to move may stand pat on `evaluate`; then only captures
+    /// and queen promotions are searched, MVV-LVA first, with delta pruning outside late
+    /// endgames. In check there is no standing pat: every evasion is searched so mates are seen.
+    fn quiesce(&mut self, pos: &Chess, ply: i32, qply: i32, mut alpha: i32, beta: i32) -> i32 {
+        self.nodes += 1;
+        self.qnodes += 1;
+        if self.out_of_time() {
+            return 0;
+        }
+        let in_check = pos.is_check();
+        if qply >= MAX_QPLY {
+            return evaluate(pos);
+        }
+        let mut moves = pos.legal_moves();
+        if in_check && moves.is_empty() {
+            return -(MATE - ply);
+        }
+        let mut best = -INF;
+        let mut stand = -INF;
+        if !in_check {
+            if pos.is_insufficient_material() {
+                return self.draw(pos.turn());
+            }
+            stand = evaluate(pos);
+            if stand >= beta {
+                return stand;
+            }
+            best = stand;
+            alpha = alpha.max(stand);
+            moves.retain(|m| match m.promotion() {
+                Some(p) => p == Role::Queen,
+                None => m.is_capture(),
+            });
+        }
+        moves.sort_unstable_by_key(|m| -order_key(m, None));
+        let delta = !in_check && phase(pos) > ENDGAME_PHASE;
+        for m in &moves {
+            if delta {
+                let gain = m.capture().map_or(0, value)
+                    + m.promotion().map_or(0, |p| value(p) - value(Role::Pawn));
+                if stand + gain + DELTA_MARGIN < alpha {
+                    continue;
+                }
+            }
+            let mut child = pos.clone();
+            child.play_unchecked(*m);
+            let s = -self.quiesce(&child, ply + 1, qply + 1, -beta, -alpha);
+            if self.stopped {
+                break;
+            }
+            if s > best {
+                best = s;
+                if s > alpha {
+                    alpha = s;
+                    if alpha >= beta {
+                        break;
+                    }
+                }
+            }
+        }
         best
     }
 
@@ -238,33 +320,48 @@ struct Outcome {
     best: Move,
     score: i32,
     depth: u32,
+    nodes: u64,
+    qnodes: u64,
 }
 
 /// Iterative deepening: depth 1, 2, 3, ... until the clock says stop. Always returns the best move
 /// of the last completed depth. Stops searching by 60% of the budget, and does not start a depth it
 /// is unlikely to finish.
 fn search(pos: &Chess, seen: &HashSet<u64>, budget_ms: u64) -> Option<Outcome> {
+    let hard = Duration::from_millis(budget_ms * 6 / 10);
+    let soft = Duration::from_millis(budget_ms * 3 / 10);
+    run(pos, seen, hard, soft, MAX_DEPTH)
+}
+
+/// Fixed-depth search with no clock: deterministic, for tests and measurement.
+#[cfg(test)]
+fn search_depth(pos: &Chess, seen: &HashSet<u64>, depth: u32) -> Option<Outcome> {
+    let day = Duration::from_secs(86_400);
+    run(pos, seen, day, day, depth)
+}
+
+/// Iterative deepening up to `max_depth`, stopping at `hard` and not starting a depth after `soft`.
+fn run(pos: &Chess, seen: &HashSet<u64>, hard: Duration, soft: Duration, max_depth: u32) -> Option<Outcome> {
     let start = Instant::now();
     let mut moves: Vec<Move> = pos.legal_moves().into_iter().collect();
     moves.sort_by_key(|m| -order_key(m, None));
     let first = *moves.first()?;
-    let mut out = Outcome { best: first, score: 0, depth: 0 };
+    let mut out = Outcome { best: first, score: 0, depth: 0, nodes: 0, qnodes: 0 };
     if moves.len() == 1 {
         return Some(out);
     }
-    let hard = Duration::from_millis(budget_ms * 6 / 10);
-    let soft = Duration::from_millis(budget_ms * 3 / 10);
     let mut s = Search {
         seen,
         path: Vec::with_capacity(MAX_DEPTH as usize + 1),
         root_turn: pos.turn(),
         deadline: start + hard,
         nodes: 0,
+        qnodes: 0,
         stopped: false,
     };
-    for depth in 1..=MAX_DEPTH {
+    for depth in 1..=max_depth {
         let Some((m, score)) = s.root(pos, &moves, depth) else { break };
-        out = Outcome { best: m, score, depth };
+        out = Outcome { best: m, score, depth, nodes: s.nodes, qnodes: s.qnodes };
         // Best move first for the next iteration.
         if let Some(i) = moves.iter().position(|x| *x == m) {
             moves[..=i].rotate_right(1);
@@ -273,6 +370,8 @@ fn search(pos: &Chess, seen: &HashSet<u64>, budget_ms: u64) -> Option<Outcome> {
             break;
         }
     }
+    out.nodes = s.nodes;
+    out.qnodes = s.qnodes;
     Some(out)
 }
 
@@ -297,9 +396,11 @@ fn handle(line: &str, moves: &mut Vec<String>) -> (Option<String>, bool) {
             let budget = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1000);
             let reply = match replay(moves).and_then(|(pos, seen)| search(&pos, &seen, budget)) {
                 Some(o) => format!(
-                    "info depth {} score {}\nbestmove {}",
+                    "info depth {} score {} nodes {} qnodes {}\nbestmove {}",
                     o.depth,
                     o.score,
+                    o.nodes,
+                    o.qnodes,
                     UciMove::from_standard(o.best)
                 ),
                 None => "bestmove 0000".into(),
@@ -489,6 +590,50 @@ mod tests {
         let mut after = pos.clone();
         after.play_unchecked(out.best);
         assert!(!after.legal_moves().is_empty() || after.is_checkmate());
+    }
+
+    #[test]
+    fn depth_one_does_not_hang_the_queen() {
+        // Qxd5 wins a pawn on the static eval but exd5 takes the queen back; quiescence sees it.
+        let pos = from_fen("4k3/8/4p3/3p4/8/8/8/3QK3 w - - 0 1");
+        let out = search_depth(&pos, &HashSet::new(), 1).unwrap();
+        assert_ne!(UciMove::from_standard(out.best).to_string(), "d1d5");
+        assert!(out.qnodes > 0);
+        // And it still takes a pawn that is truly loose.
+        let pos = from_fen("4k3/8/8/3p4/8/8/8/3QK3 w - - 0 1");
+        let out = search_depth(&pos, &HashSet::new(), 1).unwrap();
+        assert_eq!(UciMove::from_standard(out.best).to_string(), "d1d5");
+    }
+
+    #[test]
+    fn quiescence_searches_evasions_in_check() {
+        // Fixed depth 1: Qxf7 is mate (Scholar's); the leaf is in check, so quiescence must search
+        // evasions (finding none) instead of standing pat on the material.
+        let (pos, seen) = replay(&moves("e2e4 e7e5 d1h5 b8c6 f1c4 g8f6")).unwrap();
+        let out = search_depth(&pos, &seen, 1).unwrap();
+        assert_eq!(UciMove::from_standard(out.best).to_string(), "h5f7");
+        assert_eq!(out.score, MATE - 1);
+        // A quiet-looking leaf where the side to move is mated: qsearch in check finds no evasion.
+        let mated = from_fen("7k/6Q1/6K1/8/8/8/8/8 b - - 0 1");
+        let mut s = Search {
+            seen: &HashSet::new(),
+            path: Vec::new(),
+            root_turn: Color::White,
+            deadline: Instant::now() + Duration::from_secs(86_400),
+            nodes: 0,
+            qnodes: 0,
+            stopped: false,
+        };
+        assert_eq!(s.quiesce(&mated, 3, 0, -INF, INF), -(MATE - 3));
+    }
+
+    #[test]
+    fn info_line_reports_quiescence_nodes() {
+        let mut mv = Vec::new();
+        handle("position e2e4 d7d5", &mut mv);
+        let reply = handle("go 100", &mut mv).0.unwrap();
+        let info = reply.lines().next().unwrap();
+        assert!(info.starts_with("info depth ") && info.contains(" qnodes "), "{info}");
     }
 
     #[test]
