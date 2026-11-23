@@ -69,3 +69,4 @@ differently. Never re-propose an idea from this list unchanged.
 ## Results log
 
 <!-- The referee appends one line per verdict. Do not edit by hand. -->
+- 2026-11-23 12:45 UTC · v0.1 passed the referee · Wire hexgame to the protocol and play legal moves · rated 759 (first rated version)
