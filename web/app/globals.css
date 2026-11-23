@@ -1,0 +1,138 @@
+@import 'tailwindcss';
+
+/*
+ * Swarm Arena tokens. One dark world: cool near-black ground, one raised panel tone,
+ * hairline structure. Track hues are data identity only (validated with the dataviz
+ * validator against --panel). Status hues are reserved and always ship with icon + label.
+ */
+:root {
+  color-scheme: dark;
+  --bg: oklch(0.155 0.006 265);
+  --panel: oklch(0.185 0.006 265);
+  --panel-raised: oklch(0.215 0.007 265);
+  --line: oklch(0.265 0.007 265);
+  --line-strong: oklch(0.34 0.008 265);
+  --fg: oklch(0.965 0.003 265);
+  --fg-2: oklch(0.79 0.008 265);
+  --fg-3: oklch(0.66 0.01 265);
+  --primary: oklch(0.965 0.003 265);
+  --primary-fg: oklch(0.17 0.006 265);
+
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+
+  --good: #0ca30c;
+  --good-text: #3fbf3f;
+  --warning: #fab219;
+  --critical: #d03b3b;
+  --critical-text: #ef6a6a;
+
+  --square-light: oklch(0.34 0.008 265);
+  --square-dark: oklch(0.27 0.008 265);
+  --stone-black: oklch(0.13 0.004 265);
+  --stone-white: oklch(0.93 0.004 265);
+  --highlight: oklch(0.8 0.12 85 / 0.32);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-panel-raised: var(--panel-raised);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-fg-2: var(--fg-2);
+  --color-fg-3: var(--fg-3);
+  --color-primary: var(--primary);
+  --color-primary-fg: var(--primary-fg);
+  --color-series-1: var(--series-1);
+  --color-series-2: var(--series-2);
+  --color-series-3: var(--series-3);
+  --color-series-4: var(--series-4);
+  --color-good: var(--good);
+  --color-good-text: var(--good-text);
+  --color-warning: var(--warning);
+  --color-critical: var(--critical);
+  --color-critical-text: var(--critical-text);
+  --color-square-light: var(--square-light);
+  --color-square-dark: var(--square-dark);
+  --color-stone-black: var(--stone-black);
+  --color-stone-white: var(--stone-white);
+  --color-highlight: var(--highlight);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  --animate-record-in: record-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-pulse-dot: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes record-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+    background-color: var(--panel-raised);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+html {
+  background: var(--bg);
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-feature-settings: 'cv11', 'ss01';
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: oklch(0.55 0.12 255 / 0.45);
+  color: var(--fg);
+}
+
+:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+a {
+  text-underline-offset: 3px;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
