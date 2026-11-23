@@ -101,10 +101,12 @@ search). Tests: flat board vs goban across 40 random games (stones identical aft
 legality equal except where only superko forbids), flat-board suicide/capture/ko, and 20
 self-play games at 200 ms (legal, each reply < 200 ms; takes ~4.5 min in release).
 
-## Candidate (not shipped): Benson-settled regions + exact endgame solve (#116)
+## Buried, not shipped: Benson-settled regions + exact endgame solve (#116)
 
-Branch `agent/116-go-9-9-exact-endgame-without-tablebases-be`. Moves to "Architecture now" only
-if the referee passes it.
+Not in the engine. Code: commit 7b37ee1 on branch
+`agent/116-go-9-9-exact-endgame-without-tablebases-be` (`src/benson.rs`, `src/solve.rs`, and the
+`forbid` field in `board.rs`; may vanish with the branch, the design below is enough to rebuild
+it). Verdict and why in "What failed and why".
 
 - `benson.rs`: Benson's unconditional life per colour on the flat cells (u128 masks; chains and
   regions by flood fill; drop chains with < 2 vital regions among regions enclosed by kept
@@ -173,6 +175,17 @@ what it is, why it might work, and its verdict. Never fill this from another eng
 - None yet.
 
 ## What failed and why
+
+- Benson forbid mask + null-window endgame solve (#116): referee rated it 1569 ± 142 vs
+  GNU Go level 5, against v0.4's 1682 ± 179 on the same rung, so it was buried. Read that with
+  care. In v0.4's 40 baseline games, games 18–40 were all "wins" by GNU Go **timing out or
+  crashing after 2–3 plies** (one crash, the rest timeouts), so v0.4's 36–4 measures a broken
+  reference, not v0.4. The candidate's per-game record is not in this note (the submit log was
+  cut). Locally the candidate was level or better: versus main 14–6, vs GNU Go 1 28–12 (main
+  12–8). And the solve almost never fired (8 of ~730 moves at <= 16 unsettled points), so
+  this gate could hardly have measured the solver. Before retrying, check that GNU Go at level 5
+  answers every move on the gate machine. Then resubmit with a looser "settled" test, so the
+  solve reaches real endgames.
 
 - Rejecting *every* non-capturing self-atari in playouts (#99, variant A): 29–31 vs GNU Go 1
   against 54–26 when lone-stone self-ataris (throw-ins, nakade shapes) are allowed. The
