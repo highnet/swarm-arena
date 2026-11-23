@@ -40,6 +40,12 @@ Use these names so evidence lines up; add a new one when nothing fits.
 | endgame solver | exact search when few moves remain |
 | opening exploration | how the engine spends its first moves (no books) |
 
+- **rave/amaf, Hex baseline for Go (#50):** in Hex a fill-in playout gives every empty cell to one
+  colour and never captures, so AMAF is exact and free ("played by X" = "owned by X at the end");
+  it won 10–0 over plain UCT at 200 ms only with C = 0 (C = 0.3 lost 1–7), at K = 1000, despite
+  ~40–70% of the playouts. Go needs first-play-wins, must skip recaptured points and passes, and its
+  moves are more order-dependent, so expect a smaller gain; start its sweep at C = 0 too.
+
 ## What we believe
 
 _Nothing yet. Add a belief only with at least two evidence lines from different games._

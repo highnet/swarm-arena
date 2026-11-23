@@ -9,8 +9,6 @@
 use crate::board::{self, Rng, ALL};
 use std::time::{Duration, Instant};
 
-/// Exploration constant on win rates (RAVE carries most of the exploration).
-const C: f32 = 0.3;
 /// RAVE equivalence parameter: beta = sqrt(K / (3n + K)), so AMAF and UCT weigh equally
 /// at n = K / 3 real visits.
 const RAVE_K: f32 = 1000.0;
@@ -201,14 +199,15 @@ fn expand(nodes: &mut Vec<Node>, id: u32, mut empty: u128, rng: &mut Rng) {
     node.expanded = true;
 }
 
-/// Child of an expanded node maximising the RAVE-blended value plus a UCB term.
+/// Child of an expanded node maximising the RAVE-blended value. There is no UCB exploration
+/// term: the C sweep (0, 0.05, 0.1, 0.3) found C = 0 best by a wide margin, because AMAF already
+/// spreads statistics over every child and an exploration bonus only diverts real visits.
 fn select(nodes: &[Node], parent: &Node) -> u32 {
-    let log_n = (parent.visits.max(1) as f32).ln();
     let mut best = parent.first;
     let mut best_v = f32::NEG_INFINITY;
     for i in parent.first..parent.first + parent.count as u32 {
         let n = &nodes[i as usize];
-        let v = value(n, log_n);
+        let v = value(n);
         if v > best_v {
             best_v = v;
             best = i;
@@ -217,26 +216,25 @@ fn select(nodes: &[Node], parent: &Node) -> u32 {
     best
 }
 
-/// Selection value: (1 - beta) * Q + beta * Q_amaf + C * sqrt(ln N / (n + 1)),
-/// beta = sqrt(K / (3n + K)) (1 with no real visits, 0 with no AMAF visits).
+/// Selection value: (1 - beta) * Q + beta * Q_amaf, beta = sqrt(K / (3n + K))
+/// (1 with no real visits, 0 with no AMAF visits, FPU with neither).
 #[inline]
-fn value(n: &Node, log_n: f32) -> f32 {
+fn value(n: &Node) -> f32 {
     let visits = n.visits as f32;
-    let explore = C * (log_n / (visits + 1.0)).sqrt();
     let (amaf_visits, amaf_wins) = (n.amaf as u32, (n.amaf >> 32) as u32);
     if amaf_visits == 0 {
         if n.visits == 0 {
-            return FPU + explore;
+            return FPU;
         }
-        return n.wins as f32 / visits + explore;
+        return n.wins as f32 / visits;
     }
     let qa = amaf_wins as f32 / amaf_visits as f32;
     if n.visits == 0 {
-        return qa + explore;
+        return qa;
     }
     let q = n.wins as f32 / visits;
     let beta = (RAVE_K / (3.0 * visits + RAVE_K)).sqrt();
-    q + beta * (qa - q) + explore
+    q + beta * (qa - q)
 }
 
 #[cfg(test)]
