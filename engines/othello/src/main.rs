@@ -960,6 +960,37 @@ mod tests {
         }
     }
 
+    #[test]
+    fn self_play_from_a_solved_position_reaches_the_solved_score() {
+        // Both sides playing `best_move` from a position the solver can finish: the game ends at
+        // exactly the solved score (perfect play on both sides keeps the value).
+        let mut checked = 0;
+        for seed in 0..30u64 {
+            let Some(start) = position_at(12, seed * 6151 + 5) else { continue };
+            let (_, want) = solve_exact(&start);
+            let mut g = start.clone();
+            let mut sign = 1;
+            loop {
+                if g.available_moves() == 0 {
+                    let mut p = g.clone();
+                    p.pass_move();
+                    if p.available_moves() == 0 {
+                        break;
+                    }
+                    g = p;
+                    sign = -sign;
+                    continue;
+                }
+                g = g.make_move(best_move(&g, 2000)).unwrap();
+                sign = -sign;
+            }
+            let [me, opp] = g.get();
+            assert_eq!(sign * final_score(me, opp), want, "seed {seed}");
+            checked += 1;
+        }
+        assert!(checked >= 20);
+    }
+
     /// Whether some line from `g` has a side pass before the game ends.
     fn has_pass(g: &Game) -> bool {
         let avail = g.available_moves();
