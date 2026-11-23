@@ -1,0 +1,1 @@
+- 2026-11-23 · **endgame tablebase** · Chess · v0.6 rated 1463 (+5) · Self-generated endgame bitbases (KPK, KQK, KRK) solved by the engine's own retrograde analysis
