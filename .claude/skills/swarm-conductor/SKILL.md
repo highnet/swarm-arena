@@ -159,9 +159,21 @@ session link), what you released, and what is **escalated** — every `needs:hum
 never into a retry. If the run asked for a push notification and `PushNotification` is
 available, send one only when something new was escalated.
 
-Handoffs are the swarm's bottleneck (a review ends in 2-3 minutes, and the merger waits for the
-next tick), so pace tightly while short roles run. Arm exactly one heartbeat: delete any pending
-conductor `send_later` first, then arm the next. **4 minutes** while a reviewer, merger, fixer,
+Handoffs are the swarm's bottleneck: a review ends in 2-3 minutes, and the merger must not wait
+for a heartbeat. So end every tick that leaves a session running by starting the **board watcher**
+in this session, in the background (Bash `run_in_background: true`, timeout 30 minutes, after
+stopping any watcher still running from an earlier tick):
+
+```bash
+.claude/skills/swarm-conductor/watch-board.sh 30 1800
+```
+
+It polls open pull requests, open issues and `main` every 30 s and exits on the first change (a
+verdict label, a merge, a new pull request or issue, a claim), and that exit's notification starts
+the next tick at once. Role sessions need no tool of their own for it: the conductor watches the
+board they write to. The heartbeat below stays as the fallback for a watcher lost to a container
+restart. Arm exactly one heartbeat: delete any pending conductor `send_later` first, then arm the
+next. **4 minutes** while a reviewer, merger, fixer,
 janitor or planner is running; **15 minutes** while only workers are; **30 minutes** when the
 board is idle. Under `/loop` without an interval, pace with `ScheduleWakeup` on the same clock
 (240 s / 900 s / 1800 s), and
