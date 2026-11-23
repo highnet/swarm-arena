@@ -88,6 +88,14 @@ One thread, modest memory, and every reply within the `go <ms>` budget (200 ms i
   nodes, on top of fastest-first it adds ~10%; PVS another 15-30%. Each extra empty costs ~3×.
   N = 14 is the largest count with every position under 100 ms. The spec's "16-20 empties in
   200 ms" needs a TT and/or faster move generation than the crate's `make_move` per child.
+- Measured (#94): `arena versus othello --pairs 20` vs main v0.3: +20 −20, but every game was
+  won by the second player: with no opening variety each colour pair replays one game, so it
+  says nothing. Local `arena play … edax-4 --pairs 10` is just as deterministic: main v0.3 and
+  the solver both +1 −19 (the referee's Edax-4 rating 1265 comes from varied games). **Use a
+  seeded random-opening driver instead**: 80 games vs main, 6 random opening plies per pair, both
+  colours, `go 200`: **+46 −32 =2** (59%, about +60 Elo), slowest reply 143 ms. Tests: the solve
+  matches full-width minimax on 40+ endgames (4-10 empties and a hand-built 9-empty position),
+  handles forced passes, and self-play from a solved 12-empty position ends at the solved score.
 
 ## Ideas worth trying
 
