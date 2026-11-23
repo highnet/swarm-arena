@@ -2,7 +2,7 @@ import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, Swords } from 'lucide-react';
+import { Swords } from 'lucide-react';
 import { GameReplay } from '@/components/arena/GameReplay';
 import { Panel } from '@/components/ui/Panel';
 import { Typography } from '@/components/ui/Typography';
@@ -36,13 +36,6 @@ const MatchContent = async ({ params }: MatchPageProps) => {
 
   return (
     <main className="mx-auto w-full max-w-[90rem] px-4 pb-16 pt-6 sm:px-6">
-      <Link
-        href={`/engines/${track.id}`}
-        className="inline-flex items-center gap-1 text-xs text-fg-3 hover:text-fg"
-      >
-        <ArrowLeft className="size-3" aria-hidden="true" />
-        {track.name}
-      </Link>
       <div className="mt-2 pb-5">
         <div className="flex items-center gap-2 text-[13px] text-fg-2">
           <span className={cn('size-2 rounded-full', SERIES[track.color_slot].bg)} />

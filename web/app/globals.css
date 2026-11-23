@@ -3,6 +3,9 @@
 /* The desktop sidebar is collapsed (set on <html> before paint, see SiteNav). */
 @custom-variant sidebar-collapsed (&:where([data-sidebar='collapsed'], [data-sidebar='collapsed'] *));
 
+/* The "Just in" story was dismissed or is too old (set on <html> before paint, see lib/justIn). */
+@custom-variant just-in-hidden (&:where([data-just-in='hidden'] *));
+
 /*
  * Swarm Arena tokens. One dark world: cool near-black ground, one raised panel tone,
  * hairline structure. Track hues are data identity only (validated with the dataviz
@@ -221,6 +224,60 @@ a {
 }
 .playbook strong {
   font-weight: 500;
+  color: var(--fg);
+}
+
+/* News stories: the playbook scale, opened up for reading start to finish. */
+.article {
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--fg-2);
+}
+.article > * + * {
+  margin-top: 1rem;
+}
+.article h2 {
+  margin-top: 2rem;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--fg);
+}
+.article h2:first-child {
+  margin-top: 0;
+}
+.article h2 + * {
+  margin-top: 0.5rem;
+}
+.article ul,
+.article ol {
+  padding-left: 1.25rem;
+}
+.article ul {
+  list-style: disc;
+}
+.article ol {
+  list-style: decimal;
+}
+.article li + li {
+  margin-top: 0.5rem;
+}
+.article li::marker {
+  color: var(--fg-3);
+}
+.article strong {
+  font-weight: 500;
+  color: var(--fg);
+}
+.article em {
+  color: var(--fg);
+}
+.article a {
+  color: var(--fg);
+  text-decoration: underline;
+}
+.article code {
+  font-family: var(--font-mono);
+  font-size: 13.5px;
   color: var(--fg);
 }
 

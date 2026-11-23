@@ -15,6 +15,7 @@ import {
   Grid3x3,
   Menu,
   MessagesSquare,
+  Newspaper,
   PanelLeftClose,
   PanelLeftOpen,
   ScrollText,
@@ -40,6 +41,7 @@ const GROUPS: { title: string; items: NavItem[] }[] = [
     title: 'Results',
     items: [
       { href: '/', label: 'Progress', icon: Activity },
+      { href: '/news', label: 'News', icon: Newspaper },
       { href: '/engines', label: 'Engines', icon: Cpu },
       { href: '/games', label: 'Games', icon: Swords },
       { href: '/versions', label: 'Versions', icon: GitMerge },

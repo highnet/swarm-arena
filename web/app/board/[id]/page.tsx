@@ -62,7 +62,6 @@ const RecordContent = async (props: RecordPageProps) => {
 
   return (
     <DetailShell
-      back={{ href: '/board', label: 'The board' }}
       eyebrow={
         <>
           <span className={cn('font-medium', TONE_CLASS[meta.tone])}>{meta.label}</span>
