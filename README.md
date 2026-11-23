@@ -84,6 +84,12 @@ Set `ARENA_STORE=file` to run everything offline against `.arena/store.json`.
 Knobs: `ARENA_MOVE_MS` (default 200), `ARENA_GATE_PAIRS` (20), `STOCKFISH_BIN`, `GNUGO_BIN`,
 `EDAX_BIN`.
 
+## Deployment
+
+The site deploys to Vercel from `main` (project root `web/`). Preview deployments are off: only
+`main` builds. Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` in the Vercel
+project to read a real run; without them the site serves the sample.
+
 ## Sample data
 
 `npm run sample` regenerates `web/data/sample.json` and `supabase/seed.sql`. It is synthetic and
