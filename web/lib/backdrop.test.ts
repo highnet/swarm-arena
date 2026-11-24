@@ -14,7 +14,7 @@ import {
   driftAngle,
   motePosition,
   stopBoard,
-} from './backdrop.ts';
+} from './backdrop';
 
 const WEB = join(import.meta.dirname, '..');
 

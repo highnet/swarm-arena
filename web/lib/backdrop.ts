@@ -22,7 +22,7 @@ export type BoardShape = {
 
 /** Where each board lies: x, z and a yaw (radians). Near boards right, far ones across. */
 export const LAYOUT: { x: number; z: number; yaw: number }[] = [
-  { x: 11, z: -11, yaw: 0.32 },
+  { x: 12.5, z: -11, yaw: 0.32 },
   { x: 0, z: -21, yaw: -0.22 },
   { x: 20, z: -24, yaw: 0.12 },
   { x: 10, z: -34, yaw: -0.38 },

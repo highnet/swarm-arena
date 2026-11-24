@@ -8,12 +8,12 @@ import { MOTES, boards, driftAngle, framing, motePosition, type BoardShape } fro
 const FRAME_MS = 1000 / 30;
 const MAX_DPR = 1.5;
 /** Hairline and fill strengths. Kept low so the headline keeps AA over the brightest frame. */
-const LINE_OPACITY = 0.34;
+const LINE_OPACITY = 0.26;
 const FILL_OPACITY = 0.05;
-const MOTE_OPACITY = 0.75;
+const MOTE_OPACITY = 0.6;
 
-/** The host element also carries a frame count, read by the browser check, never by the page. */
-type BackdropHost = HTMLDivElement & { backdropFrames?: number };
+/** The host also carries a frame count and mean draw time, read by the browser check only. */
+type BackdropHost = HTMLDivElement & { backdropFrames?: number; backdropFrameMs?: number };
 
 type Motion = 'running' | 'paused' | 'still';
 
@@ -223,7 +223,7 @@ const HomeBackdropScene = () => {
         lineMats[s.slot].color.copy(c);
         fillMats[s.slot]?.color.copy(c);
       });
-      moteMat.color.copy(tokens.read('fg-3'));
+      moteMat.color.copy(tokens.read('line-strong'));
     };
     paint();
 
@@ -244,6 +244,7 @@ const HomeBackdropScene = () => {
     let clock = 0;
     let lastTick = 0;
     let frames = 0;
+    let spent = 0;
     const render = () => {
       field.rotation.y = driftAngle(clock);
       for (let m = 0; m < MOTES; m++) motePos.set(motePosition(shapes, m, clock), m * 3);
@@ -251,9 +252,12 @@ const HomeBackdropScene = () => {
       // A few pixels of parallax from the pointer, eased; nothing follows the cursor.
       pointer.x += (pointer.tx - pointer.x) * 0.04;
       camera.position.x = baseX + pointer.x * 0.35;
+      const t0 = performance.now();
       renderer.render(scene, camera);
+      spent += performance.now() - t0;
       frames += 1;
       el.backdropFrames = frames;
+      el.backdropFrameMs = spent / frames;
     };
 
     let onScreen = true;
@@ -295,7 +299,14 @@ const HomeBackdropScene = () => {
       render();
     };
 
-    const onResize = () => still();
+    let measured = '';
+    const onResize = () => {
+      // The observer also reports the first size, which the first still frame already drew.
+      const { width, height } = size();
+      if (`${width}x${height}` === measured) return;
+      measured = `${width}x${height}`;
+      still();
+    };
     const onPointer = (e: PointerEvent) => {
       if (motion === 'running') pointer.tx = e.clientX / window.innerWidth - 0.5;
     };
@@ -314,7 +325,7 @@ const HomeBackdropScene = () => {
     const themeObserver = new MutationObserver(onTheme);
     const ro = new ResizeObserver(onResize);
 
-    still();
+    onResize();
     io.observe(el);
     ro.observe(el);
     themeObserver.observe(document.documentElement, {
