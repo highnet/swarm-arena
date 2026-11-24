@@ -138,11 +138,52 @@ Move into "Architecture now" only once the referee passes it.
   (6971 entries) the same games gave 0.4 per game and 16-22 vs Edax 4. Deeper coverage after
   ply 7 is the obvious next step but costs ~6x per extra ply (67 245 canonical positions at ply 8).
 
+## Candidate (not shipped): transposition table in the midgame search (task #153)
+
+Move into "Architecture now" only once the referee passes it. A rebuild of #44's idea on v0.5
+(book + solver), with chess's shipped TT scheme (#63), not commit 361cce7 (gone with its branch).
+
+- `Tt` in `main.rs`: 2^20 slots × 16 B = 16 MB (`key` u64, `score` i32, `mv` u8 with 64 = none,
+  `depth` u8, `meta` = generation << 2 | bound). Key: two splitmix64 mixes of the (mover,
+  opponent) pair, the second rotated, so a pass (swapped pair) is a different key and no pass
+  flag is needed. No ply adjustment of scores (disc-count terminals, no repetitions).
+- **Replacement** as chess: `new_search()` bumps a 6-bit generation every `go`; a slot from an
+  older generation is always replaced; within one generation a shallower result never replaces
+  a deeper one.
+- **Use**: probe at every inner node with depth ≥ 1; cut on EXACT, LOWER ≥ beta, UPPER ≤ alpha
+  when the stored depth ≥ the remaining depth; otherwise the stored move goes first in
+  `ordered()` (which only accepts it if legal). The root stores its result every completed
+  iteration, and the first iteration's root order starts with the stored move.
+- **Lifetime**: a `thread_local` kept across `go` calls, allocated lazily on the first search
+  and freed by `game` (so a new game starts empty). The endgame solver does not use it; the
+  short midgame search before the solve does. The book generator (`fixed_depth`) searches
+  without a table, so the book stays reproducible.
+- Tests: `tt_search_matches_plain_search_at_fixed_depth` (32 seeded positions × depths 3-6:
+  same root score as plain alpha-beta with a fresh table, the TT's move scores that value under
+  plain search, fewer nodes overall), `tt_replacement_keeps_deeper_within_a_generation`,
+  `tt_survives_go_calls_and_clears_on_game`.
+- `depth_report` (8 seeded positions per band; depth is wall clock at a 120 ms deadline, so
+  ±1 ply noise; nodes at fixed depth 7 are deterministic), plain → TT:
+
+  | empties | go-200 depth | depth-7 nodes |
+  | --- | --- | --- |
+  | ≤50 | 7-9 → 9-10 | 742 069 → 196 503 (−74%) |
+  | ≤40 | 7-8 → 8-9 | 1 248 925 → 434 223 (−65%) |
+  | ≤30 | 7-10 → 9-11 | 748 329 → 193 281 (−74%) |
+  | ≤20 | 8-10 → 10-12 | 354 435 → 106 151 (−70%) |
+
+  #44 measured −45% at depths 3/4/6 on v0.2's eval; here the cut is larger at depth 7 (deeper
+  trees transpose more). Nodes per second fall by about a third to a half (a probe and store per
+  node, cache misses over 16 MB, and the report allocates a fresh table per position), so wall
+  time at depth 7 falls ~35-55%, not 70%.
+- Local `arena versus othello --pairs 30` vs main v0.5 (balanced suite openings, `go 200`):
+  **+34 −23 =3 (seed 357568262)**, 59% (not referee evidence).
+- Not tried: probing the table inside the exact solver (~10 empties up), the issue's optional
+  part; measure it separately.
+
 ## Ideas worth trying
 
-- Resubmit the #44 transposition table (see "What failed": its burial was judged against v0.2's
-  Edax-1 lower bound). On Edax 4 it scored 1059 ± 135; v0.2 there is 1173 ± 115, v0.3 is 1265, so
-  rebuild it on top of v0.3 and expect to need a real gain, not just a fair yardstick.
+- The #44 transposition table is rebuilt on v0.5 as task #153 (Candidate note above).
 - History heuristic or killer moves for move ordering; aspiration windows at the root.
 - Use more of the budget: the 60% cap and the 1/3 "don't start" rule leave much of 200 ms unused.
 - Tune the eval weights (corner/mobility/X/C) by self-play. Local matches need opening variety
