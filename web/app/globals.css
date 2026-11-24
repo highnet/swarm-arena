@@ -637,3 +637,11 @@ a {
 .no-scrollbar {
   scrollbar-width: none;
 }
+
+/* The homepage backdrop (#234): quiet under the text column, gone before the next chapter. */
+.home-backdrop-mask {
+  mask-image:
+    linear-gradient(to bottom, black 65%, transparent),
+    linear-gradient(to right, rgb(0 0 0 / 0.3) 15%, black 70%);
+  mask-composite: intersect;
+}
