@@ -258,6 +258,8 @@ type Burst = {
 type Floater = { key: number; node: SimNode; start: number; text: string; color: string };
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
+/** Width of the panel-coloured stroke behind label text: wide enough to mask a line through it. */
+const LABEL_HALO = 5;
 const AMBIENT_MS = 1500;
 const RIPPLE_MS = 900;
 const BURST_MS = 1100;
@@ -400,6 +402,24 @@ export const createSwarmGraph = (
     .style('touch-action', 'none')
     .style('user-select', 'none');
 
+  // Node names, sub-lines and counts draw in their own SVG stacked above the graph and above any
+  // effects canvas the embedder adds over it (#173): no edge, beam, burst or particle ever paints
+  // over a label. It shares the graph's viewBox and zoom, and lets every pointer through.
+  const labelSvg = d3
+    .select(container)
+    .append('svg')
+    .attr('xmlns', SVG_NS)
+    .attr('aria-hidden', 'true')
+    .attr('data-slot', 'swarm-labels')
+    .style('position', 'absolute')
+    .style('inset', '0')
+    .style('z-index', '3')
+    .style('display', 'block')
+    .style('width', '100%')
+    .style('height', '100%')
+    .style('pointer-events', 'none')
+    .style('user-select', 'none');
+
   const uid = hash(String(Math.random())).toString(36);
   const defs = svg.append('defs');
   const glow = defs
@@ -429,6 +449,10 @@ export const createSwarmGraph = (
   const gNodes = root.append('g');
   const gBursts = root.append('g').attr('pointer-events', 'none');
   const gFloaters = root.append('g').attr('pointer-events', 'none');
+  const labelRoot = labelSvg.append('g');
+  const gTags = labelRoot.append('g');
+  /** Each node's label block in the top layer: `g.sg-tag` > glyph (in `g.sg-tag-inner`), name, sub-line. */
+  const tagGroups = () => gTags.selectAll<SVGGElement, SimNode>('g.sg-tag');
 
   let view = d3.zoomIdentity;
   const zoom = d3
@@ -438,12 +462,17 @@ export const createSwarmGraph = (
       // A viewer who pans or zooms during the intro takes the camera from it.
       if (intro && e.sourceEvent) intro.camera = false;
       root.attr('transform', e.transform.toString());
+      labelRoot.attr('transform', e.transform.toString());
       view = e.transform;
       placeAnchors();
     });
   svg.call(zoom).on('dblclick.zoom', null);
 
-  const setViewBox = () => svg.attr('viewBox', [-width / 2, -height / 2, width, height].join(' '));
+  const setViewBox = () => {
+    const box = [-width / 2, -height / 2, width, height].join(' ');
+    svg.attr('viewBox', box);
+    labelSvg.attr('viewBox', box);
+  };
   setViewBox();
 
   let graph: SwarmGraph | null = null;
@@ -713,6 +742,29 @@ export const createSwarmGraph = (
               .attr('dur', '40s')
               .attr('repeatCount', 'indefinite');
           inner.append('path').attr('class', 'sg-body');
+          g.transition().duration(500).attr('opacity', 1);
+          // New nodes spring in from nothing.
+          if (motion)
+            inner
+              .attr('transform', 'scale(0.01)')
+              .transition()
+              .delay(80)
+              .duration(900)
+              .ease(d3.easeElasticOut.amplitude(1).period(0.45))
+              .attr('transform', 'scale(1)');
+          return g;
+        },
+        (update) => update,
+        (exit) => exit.transition().duration(400).attr('opacity', 0).remove(),
+      );
+
+    // The label layer mirrors the nodes one-for-one, appearing and leaving with them.
+    const tags = tagGroups()
+      .data([...nodeById.values()], (n) => n.id)
+      .join(
+        (enter) => {
+          const g = enter.append('g').attr('class', 'sg-tag').attr('opacity', 0);
+          const inner = g.append('g').attr('class', 'sg-tag-inner');
           inner
             .append('text')
             .attr('class', 'sg-glyph')
@@ -721,7 +773,6 @@ export const createSwarmGraph = (
           g.append('text').attr('class', 'sg-label').attr('text-anchor', 'middle');
           g.append('text').attr('class', 'sg-sub').attr('text-anchor', 'middle');
           g.transition().duration(500).attr('opacity', 1);
-          // New nodes spring in from nothing.
           if (motion)
             inner
               .attr('transform', 'scale(0.01)')
@@ -841,7 +892,7 @@ export const createSwarmGraph = (
         if (!motion || !n.active) el.attr('r', n.r * 2.2);
       });
 
-    groups
+    tags
       .select<SVGTextElement>('text.sg-glyph')
       .style('font-family', (n) => (n.kind === 'agent' ? theme.font : theme.monoFont))
       .attr('font-size', (n) =>
@@ -860,7 +911,8 @@ export const createSwarmGraph = (
       });
     countUp();
 
-    groups
+    // A wide halo in the panel colour masks anything passing behind the text, in both themes.
+    tags
       .select<SVGTextElement>('text.sg-label')
       .style('font-family', (n) =>
         n.kind === 'work' && (n.phase === 'branch' || n.phase === 'pr')
@@ -872,17 +924,19 @@ export const createSwarmGraph = (
       .style('fill', (n) => (n.kind === 'sector' || n.active ? theme.fg : theme.fgFaint))
       .style('paint-order', 'stroke')
       .style('stroke', theme.panel)
-      .attr('stroke-width', 3)
+      .attr('stroke-width', LABEL_HALO)
+      .attr('stroke-linejoin', 'round')
       .text((n) => labelOf(n));
 
-    groups
+    tags
       .select<SVGTextElement>('text.sg-sub')
       .style('font-family', theme.font)
       .attr('font-size', 10)
       .style('fill', theme.fgFaint)
       .style('paint-order', 'stroke')
       .style('stroke', theme.panel)
-      .attr('stroke-width', 3)
+      .attr('stroke-width', LABEL_HALO)
+      .attr('stroke-linejoin', 'round')
       .text((n) => subOf(n));
 
     groups
@@ -1022,8 +1076,7 @@ export const createSwarmGraph = (
   /** Sector effort numbers count up (or down) to their new value instead of jumping. */
   const shownNumber = new Map<string, number>();
   const countUp = () => {
-    gNodes
-      .selectAll<SVGGElement, SimNode>('g.sg-node')
+    tagGroups()
       .filter((n) => n.kind === 'sector')
       .select<SVGTextElement>('text.sg-glyph')
       .each(function (n) {
@@ -1049,6 +1102,11 @@ export const createSwarmGraph = (
       .selectAll<SVGGElement, SimNode>('g.sg-node')
       .filter((n) => n === node)
       .select<SVGGElement>('g.sg-inner')
+      .merge(
+        tagGroups()
+          .filter((n) => n === node)
+          .select<SVGGElement>('g.sg-tag-inner'),
+      )
       .interrupt('pop')
       .transition('pop')
       .duration(130)
@@ -1204,7 +1262,7 @@ export const createSwarmGraph = (
         sub: pick.top + lh + 10,
       });
     }
-    const groups = gNodes.selectAll<SVGGElement, SimNode>('g.sg-node');
+    const groups = tagGroups();
     groups
       .select<SVGTextElement>('text.sg-label')
       .attr('text-anchor', (n) => spot.get(n.id)?.anchor ?? 'middle')
@@ -1223,8 +1281,10 @@ export const createSwarmGraph = (
     groups
       .select<SVGPathElement>('path.sg-body')
       .attr('d', (n) => bodyPath(n, n === hovered ? n.r + 4 : n.r));
-    groups
-      .attr('opacity', (n) => (!near || near.has(n.id) ? 1 : 0.2))
+    const dim = (n: SimNode) => (!near || near.has(n.id) ? 1 : 0.2);
+    groups.attr('opacity', dim);
+    tagGroups()
+      .attr('opacity', dim)
       .select<SVGTextElement>('text.sg-label')
       .text((n) => labelOf(n));
     layoutLabels();
@@ -1294,10 +1354,12 @@ export const createSwarmGraph = (
       n.y = Math.max(-lim.y, Math.min(lim.y, n.y ?? 0));
     }
     const scaleOf = intro?.scale;
-    gNodes.selectAll<SVGGElement, SimNode>('g.sg-node').attr('transform', (n) => {
+    const place = (n: SimNode) => {
       const k = scaleOf?.get(n.id);
       return `translate(${n.x ?? 0},${n.y ?? 0})${k !== undefined && k < 1 ? ` scale(${k})` : ''}`;
-    });
+    };
+    gNodes.selectAll<SVGGElement, SimNode>('g.sg-node').attr('transform', place);
+    tagGroups().attr('transform', place);
     gLinks
       .selectAll<SVGPathElement, SimLink>('path')
       .attr('d', (l) => curvePath(l.source, l.target));
@@ -1411,8 +1473,7 @@ export const createSwarmGraph = (
       .selectAll<SVGGElement, SimNode>('g.sg-node')
       .select<SVGPathElement>('path.sg-body')
       .attr('d', (n) => bodyPath(n, n.r));
-    gNodes
-      .selectAll<SVGGElement, SimNode>('g.sg-node')
+    tagGroups()
       .select<SVGTextElement>('text.sg-glyph')
       .filter((n) => n.kind === 'sector')
       .attr('font-size', (n) => Math.max(10, Math.min(15, n.r * 0.5)));
@@ -1580,7 +1641,7 @@ export const createSwarmGraph = (
   // ---- intro -------------------------------------------------------------------------------
 
   const linkPaths = () => gLinks.selectAll<SVGPathElement, SimLink>('path');
-  const labelTexts = () => gNodes.selectAll<SVGTextElement, SimNode>('text.sg-label, text.sg-sub');
+  const labelTexts = () => gTags.selectAll<SVGTextElement, SimNode>('text.sg-label, text.sg-sub');
 
   const startIntro = (mode: 'full' | 'short') => {
     const hubId = graph?.hubId;
@@ -1627,10 +1688,12 @@ export const createSwarmGraph = (
       n.vy = 0;
       scale.set(n.id, pose.scale);
     }
-    gNodes.selectAll<SVGGElement, SimNode>('g.sg-node').style('opacity', (n) => {
+    const fade = (n: SimNode) => {
       const to = target.get(n.id);
       return to ? introPose(to, plan.timing.get(n.id), t).opacity : 1;
-    });
+    };
+    gNodes.selectAll<SVGGElement, SimNode>('g.sg-node').style('opacity', fade);
+    tagGroups().style('opacity', fade);
     linkPaths().attr(
       'stroke-dashoffset',
       (l) => 1 - introEdge(plan.timing.get(l.source.id), plan.timing.get(l.target.id), t),
@@ -1658,6 +1721,7 @@ export const createSwarmGraph = (
       n.vy = 0;
     }
     gNodes.selectAll<SVGGElement, SimNode>('g.sg-node').style('opacity', null);
+    tagGroups().style('opacity', null);
     labelTexts().style('opacity', null);
     gBloom.style('opacity', null);
     gRings.style('opacity', null);
@@ -2000,6 +2064,7 @@ export const createSwarmGraph = (
     simulation.stop();
     observer.disconnect();
     svg.remove();
+    labelSvg.remove();
   };
 
   return {
