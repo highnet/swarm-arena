@@ -466,3 +466,4 @@ differently. Never re-propose an idea from this list unchanged.
 - 2026-11-24 08:50 UTC · v0.5 passed the referee · Self-generated opening book: the engine's own long searches over the first moves, probed instantly · rated 1274 (+81 vs v0.4 on the same rung)
 - 2026-11-24 10:59 UTC · v0.6 passed the referee · Transposition table in the midgame search, ported from chess's shipped TT and judged against v0.5 · rated 1427 (+153)
 - 2026-11-24 14:38 UTC · buried · Transposition table inside the exact endgame solver, then raise SOLVE_EMPTIES if the saving buys a ply · Rated 1413 ± 116, not above 1427.
+- 2026-11-24 15:35 UTC · buried · PVS and history-heuristic move ordering in the Othello midgame search, ported from chess v0.5 · Rated 1295 ± 138, not above 1427.
