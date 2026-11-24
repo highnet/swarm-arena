@@ -10,8 +10,9 @@
 //! therefore column letter ↔ `column`, row number − 1 ↔ `row`; `to_coords`/`to_move` below do it
 //! explicitly (rather than trusting the library's string parser) and the tests pin it down.
 
-mod board;
-mod search;
+#[cfg(test)]
+use hex_engine::board;
+use hex_engine::search;
 
 use hexgame::{Board, Color, Coords, Edge, Game, Status};
 use search::Limit;

@@ -7,6 +7,7 @@
 //! cell ends up owned by that child's mover gets one AMAF visit (and a win if the mover won).
 
 use crate::board::{self, Rng, ALL};
+use crate::prior;
 use std::time::{Duration, Instant};
 
 /// RAVE equivalence parameter: beta = sqrt(K / (3n + K)), so AMAF and UCT weigh equally
@@ -23,6 +24,42 @@ const CHECK_EVERY: u32 = 64;
 /// Inferior-move pruning at expansion (#95): no children on dead cells or on cells the
 /// opponent of the mover has captured.
 pub const PRUNE_EXPANSION: bool = true;
+/// Learned cell prior (#155): each new child starts with this many virtual visits at the
+/// learned win rate of its cell's pattern (`prior.rs`). 0 turns it off.
+pub const PRIOR_VISITS: u32 = 20;
+/// Which statistics get the virtual visits.
+pub const PRIOR_TARGET: PriorTarget = PriorTarget::Real;
+
+/// Where the prior's virtual visits go.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PriorTarget {
+    /// The child's real (UCT) visits and wins.
+    Real,
+    /// Its AMAF visits and wins.
+    Amaf,
+    /// Both.
+    Both,
+}
+
+/// The prior settings in effect (the constants, or `HEX_PRIOR=<visits>,<real|amaf|both>` when
+/// tuning locally).
+fn prior_settings() -> (u32, PriorTarget) {
+    static S: std::sync::OnceLock<(u32, PriorTarget)> = std::sync::OnceLock::new();
+    *S.get_or_init(|| {
+        let Ok(v) = std::env::var("HEX_PRIOR") else {
+            return (PRIOR_VISITS, PRIOR_TARGET);
+        };
+        let mut it = v.split(',');
+        let n = it.next().and_then(|x| x.parse().ok()).unwrap_or(PRIOR_VISITS);
+        let t = match it.next() {
+            Some("amaf") => PriorTarget::Amaf,
+            Some("both") => PriorTarget::Both,
+            Some("real") => PriorTarget::Real,
+            _ => PRIOR_TARGET,
+        };
+        (n.min(255), t)
+    })
+}
 
 /// The cells a node with this position gets children on: every empty cell, minus (with
 /// [`PRUNE_EXPANSION`]) the dead cells and the pairs the opponent captured. Never empty while
@@ -52,6 +89,8 @@ struct Node {
     count: u8,
     mv: u8,
     expanded: bool,
+    /// Virtual visits the prior put into `visits` (so expansion still waits for real ones).
+    prior: u8,
 }
 
 impl Node {
@@ -64,6 +103,7 @@ impl Node {
             count: 0,
             mv,
             expanded: false,
+            prior: 0,
         }
     }
 }
@@ -104,7 +144,8 @@ pub fn search(
     let mut rng = Rng::new(seed);
     let mut nodes: Vec<Node> = Vec::with_capacity(1 << 16);
     nodes.push(Node::new(u8::MAX));
-    expand(&mut nodes, 0, candidates(black, white, black_to_move), &mut rng);
+    let pri = prior_settings();
+    expand(&mut nodes, 0, (black, white, black_to_move), pri, &mut rng);
 
     let mut path: Vec<u32> = Vec::with_capacity(128);
     let mut playouts = 0u32;
@@ -122,9 +163,10 @@ pub fn search(
         loop {
             let node = nodes[id as usize];
             if !node.expanded {
-                if node.visits + 1 >= EXPAND_AT && nodes.len() + 121 <= MAX_NODES {
+                let real = node.visits - node.prior as u32;
+                if real + 1 >= EXPAND_AT && nodes.len() + 121 <= MAX_NODES {
                     if ALL & !(b | w) != 0 {
-                        expand(&mut nodes, id, candidates(b, w, btm), &mut rng);
+                        expand(&mut nodes, id, (b, w, btm), pri, &mut rng);
                         continue;
                     }
                 }
@@ -200,13 +242,36 @@ fn backup(nodes: &mut [Node], path: &[u32], black_to_move: bool, final_black: u1
     }
 }
 
-/// Give node `id` one child per empty cell, in a random order (so unvisited children are
-/// tried in a random rather than a top-left-first order).
-fn expand(nodes: &mut Vec<Node>, id: u32, mut empty: u128, rng: &mut Rng) {
+/// Give node `id` (position `black`/`white`, `black_to_move` to play) one child per
+/// [`candidates`] cell, in a random order (so unvisited children are tried in a random rather
+/// than a top-left-first order), each seeded with the learned prior (`prior_visits` virtual
+/// visits at its pattern's win rate, in the statistics `target` names).
+fn expand(
+    nodes: &mut Vec<Node>,
+    id: u32,
+    (black, white, black_to_move): (u128, u128, bool),
+    (prior_visits, target): (u32, PriorTarget),
+    rng: &mut Rng,
+) {
     let first = nodes.len();
-    while empty != 0 {
-        nodes.push(Node::new(empty.trailing_zeros() as u8));
-        empty &= empty - 1;
+    let mut cells = candidates(black, white, black_to_move);
+    while cells != 0 {
+        let mv = cells.trailing_zeros() as u8;
+        let mut n = Node::new(mv);
+        if prior_visits > 0 {
+            let r = prior::rate(black, white, mv as usize, black_to_move) as u32;
+            let wins = (prior_visits * r + 127) / 255;
+            if target != PriorTarget::Amaf {
+                n.visits = prior_visits;
+                n.wins = wins;
+                n.prior = prior_visits as u8;
+            }
+            if target != PriorTarget::Real {
+                n.amaf = prior_visits as u64 | (wins as u64) << 32;
+            }
+        }
+        nodes.push(n);
+        cells &= cells - 1;
     }
     let count = nodes.len() - first;
     for i in (1..count).rev() {

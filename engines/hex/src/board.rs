@@ -67,7 +67,6 @@ pub fn black_connects(black: u128) -> bool {
 
 /// Does `white` join the left and right columns?
 #[inline]
-#[cfg(test)]
 pub fn white_connects(white: u128) -> bool {
     reach(white, LEFT) & RIGHT != 0
 }
