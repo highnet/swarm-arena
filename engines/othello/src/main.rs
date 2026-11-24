@@ -432,9 +432,8 @@ fn search_with(g: &Game, max_depth: u32, deadline: Duration, tt: Option<&mut Tt>
 // ---------------------------------------------------------------------------------------------
 
 /// At or below this many empties `go` runs the exact solve after a short midgame search.
-/// Chosen from `solve_report` (see the playbook's solve-time table): 14 without the solver
-/// table; 15 with it (#160), where 47 of 48 report positions solve inside a go-200 window.
-const SOLVE_EMPTIES: u32 = 15;
+/// Chosen from `solve_report` (see the playbook's solve-time table).
+const SOLVE_EMPTIES: u32 = 14;
 /// Below this many empties the solver orders by parity only (computing every reply's mobility
 /// costs more than it saves this close to the end).
 const SHALLOW: u32 = 6;
@@ -475,92 +474,6 @@ fn odd_regions(empty: u64) -> u64 {
     odd & empty
 }
 
-/// Solver-table size: 2^18 slots of 16 bytes = 4 MB, in buckets of two.
-const SOLVE_TT_BITS: u32 = 18;
-/// The solver probes and stores only at nodes with at least this many empties; below it the
-/// bookkeeping costs more than the subtree it saves (task #160, see the playbook).
-const SOLVE_TT_MIN: u32 = 6;
-
-/// One solver-table slot: proven bounds `lo <= value <= hi` on the exact final disc margin of
-/// (mover, opponent), the best move found (`NO_MOVE` for none), and the empties it was solved at.
-/// Values are final margins, never midgame heuristic scores: the solver has its own table, so
-/// neither search can read the other's entries.
-#[derive(Clone, Copy, Default)]
-struct SolveEntry {
-    key: u64,
-    lo: i8,
-    hi: i8,
-    mv: u8,
-    empties: u8,
-}
-
-/// The exact solver's table (task #160). Bounds on a final margin never go stale, so it lives
-/// for the whole game (cleared by `game`) and the next move's solve reuses the last one's work.
-/// Each bucket has a preferred slot (largest subtree, i.e. most empties) and an always-replace
-/// slot. An entry with more empties than the current root is unreachable, so it yields.
-#[derive(Default)]
-struct SolveTt {
-    entries: Vec<SolveEntry>,
-    /// Empties at the current solve's root.
-    root_empties: u8,
-}
-
-impl SolveTt {
-    fn prepare(&mut self, root_empties: u32) {
-        if self.entries.is_empty() {
-            self.entries = vec![SolveEntry::default(); 1 << SOLVE_TT_BITS];
-        }
-        self.root_empties = root_empties as u8;
-    }
-
-    fn bucket(&self, key: u64) -> usize {
-        (key as usize & ((1 << SOLVE_TT_BITS) - 1)) & !1
-    }
-
-    fn probe(&self, key: u64) -> Option<SolveEntry> {
-        if self.entries.is_empty() || key == 0 {
-            return None;
-        }
-        let b = self.bucket(key);
-        self.entries[b..b + 2].iter().copied().find(|e| e.key == key)
-    }
-
-    /// Records `lo <= value <= hi` for `key`, intersecting with bounds already held for it.
-    fn store(&mut self, key: u64, empties: u32, lo: i32, hi: i32, mv: Option<usize>) {
-        if self.entries.is_empty() || key == 0 {
-            return;
-        }
-        let b = self.bucket(key);
-        let mv = mv.map_or(NO_MOVE, |m| m as u8);
-        let empties = empties as u8;
-        for j in b..b + 2 {
-            let e = &mut self.entries[j];
-            if e.key == key {
-                e.lo = e.lo.max(lo as i8);
-                e.hi = e.hi.min(hi as i8);
-                if mv != NO_MOVE {
-                    e.mv = mv;
-                }
-                e.empties = e.empties.max(empties);
-                return;
-            }
-        }
-        let new = SolveEntry { key, lo: lo as i8, hi: hi as i8, mv, empties };
-        let first = self.entries[b];
-        if first.key == 0 || empties >= first.empties || first.empties > self.root_empties {
-            self.entries[b + 1] = first;
-            self.entries[b] = new;
-        } else {
-            self.entries[b + 1] = new;
-        }
-    }
-}
-
-thread_local! {
-    /// The solver's table, kept between `go` calls and cleared by `game`.
-    static SOLVE_TT: std::cell::RefCell<SolveTt> = std::cell::RefCell::new(SolveTt::default());
-}
-
 struct Solver {
     start: Instant,
     deadline: Duration,
@@ -572,13 +485,11 @@ struct Solver {
     parity: bool,
     /// Null windows after the first child (principal variation search).
     pvs: bool,
-    /// Bounds table from `SOLVE_TT_MIN` empties up; `None` solves without one (tests, reports).
-    tt: Option<SolveTt>,
 }
 
 impl Solver {
     fn new(deadline: Duration) -> Self {
-        Solver { start: Instant::now(), deadline, nodes: 0, stopped: false, fastest_first: true, parity: true, pvs: true, tt: None }
+        Solver { start: Instant::now(), deadline, nodes: 0, stopped: false, fastest_first: true, parity: true, pvs: true }
     }
 
     fn out_of_time(&mut self) -> bool {
@@ -613,26 +524,8 @@ impl Solver {
             }
             return -self.solve(opp, me, -beta, -alpha);
         }
-        // Table probe: a proven bound outside the window, or an exact value, answers at once
-        // (the window is not narrowed, so a fail-soft result stays a bound on the caller's window).
-        let use_tt = n >= SOLVE_TT_MIN && self.tt.is_some();
-        let key = if use_tt { tt_key(me, opp) } else { 0 };
-        let mut tt_move = NO_MOVE as usize;
-        if use_tt {
-            if let Some(e) = self.tt.as_ref().and_then(|t| t.probe(key)) {
-                let (lo, hi) = (e.lo as i32, e.hi as i32);
-                if lo >= beta || lo == hi {
-                    return lo;
-                }
-                if hi <= alpha {
-                    return hi;
-                }
-                tt_move = e.mv as usize;
-            }
-        }
-        let alpha0 = alpha;
         // Children with their ordering key (lower first).
-        let mut kids = [(0u32, 0u64, 0u64, 0u8); 32];
+        let mut kids = [(0u32, 0u64, 0u64); 32];
         let mut k = 0;
         let odd = if self.parity { odd_regions(empty) } else { 0 };
         let mut m = avail;
@@ -648,21 +541,13 @@ impl Solver {
             if odd >> i & 1 == 0 {
                 key += 1;
             }
-            if i == tt_move {
-                key = 0; // the table's best move goes first (ties keep it ahead: stable below)
-            }
-            kids[k] = (key, p, q, i as u8);
+            kids[k] = (key, p, q);
             k += 1;
         }
         let kids = &mut kids[..k];
-        if tt_move < NO_MOVE as usize {
-            kids.sort_by_key(|c| (c.0, c.3 as usize != tt_move));
-        } else {
-            kids.sort_unstable_by_key(|c| c.0);
-        }
+        kids.sort_unstable_by_key(|c| c.0);
         let mut best = -SOLVE_INF;
-        let mut best_sq = None;
-        for (j, &(_, p, q, sq)) in kids.iter().enumerate() {
+        for (j, &(_, p, q)) in kids.iter().enumerate() {
             // Principal variation search: the first child gets the full window, the rest a null
             // window at alpha, re-searched only when one fails high inside (alpha, beta).
             let mut v;
@@ -679,28 +564,12 @@ impl Solver {
             }
             if v > best {
                 best = v;
-                best_sq = Some(sq as usize);
                 if v > alpha {
                     alpha = v;
                     if alpha >= beta {
                         break;
                     }
                 }
-            }
-        }
-        if use_tt {
-            // Fail-soft: at or below the original alpha the value is at most `best`; at or above
-            // beta it is at least `best`; in between it is exact.
-            let (lo, hi) = if best <= alpha0 {
-                (-64, best)
-            } else if best >= beta {
-                (best, 64)
-            } else {
-                (best, best)
-            };
-            let mv = if best > alpha0 { best_sq } else { None };
-            if let Some(t) = self.tt.as_mut() {
-                t.store(key, n, lo, hi, mv);
             }
         }
         best
@@ -770,14 +639,7 @@ fn best_move(g: &Game, budget_ms: u64) -> usize {
     let mut order = vec![fallback];
     order.extend(ordered(g.available_moves(), None).into_iter().filter(|&i| i != fallback));
     let mut s = Solver::new(total.saturating_sub(t.elapsed()));
-    let mut tt = SOLVE_TT.with(|t| std::mem::take(&mut *t.borrow_mut()));
-    tt.prepare(empties);
-    s.tt = Some(tt);
-    let result = solve_root(g, &order, &mut s).0;
-    if let Some(tt) = s.tt.take() {
-        SOLVE_TT.with(|t| *t.borrow_mut() = tt);
-    }
-    match result {
+    match solve_root(g, &order, &mut s).0 {
         Some((m, _)) => m,
         None => fallback,
     }
@@ -798,7 +660,6 @@ fn handle(line: &str, moves: &mut Vec<String>) -> (Option<String>, bool) {
     match parts.next() {
         Some("game") => {
             TT.with(|t| t.borrow_mut().clear());
-            SOLVE_TT.with(|t| *t.borrow_mut() = SolveTt::default());
             (Some("ready".into()), false)
         }
         Some("position") => {
@@ -1246,50 +1107,6 @@ mod tests {
     }
 
     #[test]
-    fn solver_table_gives_the_same_results_as_no_table() {
-        // Task #160: positions at 8-14 empties, solved without a table and with one. The table is
-        // shared across all positions (as across the moves of a game), and each position is also
-        // probed with narrow windows, so stale or wrongly bounded entries would show as a mismatch.
-        let mut table = SolveTt::default();
-        table.prepare(14);
-        let mut checked = 0;
-        for n in 8..=14u32 {
-            for seed in 0..60u64 {
-                let Some(g) = position_at(n, seed * 7 + n as u64) else { continue };
-                let [me, opp] = g.get();
-                if g.available_moves() == 0 || (!(me | opp)).count_ones() != n {
-                    continue;
-                }
-                let (_, plain) = solve_exact(&g);
-                let mut s = Solver::new(Duration::from_secs(600));
-                s.tt = Some(std::mem::take(&mut table));
-                let (r, complete) = solve_root(&g, &ordered(g.available_moves(), None), &mut s);
-                assert!(complete);
-                let (mv, with_tt) = r.unwrap();
-                assert_eq!(plain, with_tt, "root score differs at {n} empties, seed {seed}");
-                // The table's chosen move really scores that value.
-                let child = g.make_move(mv).unwrap();
-                let [p, q] = child.get();
-                assert_eq!(-Solver::new(Duration::from_secs(600)).solve(p, q, -SOLVE_INF, SOLVE_INF), plain);
-                // Null windows around the value: fail-low, fail-high and exact agree with plain.
-                for (a, b) in [(plain - 1, plain), (plain, plain + 1), (plain - 2, plain + 2), (-SOLVE_INF, SOLVE_INF)] {
-                    let v_tt = s.solve(me, opp, a, b);
-                    let v = Solver::new(Duration::from_secs(600)).solve(me, opp, a, b);
-                    assert_eq!(v_tt > a, v > a, "fail-low differs at {n} empties, seed {seed}, window ({a}, {b})");
-                    assert_eq!(v_tt >= b, v >= b, "fail-high differs at {n} empties, seed {seed}, window ({a}, {b})");
-                    if v > a && v < b {
-                        assert_eq!(v_tt, v);
-                    }
-                }
-                table = s.tt.take().unwrap();
-                checked += 1;
-            }
-        }
-        assert!(checked >= 40, "only {checked} positions");
-        assert!(table.entries.iter().any(|e| e.key != 0), "the table was never written");
-    }
-
-    #[test]
     fn solver_matches_brute_force_minimax() {
         // A hand-built position, 9 empties (rows 1 and 8 partly open), Black to move, then
         // seeded positions at 4..=10 empties. Move and score must agree with full-width minimax.
@@ -1437,22 +1254,13 @@ mod tests {
     fn solve_report() {
         // Exact-solve wall time over 8 seeded positions at each empty count 12..=20, for the
         // ordering variants. Wall clock: informational. Half of a go-200 budget is 100 ms.
-        // The last variant adds the solver table (#160), fresh per position (no reuse across moves).
-        let variants = [("plain", false, false, false, false), ("fastest+parity", true, true, false, false), ("fastest+parity+pvs", true, true, true, false), ("+tt", true, true, true, true)];
-        // Edit these to narrow a run (the engine source may not read environment variables): the
-        // #160 table used 48 positions, 14..=16 empties and the last two variants.
-        let only: Option<&[&str]> = None;
-        let count: usize = 8;
-        let max_n: u32 = 20;
-        for n in 12..=max_n {
-            let ps: Vec<Game> = (0..2000u64).filter_map(|s| position_at(n, s * 31 + n as u64)).filter(|g| (!(g.get()[0] | g.get()[1])).count_ones() == n).take(count).collect();
+        let variants = [("plain", false, false, false), ("fastest+parity", true, true, false), ("fastest+parity+pvs", true, true, true)];
+        for n in 12..=20u32 {
+            let ps: Vec<Game> = (0..200u64).filter_map(|s| position_at(n, s * 31 + n as u64)).filter(|g| (!(g.get()[0] | g.get()[1])).count_ones() == n).take(8).collect();
             let mut line = format!("{n} empties ({} pos):", ps.len());
-            for &(name, ff, par, pvs, tt) in &variants {
+            for &(name, ff, par, pvs) in &variants {
                 if !ff && n > 13 {
                     continue; // unordered search is far too slow out here
-                }
-                if only.is_some_and(|o| !o.contains(&name)) {
-                    continue;
                 }
                 let mut times = Vec::new();
                 let mut nodes = 0;
@@ -1462,11 +1270,6 @@ mod tests {
                     s.fastest_first = ff;
                     s.parity = par;
                     s.pvs = pvs;
-                    if tt {
-                        let mut table = SolveTt::default();
-                        table.prepare(n);
-                        s.tt = Some(table);
-                    }
                     let t = Instant::now();
                     solve_root(g, &ordered(g.available_moves(), None), &mut s);
                     times.push(t.elapsed().as_secs_f64() * 1000.0);
@@ -1474,11 +1277,8 @@ mod tests {
                 }
                 times.sort_by(|a, b| a.partial_cmp(b).unwrap());
                 let under = times.iter().filter(|&&t| t <= 100.0).count();
-                // ~140 ms is the solve window of a go-200 move (80% of the budget minus the 10%
-                // midgame search).
-                let window = times.iter().filter(|&&t| t <= 140.0).count();
                 line += &format!(
-                    "  {name}: median {:.1} ms max {:.1} ms, {under}/{} <= 100 ms, {window} <= 140 ms, {nodes} nodes",
+                    "  {name}: median {:.1} ms max {:.1} ms, {under}/{} <= 100 ms, {nodes} nodes",
                     times[times.len() / 2],
                     times[times.len() - 1],
                     times.len()
