@@ -17,6 +17,16 @@ export const MOVE_MS = Number(process.env.ARENA_MOVE_MS ?? 200);
 export const LIVE_MS = Number(process.env.ARENA_LIVE_MS ?? 1000);
 /** How far past `go <ms>` a reply may arrive before it forfeits (process and pipe overhead). */
 export const MOVE_SLACK_MS = Number(process.env.ARENA_MOVE_SLACK_MS ?? 300);
+/**
+ * A reference engine's own per-move allowance (#164). GNU Go and Edax play a fixed level with no
+ * clock, so they cannot keep to MOVE_MS: GNU Go level 8 took up to ~1 s a move on 9×9 (p99 0.9 s,
+ * level 10 up to 1.4 s) against the 500 ms the candidate gets, and repeated timeouts aborted gate
+ * matches. Extra time does not change a fixed-level engine's strength, only whether it answers.
+ * Stockfish keeps `go movetime MOVE_MS` and stays inside it. The candidate keeps MOVE_MS.
+ */
+export const REFERENCE_MOVE_MS = Number(
+  process.env.ARENA_REFERENCE_MOVE_MS ?? 5000,
+);
 export const GATE_PAIRS = Number(process.env.ARENA_GATE_PAIRS ?? 20);
 
 process.env.ARENA_HOME = ARENA_HOME;

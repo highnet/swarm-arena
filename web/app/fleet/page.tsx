@@ -15,7 +15,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Typography } from '@/components/ui/Typography';
 import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { NextSteps } from '@/components/arena/NextSteps';
-import { getSnapshot } from '@/lib/data';
+import { getSnapshot, liveGames } from '@/lib/data';
 import { formatDay, formatTime } from '@/lib/format';
 import { recordHref } from '@/lib/routes';
 import { getRallypoint, REPO_URL } from '@/lib/github';
@@ -175,7 +175,7 @@ const FleetContent = async ({ searchParams }: FleetContentProps) => {
   // Live by nature: who is working right now is a request-time question.
   await connection();
   const { view } = await searchParams;
-  const [s, rp] = await Promise.all([getSnapshot(), getRallypoint()]);
+  const [s, rp, live] = await Promise.all([getSnapshot(), getRallypoint(), liveGames()]);
   const asOf = s.asOf ?? new Date().toISOString();
   const slots = Object.fromEntries(s.tracks.map((t) => [t.id, t.color_slot])) as Partial<
     Record<GameId, number>
@@ -223,6 +223,7 @@ const FleetContent = async ({ searchParams }: FleetContentProps) => {
           className="mt-6"
           {...toSwarmInput(s, rp.items)}
           engines={engineNodes(s)}
+          liveGames={live}
           view={typeof view === 'string' ? view : null}
           seatIds={s.agents.map((a) => a.id)}
           engineIds={s.tracks.map((t) => t.id)}

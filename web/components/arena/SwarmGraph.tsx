@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Crosshair, History, Sparkles, Square } from 'lucide-react';
-import type { Agent, GameRow, Track } from '@arena/shared';
+import type { Agent, GameId, GameRow, LiveGameRow, Track } from '@arena/shared';
 import {
   agentNodeId,
   buildSwarmGraph,
@@ -48,6 +48,7 @@ import {
 } from '@/lib/swarmPresets';
 import type { EffectsMode, SwarmEffectsLayer } from '@/lib/swarmEffects';
 import { useCatchUp } from '@/lib/useCatchUp';
+import { useLiveBoards } from '@/lib/useLiveBoards';
 import { cn } from '@/lib/utils';
 import type { EngineBoardSource } from './EngineBoard';
 import { useFleetHover } from './FleetHover';
@@ -349,6 +350,8 @@ type SwarmGraphProps = {
   context: ArenaEventContext;
   /** Each engine's node: rating, version timeline, latest game. */
   engines: EngineNode[];
+  /** The game each engine is playing right now (`liveGames()`); followed from Realtime here. */
+  liveGames?: Partial<Record<GameId, LiveGameRow>>;
   /** Agent ids with a fleet page; the rest (event-only actors) are not linked. */
   seatIds: string[];
   /** Sector ids with an engine page. */
@@ -359,6 +362,8 @@ type SwarmGraphProps = {
   view?: string | null;
   className?: string;
 };
+
+const NO_LIVE_GAMES: Partial<Record<GameId, LiveGameRow>> = {};
 
 /** Live events kept on the client between refreshes. */
 const LIVE_CAP = 400;
@@ -409,6 +414,7 @@ const SwarmGraph = ({
   input,
   context,
   engines,
+  liveGames = NO_LIVE_GAMES,
   seatIds,
   engineIds,
   repoUrl,
@@ -608,6 +614,7 @@ const SwarmGraph = ({
   const [replay, setReplay] = useState<SwarmReplayState | null>(null);
   const [replayPlan, setReplayPlan] = useState<SwarmReplayPlan | null>(null);
   const replaying = replayPlan !== null;
+  const liveBoards = useLiveBoards(liveGames);
 
   // Callbacks read the latest props through a ref so the renderer is created once.
   const { hovered, setHovered } = useFleetHover();
@@ -893,7 +900,10 @@ const SwarmGraph = ({
       key: last + 1,
     };
   };
+  // Outside a replay a node shows only the game its engine is playing now (#163); a replay may
+  // show the games of the window it replays.
   const boardOf = (e: EngineNode): EngineBoardSource | null => {
+    if (!replaying) return liveBoards[e.id] ?? null;
     const l = live.games[e.id];
     const g = l && (!e.latestGame || l.finishedAt > e.latestGame.finishedAt) ? l : e.latestGame;
     return g ? { kind: 'finished', game: g } : null;
