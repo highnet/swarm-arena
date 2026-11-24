@@ -1,16 +1,34 @@
-import { agentName, type BoardRecord, type Snapshot, type TaskStatus } from '@arena/shared';
+import { agentName, type Snapshot, type TaskStatus } from '@arena/shared';
 import {
   rallypointBranch,
   type SwarmAgent,
   type SwarmEvent,
-  type SwarmEventKind,
   type SwarmInput,
   type SwarmSector,
   type SwarmStage,
   type SwarmWorkItem,
 } from '@rallypoint/swarm-graph/model';
-import { isLive } from '@/components/arena/seats';
 import { stageOf, type RpItem } from './github';
+import { versionHref, versionOf } from './routes';
+import {
+  agentEvents,
+  emptyContext,
+  gameEvent,
+  learn,
+  matchEvents,
+  messageEvent,
+  ratingEvents,
+  recordEvent,
+  roleName,
+  rungEvent,
+  taskEvents,
+  toSwarmAgent,
+  gameOfRow,
+  type ArenaEventContext,
+  type EngineNode,
+} from './swarmEvents';
+
+export type { EngineGame, EngineNode, EngineVersion } from './swarmEvents';
 import rallypointConfig from '../../.rallypoint/config.json';
 
 /**
@@ -38,8 +56,6 @@ const SITE: SwarmSector = {
   paths: ['web/', 'shared/', 'swarm-graph/'],
 };
 
-const ROLE: Record<string, string> = { builder: 'worker', strategist: 'planner' };
-
 /** The task's own status, used only when GitHub could not be read. */
 const TASK_STAGE: Record<TaskStatus, SwarmStage> = {
   open: 'backlog',
@@ -49,27 +65,10 @@ const TASK_STAGE: Record<TaskStatus, SwarmStage> = {
   dead: 'closed',
 };
 
-const kindOf = (r: BoardRecord): SwarmEventKind => {
-  switch (r.kind) {
-    case 'strategy':
-    case 'task_opened':
-      return 'plan';
-    case 'task_claimed':
-      return 'claim';
-    case 'patch_landed':
-      return 'merge';
-    case 'patch_rejected':
-    case 'idea_dead':
-      return 'reject';
-    case 'match_verdict':
-    case 'rung_cleared':
-      return 'milestone';
-    case 'protocol':
-      return 'protocol';
-    default:
-      return /^review/i.test(r.title) ? 'review' : 'progress';
-  }
-};
+/** Games kept as events from the snapshot: enough for the recent gates, not the whole run. */
+const SNAPSHOT_GAMES = 300;
+/** Board posts kept as events from the snapshot. */
+const SNAPSHOT_POSTS = 200;
 
 /** The sector a GitHub item with no arena task touches, from its Conventional Commit scope. */
 const sectorOfTitle = (title: string, engines: Set<string>) => {
@@ -79,7 +78,9 @@ const sectorOfTitle = (title: string, engines: Set<string>) => {
   return PROTOCOL.id;
 };
 
-export const toSwarmInput = (s: Snapshot, rp: RpItem[] = []): SwarmInput => {
+export type ArenaSwarm = { input: SwarmInput; context: ArenaEventContext };
+
+export const toSwarmInput = (s: Snapshot, rp: RpItem[] = []): ArenaSwarm => {
   const asOf = s.asOf ?? new Date().toISOString();
   const engines = new Set(s.tracks.map((t) => t.id));
   const sectors: SwarmSector[] = [
@@ -136,31 +137,22 @@ export const toSwarmInput = (s: Snapshot, rp: RpItem[] = []): SwarmInput => {
       at: pr?.mergedAt ?? i.closedAt ?? i.updatedAt,
     });
   }
-  const itemByPr = new Map(workItems.filter((w) => w.pr).map((w) => [w.pr!, w.id]));
-  const itemById = new Map(workItems.map((w) => [w.id, w]));
-  const prOf = (title: string) => Number(/#(\d+)/.exec(title)?.[1]) || null;
-
-  const roles = new Map(s.agents.map((a) => [a.id, a.rp_role ?? a.role]));
-  const roleOf = (id: string) => {
-    const r = roles.get(id) ?? id;
-    return ROLE[r] ?? r;
+  // Everything the shared row mapping needs; the client keeps it current from Realtime.
+  let context = learn(emptyContext(), {
+    tracks: s.tracks,
+    matches: s.matches,
+    records: s.records,
+    tasks: s.tasks,
+    agents: s.agents,
+    elo: s.elo,
+  });
+  context = {
+    ...context,
+    itemByPr: Object.fromEntries(workItems.filter((w) => w.pr).map((w) => [w.pr!, w.id])),
+    itemSector: Object.fromEntries(workItems.map((w) => [w.id, w.sector])),
   };
 
-  const agents: SwarmAgent[] = s.agents.map((a) => {
-    const role = roleOf(a.id);
-    const item = a.task_id ? itemById.get(a.task_id) : undefined;
-    return {
-      id: a.id,
-      label: agentName(a.id),
-      role,
-      status: isLive(a, asOf) ? 'working' : 'idle',
-      sector: a.track_id ?? item?.sector ?? (role === 'improver' ? PROTOCOL.id : null),
-      workItem: a.task_id ?? (a.pr ? (itemByPr.get(a.pr) ?? null) : null),
-      pr: a.pr ?? null,
-      activity: a.activity ?? null,
-      lastSeen: a.last_seen,
-    };
-  });
+  const agents: SwarmAgent[] = s.agents.map((a) => toSwarmAgent(context, a, asOf));
 
   // Actors that log records without holding a seat (the referee, the strategist).
   const known = new Set(s.agents.map((a) => a.id));
@@ -172,33 +164,133 @@ export const toSwarmInput = (s: Snapshot, rp: RpItem[] = []): SwarmInput => {
     agents.push({
       id,
       label: agentName(id),
-      role: roleOf(id),
+      role: roleName(context, id),
       status: 'idle',
       sector: null,
       lastSeen: at,
     });
 
-  const events: SwarmEvent[] = s.records.map((r) => {
-    const kind = kindOf(r);
-    // "Reviewing #37", "Merging #38": the pull request names the work when the record does not.
-    const pr = prOf(r.title);
-    const workItem = r.task_id ?? (pr ? (itemByPr.get(pr) ?? null) : null);
-    const sector =
-      r.track_id ??
-      (workItem ? (itemById.get(workItem)?.sector ?? null) : null) ??
-      (kind === 'protocol' || (r.agent_id && roleOf(r.agent_id) === 'improver')
-        ? PROTOCOL.id
-        : null);
+  const recentGames = [...s.games]
+    .sort((a, b) => b.finished_at.localeCompare(a.finished_at))
+    .slice(0, SNAPSHOT_GAMES);
+  const recentPosts = [...(s.messages ?? [])]
+    .sort((a, b) => b.at.localeCompare(a.at))
+    .slice(0, SNAPSHOT_POSTS);
+  const events: SwarmEvent[] = [
+    ...s.records.map((r) => recordEvent(context, r)),
+    ...recentGames.map((g) => gameEvent(context, g)),
+    ...s.matches.flatMap((m) => matchEvents(context, m)),
+    ...ratingEvents(context, s.elo),
+    ...s.rungs.flatMap((r) => rungEvent(context, r, s.records) ?? []),
+    ...s.agents.flatMap((a) => agentEvents(context, a)),
+    ...recentPosts.map(messageEvent),
+    ...s.tasks.flatMap((t) => taskEvents(context, t)),
+    ...githubEvents(rp, workItems, context, engines),
+  ];
+
+  return {
+    input: { integrationBranch: INTEGRATION_BRANCH, asOf, sectors, agents, workItems, events },
+    context,
+  };
+};
+
+/**
+ * What GitHub says that the board does not: pull requests opening and getting a verdict, merges
+ * of work with no arena task, and claims on issues. Ids are stable, so a re-read is not news.
+ */
+const githubEvents = (
+  rp: RpItem[],
+  workItems: SwarmWorkItem[],
+  ctx: ArenaEventContext,
+  engines: Set<string>,
+): SwarmEvent[] => {
+  const out: SwarmEvent[] = [];
+  const itemOf = (i: RpItem) =>
+    (i.isPR ? ctx.itemByPr[i.number] : undefined) ??
+    workItems.find((w) => w.issue === (i.isPR ? i.closes : i.number))?.id ??
+    null;
+  for (const i of rp) {
+    const workItem = itemOf(i);
+    const sector = (workItem ? ctx.itemSector[workItem] : null) ?? sectorOfTitle(i.title, engines);
+    const base = { agent: null, workItem, sector };
+    const arenaLanded = workItem ? ctx.recorded.includes(`patch_landed:${workItem}`) : false;
+    if (i.isPR) {
+      out.push({
+        ...base,
+        id: `gh:pr:${i.number}:opened`,
+        at: i.createdAt,
+        kind: 'pr',
+        sub: 'pr-opened',
+        title: `Pull request #${i.number} opened: ${i.title}`,
+      });
+      const stage = stageOf(i);
+      if (stage === 'approved' || stage === 'changes')
+        out.push({
+          ...base,
+          id: `gh:pr:${i.number}:${stage}`,
+          at: i.updatedAt,
+          kind: stage === 'approved' ? 'review' : 'reject',
+          sub: stage === 'approved' ? 'pr-approved' : 'pr-changes',
+          title:
+            stage === 'approved'
+              ? `Pull request #${i.number} approved`
+              : `Changes asked on pull request #${i.number}`,
+        });
+      if (i.mergedAt && !arenaLanded)
+        out.push({
+          ...base,
+          id: `gh:pr:${i.number}:merged`,
+          at: i.mergedAt,
+          kind: 'merge',
+          sub: 'pr-merged',
+          title: `Pull request #${i.number} merged: ${i.title}`,
+        });
+    } else if (stageOf(i) === 'claimed' && !(workItem && ctx.tasks[workItem]))
+      out.push({
+        ...base,
+        id: `gh:issue:${i.number}:claimed`,
+        at: i.updatedAt,
+        kind: 'claim',
+        sub: 'issue-claimed',
+        title: `Issue #${i.number} claimed: ${i.title}`,
+      });
+  }
+  return out;
+};
+
+/** Each engine's node: its rating, its version timeline and its latest finished game. */
+export const engineNodes = (s: Snapshot): EngineNode[] => {
+  const matches = new Map(s.matches.map((m) => [m.id, m]));
+  const tasks = new Map(s.tasks.map((t) => [t.id, t]));
+  return s.tracks.map((t) => {
+    const timeline = s.elo
+      .filter((p) => p.track_id === t.id)
+      .sort((a, b) => a.at.localeCompare(b.at))
+      .map((p) => {
+        const landed = s.records.find(
+          (r) =>
+            r.kind === 'patch_landed' && r.track_id === t.id && versionOf(r) === p.engine_version,
+        );
+        const task = landed?.task_id ? tasks.get(landed.task_id) : undefined;
+        return {
+          version: p.engine_version,
+          elo: p.elo,
+          at: landed?.at ?? p.at,
+          idea: landed ? landed.title.replace(/^\S+ shipped: /, '') : null,
+          href: versionHref(t.id, p.engine_version),
+          pr: task?.pr ?? null,
+        };
+      });
+    const latest = [...s.games]
+      .filter((g) => g.track_id === t.id && g.moves.length)
+      .sort((a, b) => b.finished_at.localeCompare(a.finished_at))[0];
     return {
-      id: String(r.id),
-      at: r.at,
-      kind,
-      agent: r.agent_id,
-      sector,
-      workItem,
-      title: r.title,
+      id: t.id,
+      name: t.name,
+      elo: t.current_elo,
+      version: t.current_version,
+      timeline,
+      latestGame: latest ? gameOfRow(latest, matches.get(latest.match_id)?.opponent) : null,
     };
   });
-
-  return { integrationBranch: INTEGRATION_BRANCH, asOf, sectors, agents, workItems, events };
 };

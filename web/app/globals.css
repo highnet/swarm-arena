@@ -75,6 +75,23 @@
   --animate-pulse-dot: pulse-dot 2s ease-in-out infinite;
   --animate-skeleton: skeleton 1.6s ease-in-out infinite;
   --animate-bar-shimmer: bar-shimmer 2.6s ease-in-out infinite;
+  --animate-delta-flash: delta-flash 4s ease-out both;
+}
+
+/* A rating change beside the new number: in, held, then gone. */
+@keyframes delta-flash {
+  0% {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  10%,
+  70% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+  }
 }
 
 @keyframes bar-shimmer {

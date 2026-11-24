@@ -43,8 +43,23 @@ export type SwarmGraphRendererOptions = {
   title?: string;
 };
 
+export type SwarmUpdateOptions = {
+  /**
+   * Take the new graph without firing its unseen events: a host that changes which events it
+   * shows (a filter) passes this so the newly visible history does not spark as if it were new.
+   */
+  quiet?: boolean;
+};
+
 export type SwarmGraphRenderer = {
-  update: (graph: SwarmGraph) => void;
+  update: (graph: SwarmGraph, options?: SwarmUpdateOptions) => void;
+  /**
+   * Pin a host element to a node: every frame the renderer sets its CSS `transform` (from the
+   * container's top left, zoom and pan included) to sit beside the node on the side away from
+   * the centre, inside the canvas, and sets `data-side` to `left` or `right`. It is hidden while
+   * the node is not on the graph. `null` releases it. Hosts use this for HTML badges on nodes.
+   */
+  anchor: (nodeId: string, el: HTMLElement | null) => void;
   /** Play the event history back over `durationMs` (default 30 s). */
   replay: (durationMs?: number) => void;
   stopReplay: () => void;
@@ -283,10 +298,15 @@ export const createSwarmGraph = (
   const gBursts = root.append('g').attr('pointer-events', 'none');
   const gFloaters = root.append('g').attr('pointer-events', 'none');
 
+  let view = d3.zoomIdentity;
   const zoom = d3
     .zoom<SVGSVGElement, unknown>()
     .scaleExtent([0.4, 3])
-    .on('zoom', (e) => root.attr('transform', e.transform.toString()));
+    .on('zoom', (e) => {
+      root.attr('transform', e.transform.toString());
+      view = e.transform;
+      placeAnchors();
+    });
   svg.call(zoom).on('dblclick.zoom', null);
 
   const setViewBox = () => svg.attr('viewBox', [-width / 2, -height / 2, width, height].join(' '));
@@ -1059,6 +1079,43 @@ export const createSwarmGraph = (
       });
   };
 
+  const anchors = new Map<string, HTMLElement>();
+  const placeAnchors = () => {
+    // Read every size first, then write every position: one layout per frame, not one per badge.
+    const placed = [...anchors].map(([id, el]) => ({
+      el,
+      n: nodeById.get(id),
+      w: el.offsetWidth,
+      h: el.offsetHeight,
+    }));
+    const pad = 4;
+    for (const { el, n, w, h } of placed) {
+      if (!n) {
+        el.style.visibility = 'hidden';
+        continue;
+      }
+      const cx = width / 2 + view.x + view.k * (n.x ?? 0);
+      const cy = height / 2 + view.y + view.k * (n.y ?? 0);
+      const r = view.k * n.r + 8;
+      // Beside the node, on the side away from the centre, so the middle of the graph stays
+      // clear; the other side when that one has no room. Kept inside the canvas vertically.
+      const outward = (n.x ?? 0) < 0 ? 'left' : 'right';
+      const fits = (side: string) =>
+        side === 'right' ? cx + r + w <= width - pad : cx - r - w >= pad;
+      const side = fits(outward) ? outward : outward === 'left' ? 'right' : 'left';
+      const x = side === 'right' ? cx + r : cx - r - w;
+      const y = Math.max(pad, Math.min(height - h - pad, cy - h / 2));
+      el.dataset.side = side;
+      el.style.visibility = 'visible';
+      el.style.transform = `translate(${Math.round(Math.max(pad, Math.min(width - w - pad, x)))}px, ${Math.round(y)}px)`;
+    }
+  };
+  const anchor = (nodeId: string, el: HTMLElement | null) => {
+    if (el) anchors.set(nodeId, el);
+    else anchors.delete(nodeId);
+    placeAnchors();
+  };
+
   const draw = () => {
     // Keep every node on the canvas, whatever the forces want.
     const pad = 14;
@@ -1090,6 +1147,7 @@ export const createSwarmGraph = (
       .attr('cy', (n) => n.y ?? 0)
       .attr('r', (n) => n.r + 5);
     layoutLabels();
+    placeAnchors();
   };
 
   // ---- motion ------------------------------------------------------------------------------
@@ -1343,8 +1401,9 @@ export const createSwarmGraph = (
 
   // ---- public API --------------------------------------------------------------------------
 
-  const update = (next: SwarmGraph) => {
+  const update = (next: SwarmGraph, updateOptions: SwarmUpdateOptions = {}) => {
     const first = graph === null;
+    const quiet = first || Boolean(updateOptions.quiet);
     graph = next;
     const keep = new Set(next.nodes.map((n) => n.id));
     for (const id of [...nodeById.keys()]) if (!keep.has(id)) nodeById.delete(id);
@@ -1421,7 +1480,7 @@ export const createSwarmGraph = (
     for (const f of next.flows) {
       if (seenFlows.has(f.id)) continue;
       seenFlows.add(f.id);
-      if (first || replayOverride) continue;
+      if (quiet || replayOverride) continue;
       const t = setTimeout(() => {
         liveTimers.delete(t);
         fireFlow(f, 'live', performance.now());
@@ -1507,5 +1566,5 @@ export const createSwarmGraph = (
     svg.remove();
   };
 
-  return { update, replay, stopReplay, highlight, reset, destroy };
+  return { update, anchor, replay, stopReplay, highlight, reset, destroy };
 };
