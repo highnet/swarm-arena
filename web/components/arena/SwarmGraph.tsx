@@ -781,9 +781,13 @@ const SwarmGraph = ({
     /** The latest event onto the ticker: at once, or as soon as the shown line's hold ends. */
     const offerTick = (next: Tick) => {
       if (q.timer) {
-        // Waiting out the hold: the newest takes the queue's place, the one it replaces is counted.
-        if (q.next && q.next.key !== next.key) q.more++;
-        q.next = next;
+        // Waiting out the hold: the newest (by time: the renderer staggers each update's flows,
+        // so they can arrive out of order) takes the queue's place; the other one is counted.
+        if (!q.next || q.next.key === next.key) q.next = next;
+        else {
+          q.more++;
+          if (next.at >= q.next.at) q.next = next;
+        }
         return;
       }
       const waited = performance.now() - q.shownAt;

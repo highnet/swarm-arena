@@ -56,7 +56,7 @@ const burst = (p, run) =>
             if (seen[seen.length - 1]?.text !== text)
               seen.push({ t: Math.round(performance.now() - t0), text });
           }
-          if (performance.now() - t0 < 3500) requestAnimationFrame(sample);
+          if (performance.now() - t0 < 5000) requestAnimationFrame(sample);
           else done({ seen, maxLines, maxLeaving, animated });
         };
         requestAnimationFrame(sample);
