@@ -19,6 +19,8 @@ import { gameOfRow, type EngineGame } from '@/lib/swarmEvents';
 export const LIVE_LINGER_MS = 10 * 60_000;
 /** Then it fades out for this long before the board goes. */
 export const LIVE_FADE_MS = 700;
+/** Finished games' results kept for the boards (only the newest few can still show). */
+const RESULT_CAP = 32;
 /** Never re-check sooner than this. */
 const MIN_TICK_MS = 250;
 
@@ -57,34 +59,68 @@ export const useLiveBoards = (
   const [results, setResults] = useState<Record<string, EngineGame['result']>>({});
   const [now, setNow] = useState(() => Date.now());
 
-  useEffect(
-    () =>
-      onLive((change) => {
-        const at = Date.now();
-        if (change.table === 'games' && change.new && typeof change.new.id === 'string') {
-          const g = change.new as unknown as GameRow;
-          setResults((r) => ({ ...r, [g.id]: gameOfRow(g, undefined).result }));
-          setEndedAt((e) => (g.id in e ? e : { ...e, [g.id]: at }));
-          setNow(at);
-          return;
+  useEffect(() => {
+    // Changes fold into one pending batch per game (newest copy, first end, result). Visible, the
+    // batch lands at once; hidden, it waits for the tab to come back, so a background tab spends
+    // nothing on boards nobody sees and returns with one update, not thousands (#197).
+    let rowsIn = new Map<string, LiveGameRow>();
+    let endedIn = new Map<string, number>();
+    let resultsIn = new Map<string, EngineGame['result']>();
+    let last = 0;
+    const flush = () => {
+      if (!last) return;
+      const [r, e, g, at] = [rowsIn, endedIn, resultsIn, last];
+      rowsIn = new Map();
+      endedIn = new Map();
+      resultsIn = new Map();
+      last = 0;
+      if (g.size) setResults((prev) => ({ ...prev, ...Object.fromEntries(g) }));
+      if (e.size)
+        setEndedAt((prev) => {
+          const out = { ...prev };
+          for (const [id, t] of e) if (!(id in out)) out[id] = t;
+          return out;
+        });
+      if (r.size)
+        setRows((prev) => {
+          const out = { ...prev };
+          for (const [id, row] of r) out[id] = fresher(out[id], row);
+          return out;
+        });
+      setNow(at);
+    };
+    const stop = onLive((change) => {
+      const at = Date.now();
+      if (change.table === 'games' && change.new && typeof change.new.id === 'string') {
+        const g = change.new as unknown as GameRow;
+        resultsIn.set(g.id, gameOfRow(g, undefined).result);
+        if (!endedIn.has(g.id)) endedIn.set(g.id, at);
+      } else if (change.table !== 'live_games') return;
+      else if (change.eventType === 'DELETE') {
+        const id = typeof change.old?.id === 'string' ? change.old.id : null;
+        if (!id) return;
+        if (!endedIn.has(id)) endedIn.set(id, at);
+        // The full replica identity sends the deleted row; otherwise the last copy stands.
+        if (isRow(change.old)) {
+          const old = change.old as LiveGameRow;
+          rowsIn.set(id, fresher(rowsIn.get(id), old));
         }
-        if (change.table !== 'live_games') return;
-        setNow(at);
-        if (change.eventType === 'DELETE') {
-          const id = typeof change.old?.id === 'string' ? change.old.id : null;
-          if (!id) return;
-          setEndedAt((e) => (id in e ? e : { ...e, [id]: at }));
-          // The full replica identity sends the deleted row; otherwise the last copy stands.
-          const old = isRow(change.old) ? (change.old as LiveGameRow) : null;
-          if (old) setRows((r) => ({ ...r, [id]: fresher(r[id], old) }));
-          return;
-        }
-        if (!isRow(change.new)) return;
+      } else if (isRow(change.new)) {
         const row = change.new as LiveGameRow;
-        setRows((r) => ({ ...r, [row.id]: fresher(r[row.id], row) }));
-      }),
-    [],
-  );
+        rowsIn.set(row.id, fresher(rowsIn.get(row.id), row));
+      } else return;
+      last = at;
+      if (document.visibilityState !== 'hidden') flush();
+    });
+    const onVisible = () => {
+      if (document.visibilityState !== 'hidden') flush();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      stop();
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, []);
 
   const { boards, next } = useMemo(() => {
     const all = new Map<string, LiveGameRow>();
@@ -144,6 +180,20 @@ export const useLiveBoards = (
           return keep.length === Object.keys(r).length
             ? r
             : Object.fromEntries(keep.map((row) => [row.id, row]));
+        });
+        // Ends and results of games that can no longer show go too. An end outlives its row
+        // (a row updates before it ends, so its own cut-off above passes first).
+        const old = (t: number) => t + LIVE_GAME_STALE_MS + LIVE_LINGER_MS + LIVE_FADE_MS <= at;
+        setEndedAt((e) =>
+          Object.values(e).some(old)
+            ? Object.fromEntries(Object.entries(e).filter(([, t]) => !old(t)))
+            : e,
+        );
+        setResults((r) => {
+          const ids = Object.keys(r);
+          return ids.length > RESULT_CAP
+            ? Object.fromEntries(Object.entries(r).slice(-RESULT_CAP))
+            : r;
         });
       },
       Math.max(MIN_TICK_MS, next - Date.now()),

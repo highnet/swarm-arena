@@ -58,7 +58,10 @@ import { ReplayScrubber } from './ReplayScrubber';
 import { agentHref } from './seats';
 import { SwarmNodeOverlay, type NodeRating } from './SwarmNodeOverlay';
 
+/** Lines in the ticker; older ones drop off. */
 const TICKER = 5;
+/** Match bursts whose game tally the ticker remembers; the oldest are forgotten first. */
+const GROUP_CAP = 50;
 
 /**
  * When this page load first showed the graph. Coming back to the fleet page later in the same
@@ -590,6 +593,8 @@ const SwarmGraph = ({
   useEffect(
     () =>
       onLive((change) => {
+        // Tables the graph does not draw (live-game moves, above all) are never held (#197).
+        if (!(change.table in TABLE_SUBS)) return;
         if (!offer(change)) applyChange(change);
       }),
     [offer, applyChange],
@@ -609,15 +614,20 @@ const SwarmGraph = ({
   }, [input, basisInput, live.agents, events]);
 
   // Dead nodes leave the live graph (`LIFETIMES`); the clock ticks so they do without a refresh.
-  // It starts at the snapshot's time, so the server and the first client render agree.
+  // It starts at the snapshot's time, so the server and the first client render agree. It stops
+  // while the tab is hidden (nothing to draw) and ticks once on return (#197).
   const [clock, setClock] = useState(() => Date.parse(input.asOf));
   useEffect(() => {
-    const tick = () => setClock(Date.now());
+    const tick = () => {
+      if (document.visibilityState !== 'hidden') setClock(Date.now());
+    };
     const first = requestAnimationFrame(tick);
     const id = setInterval(tick, PRUNE_TICK_MS);
+    document.addEventListener('visibilitychange', tick);
     return () => {
       cancelAnimationFrame(first);
       clearInterval(id);
+      document.removeEventListener('visibilitychange', tick);
     };
   }, []);
   /** While a replay plays, pruning is measured from its window's start: whatever was alive then. */
@@ -738,7 +748,12 @@ const SwarmGraph = ({
             g.games++;
             g[flow.outcome]++;
           }
+          groups.current.delete(flow.group.id);
           groups.current.set(flow.group.id, g);
+          for (const k of groups.current.keys()) {
+            if (groups.current.size <= GROUP_CAP) break;
+            groups.current.delete(k);
+          }
           if (g.games > 1)
             line = `${flow.group.title}: ${g.games} games, ${g.win}–${g.loss}${g.draw ? `–${g.draw}` : ''}`;
         }

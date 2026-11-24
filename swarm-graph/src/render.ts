@@ -517,6 +517,8 @@ export const createSwarmGraph = (
   const nodeById = new Map<string, SimNode>();
   let simLinks: SimLink[] = [];
   const seenFlows = new Set<string>();
+  /** Event ids `seenFlows` keeps at most (the graph itself holds a few hundred). */
+  const SEEN_CAP = 5_000;
   let particles: Particle[] = [];
   let ripples: Ripple[] = [];
   let bursts: Burst[] = [];
@@ -2193,6 +2195,15 @@ export const createSwarmGraph = (
       }, delay);
       liveTimers.add(t);
       delay = Math.min(delay + 220, 4000);
+    }
+    // Forget the oldest ids past the cap, so a page open for days does not keep every id it
+    // ever drew (#197). Ids still in the graph are kept, so none sparks a second time.
+    if (seenFlows.size > SEEN_CAP) {
+      const current = new Set(next.flows.map((f) => f.id));
+      for (const id of seenFlows) {
+        if (seenFlows.size <= SEEN_CAP) break;
+        if (!current.has(id)) seenFlows.delete(id);
+      }
     }
   };
 

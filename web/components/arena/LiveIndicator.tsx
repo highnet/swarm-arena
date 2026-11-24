@@ -52,8 +52,8 @@ const TITLE: Record<Mode, string> = {
  * Keeps every page live. It subscribes to Supabase Realtime for every table the site renders;
  * on a change it expires the server's cached snapshot (`refreshLive`) and re-renders the route,
  * so the page shows the new rows rather than a cached copy. Each row is also published on the
- * page (`publishLive`) for components that show it at once, before the refresh lands. Bursts are coalesced, a tab that
- * comes back into view catches up at once, and if the stream cannot be opened (blocked socket,
+ * page (`publishLive`) for components that show it at once, before the refresh lands. Bursts are
+ * coalesced, a hidden tab does not refresh, a tab that comes back into view catches up at once, and if the stream cannot be opened (blocked socket,
  * network policy, auth) it falls back to refreshing on a timer.
  */
 const LiveIndicator = ({ runId, working }: LiveIndicatorProps) => {
@@ -74,9 +74,10 @@ const LiveIndicator = ({ runId, working }: LiveIndicatorProps) => {
       await refreshLive().catch(() => undefined);
       startTransition(() => router.refresh());
     };
-    // Leading-edge after quiet, then at most one refresh per gap while changes keep coming.
+    // Leading-edge after quiet, then at most one refresh per gap while changes keep coming. A
+    // hidden tab does not refresh at all: it catches up once, when it is shown again (#197).
     const refresh = () => {
-      if (pending) return;
+      if (pending || document.visibilityState === 'hidden') return;
       pending = setTimeout(pull, Math.max(150, REFRESH_GAP_MS - (Date.now() - last)));
     };
     const fallBack = () => {
