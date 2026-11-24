@@ -420,6 +420,15 @@ The shared editorial layout system (#218). Every primitive is a CVA component wi
 
 The type steps they use are Typography's `display`, `chapter`, `subchapter` and `intro` variants.
 
+### Editorial variants of shared arena components
+
+Pages converted to sections reuse the dashboard components through an editorial variant instead of forking them (#229):
+
+- **NextSteps** (`variant`: `cards` | `list`): `cards` is the dashboard row of link cards; `list` is a quiet "Further reading" list (a `sub` heading, then 15px `fg` links with a 13px `fg-3` blurb, two or three columns), set in a page's last section.
+- **Facts** and **MatchFacts** (`variant`: `tiles` | `open`): `tiles` is the bordered grid; `open` sets each value in 24-30px mono on the section ground under a hairline, wrapping rather than truncating, so a number never needs a card to look important.
+- **Task status** on editorial pages is an icon and a word in the readable tone (`fg-3`/`fg-2`, `good-text` for shipped, `critical-text` for buried), not a tinted badge: the 10% tint on `bg` drops the status text below 4.5:1.
+- **Links inside a sentence** (an intro naming the next rung) carry a permanent `line-strong` underline that turns `fg` on hover, so they never rely on colour alone.
+
 ### Engine feature (homepage)
 
 One engine given room: a 48px logo tile, the name at 24px, its rules library and reference opponents in meta text, the rating in Geist Mono at 48-60px, the version in mono at 24px, and one sentence on where it stands (the next opponent, or "past its ladder: now rated against its own last version"). A hairline on top, no card. The whole block opens the engine; "Play it yourself" is a quiet link.

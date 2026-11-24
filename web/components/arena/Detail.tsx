@@ -39,15 +39,39 @@ const DetailShell = ({ eyebrow, title, lede, titleClassName, children }: DetailS
 
 type FactsProps = {
   items: { label: string; value: ReactNode; note?: ReactNode; href?: string }[];
+  /**
+   * `tiles`: the dashboard pages' bordered grid. `open`: the editorial pages' numbers set large
+   * in mono on the section ground, separated by whitespace and a hairline (web/DESIGN.md: never
+   * a card only to make a number look important).
+   */
+  variant?: 'tiles' | 'open';
 };
 
+const FACTS = {
+  tiles: {
+    list: 'grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-4',
+    item: 'bg-panel px-4 py-3',
+    label: 'text-xs text-fg-3',
+    value: 'mt-0.5 truncate font-mono text-lg tabular text-fg',
+    note: 'truncate text-xs text-fg-3',
+  },
+  open: {
+    list: 'grid grid-cols-2 gap-x-8 gap-y-10 border-t border-line pt-8 lg:grid-cols-4',
+    item: 'min-w-0',
+    label: 'text-[13px] text-fg-3',
+    value:
+      'mt-2 font-mono text-2xl font-medium tabular tracking-tight text-fg text-balance break-words sm:text-3xl',
+    note: 'mt-1.5 text-[13px] leading-5 text-fg-2 text-pretty',
+  },
+} as const;
+
 /** A row of labelled numbers or names, linking where the value has a page of its own. */
-const Facts = ({ items }: FactsProps) => (
-  <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-4">
+const Facts = ({ items, variant = 'tiles' }: FactsProps) => (
+  <dl className={FACTS[variant].list}>
     {items.map((f) => (
-      <div key={f.label} className="bg-panel px-4 py-3">
-        <dt className="text-xs text-fg-3">{f.label}</dt>
-        <dd className="mt-0.5 truncate font-mono text-lg tabular text-fg">
+      <div key={f.label} className={FACTS[variant].item}>
+        <dt className={FACTS[variant].label}>{f.label}</dt>
+        <dd className={FACTS[variant].value}>
           {f.href ? (
             <Link href={f.href} className="hover:underline">
               {f.value}
@@ -56,7 +80,7 @@ const Facts = ({ items }: FactsProps) => (
             f.value
           )}
         </dd>
-        {f.note && <dd className="truncate text-xs text-fg-3">{f.note}</dd>}
+        {f.note && <dd className={FACTS[variant].note}>{f.note}</dd>}
       </div>
     ))}
   </dl>
@@ -120,7 +144,7 @@ const RecordList = ({
                 <Typography
                   variant="meta"
                   as="p"
-                  className={cn('mt-0.5 text-pretty', r.id !== current && 'line-clamp-3')}
+                  className={cn('mt-0.5 max-w-sm text-pretty', r.id !== current && 'line-clamp-3')}
                 >
                   {r.detail}
                 </Typography>
@@ -134,14 +158,16 @@ const RecordList = ({
 
 type MatchFactsProps = {
   match: Match;
+  variant?: FactsProps['variant'];
 };
 
 /** The four numbers of a match, each pointing at the match page. */
-const MatchFacts = ({ match: m }: MatchFactsProps) => {
+const MatchFacts = ({ match: m, variant }: MatchFactsProps) => {
   const total = m.wins + m.draws + m.losses;
   const href = matchHref(m.id);
   return (
     <Facts
+      variant={variant}
       items={[
         {
           label: 'Score',
