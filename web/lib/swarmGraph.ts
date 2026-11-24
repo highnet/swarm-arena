@@ -2,13 +2,14 @@ import { agentName, type Snapshot, type TaskStatus } from '@arena/shared';
 import {
   rallypointBranch,
   type SwarmAgent,
+  type SwarmCount,
   type SwarmEvent,
   type SwarmInput,
   type SwarmSector,
   type SwarmStage,
   type SwarmWorkItem,
 } from '@rallypoint/swarm-graph/model';
-import { stageOf, type RpItem } from './github';
+import { stageOf, type MergedPull, type RpItem } from './github';
 import { versionHref, versionOf } from './routes';
 import {
   agentEvents,
@@ -74,15 +75,59 @@ const SNAPSHOT_POSTS = 200;
 const sectorOfTitle = (title: string, engines: Set<string>) => {
   const scope = /^\w+\(([^)]+)\)/.exec(title)?.[1]?.toLowerCase();
   if (scope && engines.has(scope)) return scope;
-  if (scope && /^(web|site|ui|shared)$/.test(scope)) return SITE.id;
+  if (scope && /^(web|site|ui|shared|swarm-graph)$/.test(scope)) return SITE.id;
   return PROTOCOL.id;
+};
+
+/** The recent part of a sector's count. */
+const RECENT_MS = 24 * 3_600_000;
+
+/**
+ * The number inside each sector: landed versions for an engine (its `patch_landed` records),
+ * merged pull requests for Protocol and Site, all-time, with the last 24 hours beside it. Read
+ * from records and GitHub, not from the events the graph was given, so it does not move with a
+ * preset, a replay or a short event window. Unknown (GitHub unread) stays unknown, never 0.
+ */
+export const sectorCounts = (
+  s: Pick<Snapshot, 'tracks' | 'records'>,
+  merged: MergedPull[] | null,
+  asOf: string,
+): Map<string, SwarmCount> => {
+  const since = Date.parse(asOf) - RECENT_MS;
+  const engines = new Set<string>(s.tracks.map((t) => t.id));
+  const counts = new Map<string, SwarmCount>();
+  const add = (sector: string, unit: string, at: string) => {
+    const c = counts.get(sector) ?? { value: 0, unit, recent: 0, recentUnit: 'today' };
+    c.value++;
+    if (Date.parse(at) >= since) c.recent = (c.recent ?? 0) + 1;
+    counts.set(sector, c);
+  };
+  for (const t of s.tracks)
+    counts.set(t.id, { value: 0, unit: 'landed', recent: 0, recentUnit: 'today' });
+  for (const r of s.records)
+    if (r.kind === 'patch_landed' && r.track_id && engines.has(r.track_id))
+      add(r.track_id, 'landed', r.at);
+  if (merged) {
+    for (const id of [PROTOCOL.id, SITE.id])
+      counts.set(id, { value: 0, unit: 'merged', recent: 0, recentUnit: 'today' });
+    for (const p of merged) {
+      const sector = sectorOfTitle(p.title, engines);
+      if (!engines.has(sector)) add(sector, 'merged', p.mergedAt);
+    }
+  }
+  return counts;
 };
 
 export type ArenaSwarm = { input: SwarmInput; context: ArenaEventContext };
 
-export const toSwarmInput = (s: Snapshot, rp: RpItem[] = []): ArenaSwarm => {
+export const toSwarmInput = (
+  s: Snapshot,
+  rp: RpItem[] = [],
+  merged: MergedPull[] | null = null,
+): ArenaSwarm => {
   const asOf = s.asOf ?? new Date().toISOString();
   const engines = new Set(s.tracks.map((t) => t.id));
+  const counts = sectorCounts(s, merged, asOf);
   const sectors: SwarmSector[] = [
     ...s.tracks.map((t) => ({
       id: t.id,
@@ -92,7 +137,7 @@ export const toSwarmInput = (s: Snapshot, rp: RpItem[] = []): ArenaSwarm => {
     })),
     PROTOCOL,
     SITE,
-  ];
+  ].map((sec) => ({ ...sec, count: counts.get(sec.id) ?? null }));
 
   // Work items: each arena task, staged by its GitHub issue and the pull request that closes it.
   const issues = new Map(rp.filter((i) => !i.isPR).map((i) => [i.number, i]));

@@ -9,10 +9,12 @@ import {
   buildSwarmGraph,
   createSwarmGraph,
   defaultEffectOf,
+  LIFETIMES,
   planReplay,
   stateAt,
   summarizeReplay,
   type SwarmAgent,
+  type SwarmCount,
   type SwarmEffectKind,
   type SwarmEvent,
   type SwarmFlow,
@@ -278,7 +280,11 @@ const NodeCard = ({ node }: NodeCardProps) => {
           </Typography>
         )}
         <Typography variant="meta" as="div" className="mt-1">
-          effort <span className="font-mono tabular text-fg-2">{Math.round(node.effort)}</span>
+          {node.sector.count ? (
+            <span className="font-mono tabular text-fg-2">{countText(node.sector.count)}</span>
+          ) : (
+            'nothing counted yet'
+          )}
           {node.active && <span className="text-good-text"> · live</span>}
         </Typography>
       </>
@@ -367,6 +373,14 @@ const NO_LIVE_GAMES: Partial<Record<GameId, LiveGameRow>> = {};
 
 /** Live events kept on the client between refreshes. */
 const LIVE_CAP = 400;
+/** How often the live graph re-checks which dead nodes have outstayed their lifetime. */
+const PRUNE_TICK_MS = 20_000;
+
+/** A sector's count as words, e.g. `48 merged · 3 today`. */
+const countText = (c: SwarmCount) =>
+  [`${c.value} ${c.unit}`, c.recent ? `${c.recent} ${c.recentUnit ?? 'recent'}` : null]
+    .filter(Boolean)
+    .join(' · ');
 const PRESET_KEY = 'swarm-graph-view';
 
 type GroupTally = { games: number; win: number; loss: number; draw: number };
@@ -594,7 +608,28 @@ const SwarmGraph = ({
     return { ...input, agents, events };
   }, [input, basisInput, live.agents, events]);
 
-  const graph = useMemo(() => buildSwarmGraph(merged), [merged]);
+  // Dead nodes leave the live graph (`LIFETIMES`); the clock ticks so they do without a refresh.
+  // It starts at the snapshot's time, so the server and the first client render agree.
+  const [clock, setClock] = useState(() => Date.parse(input.asOf));
+  useEffect(() => {
+    const tick = () => setClock(Date.now());
+    const first = requestAnimationFrame(tick);
+    const id = setInterval(tick, PRUNE_TICK_MS);
+    return () => {
+      cancelAnimationFrame(first);
+      clearInterval(id);
+    };
+  }, []);
+  /** While a replay plays, pruning is measured from its window's start: whatever was alive then. */
+  const [pruneFrom, setPruneFrom] = useState<string | null>(null);
+  const graph = useMemo(
+    () =>
+      buildSwarmGraph(merged, {
+        lifetimes: presetId === 'all' ? LIFETIMES.everything : LIFETIMES.live,
+        now: pruneFrom ?? new Date(Math.max(clock, Date.parse(merged.asOf))).toISOString(),
+      }),
+    [merged, presetId, pruneFrom, clock],
+  );
   const shownGraph = useMemo(
     () => ({ ...graph, flows: graph.flows.filter((f) => showsFlow(preset, f)) }),
     [graph, preset],
@@ -714,6 +749,8 @@ const SwarmGraph = ({
       onReplay: (state) => {
         setReplay(state);
         if (!state) setReplayPlan(null);
+        // At the replay's "now" end the live pruning applies again.
+        if (!state || state.done) setPruneFrom(null);
       },
     });
     renderer.current = r;
@@ -820,6 +857,7 @@ const SwarmGraph = ({
     // The renderer reports the old replay stopping first; the new plan must land after that.
     renderer.current?.replay(plan);
     setReplayPlan(plan);
+    setPruneFrom(plan.startAt);
   };
   const stopReplay = () => {
     renderer.current?.stopReplay();

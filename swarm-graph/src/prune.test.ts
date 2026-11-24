@@ -31,7 +31,14 @@ const input = (): SwarmInput => ({
   ],
   agents: [
     { id: 'done', role: 'worker', status: 'idle', sector: 'chess', workItem: 'm', lastSeen: at(0) },
-    { id: 'live', role: 'worker', status: 'working', sector: null, workItem: 'held', lastSeen: at(-600) },
+    {
+      id: 'live',
+      role: 'worker',
+      status: 'working',
+      sector: null,
+      workItem: 'held',
+      lastSeen: at(-600),
+    },
   ],
   events: [],
 });

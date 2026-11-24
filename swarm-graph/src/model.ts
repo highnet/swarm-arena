@@ -205,7 +205,12 @@ const MINUTE = 60_000;
 
 /** Every pruning threshold in one table: the live views, and the longer-memoried `Everything`. */
 export const LIFETIMES = {
-  live: { agentMs: 10 * MINUTE, closedMs: 60 * MINUTE, branchMs: 60 * MINUTE, fadingMs: 3 * MINUTE },
+  live: {
+    agentMs: 10 * MINUTE,
+    closedMs: 60 * MINUTE,
+    branchMs: 60 * MINUTE,
+    fadingMs: 3 * MINUTE,
+  },
   everything: {
     agentMs: 6 * 60 * MINUTE,
     closedMs: 6 * 60 * MINUTE,
