@@ -99,6 +99,17 @@
   --color-stone-white: var(--stone-white);
   --color-highlight: var(--highlight);
 
+  /*
+   * Editorial rhythm (web/DESIGN.md, "Spacing scale"). The section paddings grow with the
+   * viewport (see `.section-grid` below), so `py-section` etc. are the only vertical paddings a
+   * Section uses; `scroll-mt-sticky` clears the top bar (48px) plus the SectionNav (44px).
+   */
+  --spacing-section-compact: var(--section-space-compact);
+  --spacing-section: var(--section-space-default);
+  --spacing-section-roomy: var(--section-space-roomy);
+  --spacing-chapter: var(--chapter-gap);
+  --spacing-sticky: 6rem;
+
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 
@@ -533,6 +544,22 @@ a {
  * (max 72rem); `.bleed-wide` takes up to 84rem, `.bleed-full` the whole band. Gutters are 16px
  * on phones, 24px from `sm`, 40px from `lg`, so nothing ever touches the screen edge.
  */
+/* The vertical scale behind `py-section*` and `mb-chapter`: phones, then `sm` (40rem) and up. */
+:root {
+  --section-space-compact: 3.5rem;
+  --section-space-default: 5rem;
+  --section-space-roomy: 6rem;
+  --chapter-gap: 3rem;
+}
+@media (min-width: 40rem) {
+  :root {
+    --section-space-compact: 5rem;
+    --section-space-default: 7rem;
+    --section-space-roomy: 9rem;
+    --chapter-gap: 4rem;
+  }
+}
+
 .section-grid {
   --section-gutter: 1rem;
   display: grid;
@@ -572,7 +599,18 @@ a {
   }
 }
 
-/* SectionNav's hairline reading progress, driven by the page scroll itself (no script). */
+/*
+ * SectionNav focuses the section it jumps to (tabindex -1) so the keyboard continues from there,
+ * as a plain anchor jump would. The section is not a control: it takes focus without a ring.
+ */
+[data-slot='section']:focus {
+  outline: none;
+}
+
+/*
+ * ReadingProgress: a hairline that fills with the page scroll itself (no script, no layout).
+ * Browsers without scroll-driven animations show nothing, which is the honest fallback.
+ */
 .reading-progress {
   background: var(--fg-3);
   transform: scaleX(0);

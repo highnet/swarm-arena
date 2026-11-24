@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-24T17:05:36+00:00",
+  "generatedAt": "2026-11-24T19:06:16+00:00",
   "title": "Design System: Swarm Arena",
   "extensions": {
     "colorMeta": {
@@ -523,11 +523,35 @@
       "description": "Signature feed row: mono time, tone icon, label + track dot + mono seat, title, detail, Games link.",
       "html": "<div class=\"ds-rec\"><time class=\"ds-rec-t\">14:02</time><svg class=\"ds-rec-i\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"18\" cy=\"18\" r=\"3\"/><circle cx=\"6\" cy=\"6\" r=\"3\"/><path d=\"M6 21V9a9 9 0 0 0 9 9\"/></svg><div><div class=\"ds-rec-m\"><span class=\"ds-rec-l\">Landed</span><span class=\"ds-rec-trk\"><span class=\"ds-dot\"></span>Chess</span><span class=\"ds-rec-s\">seat-2</span></div><p class=\"ds-rec-title\">Quiescence search on captures</p><p class=\"ds-rec-d\">+64 Elo over 400 games against rung 3.</p></div><a class=\"ds-rec-a\" href=\"#\">Games &#8599;</a></div>",
       "css": ".ds-rec { font-family: var(--font-sans, Geist, ui-sans-serif, system-ui, sans-serif); display:grid; grid-template-columns:3.25rem 1.25rem 1fr auto; column-gap:10px; padding:10px 16px; background:var(--panel, oklch(0.185 0.006 265)); } .ds-rec-t { font-family:var(--font-mono, 'Geist Mono', ui-monospace, monospace); font-size:12px; font-variant-numeric:tabular-nums; color:var(--fg-3, oklch(0.66 0.01 265)); } .ds-rec-i { margin-top:2px; color:var(--good-text, #3fbf3f); } .ds-rec-m { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px; font-size:12px; } .ds-rec-l { font-weight:500; color:var(--good-text, #3fbf3f); } .ds-rec-trk { display:inline-flex; align-items:center; gap:4px; color:var(--fg-2, oklch(0.79 0.008 265)); } .ds-dot { width:6px; height:6px; border-radius:9999px; background:var(--series-1, #3987e5); } .ds-rec-s { font-family:var(--font-mono, 'Geist Mono', ui-monospace, monospace); font-size:11px; color:var(--fg-3, oklch(0.66 0.01 265)); } .ds-rec-title { margin:2px 0 0; font-size:13px; line-height:20px; color:var(--fg, oklch(0.965 0.003 265)); } .ds-rec-d { margin:2px 0 0; font-size:12px; line-height:20px; color:var(--fg-3, oklch(0.66 0.01 265)); } .ds-rec-a { font-size:12px; color:var(--fg-2, oklch(0.79 0.008 265)); text-decoration:none; transition:color .15s; } .ds-rec-a:hover { color:var(--fg, oklch(0.965 0.003 265)); } .ds-rec-a:focus-visible { outline:2px solid var(--fg, oklch(0.965 0.003 265)); outline-offset:2px; border-radius:4px; }"
+    },
+    {
+      "name": "Section",
+      "kind": "layout",
+      "refersTo": "section",
+      "description": "A full-width chapter band answering one question; alternates bg and band; padded from the section spacing scale (80/112px default); no border or card.",
+      "html": "<section class=\"ds-section ds-band\"><div class=\"ds-col\"><h2 class=\"ds-chapter\">Watch them improve</h2><p class=\"ds-intro\">Each line is one engine's rating, version by version.</p></div></section>",
+      "css": ".ds-section { font-family: var(--font-sans, Geist, ui-sans-serif, system-ui, sans-serif); background:var(--bg); color:var(--fg); padding:112px 40px; } .ds-section.ds-band { background:var(--band); } .ds-col { max-width:72rem; margin:0 auto; } .ds-chapter { margin:0; font-size:48px; line-height:1.1; font-weight:600; letter-spacing:-0.025em; } .ds-intro { margin:20px 0 0; max-width:42rem; font-size:18px; line-height:32px; color:var(--fg-2); }"
+    },
+    {
+      "name": "Section Nav",
+      "kind": "navigation",
+      "refersTo": "section-nav",
+      "description": "Sticky in-page links under the top bar; current section in fg with a 1px ink underline; 1px reading-progress hairline on the bottom edge.",
+      "html": "<nav class=\"ds-snav\"><a>Overview</a><a aria-current=\"location\">Engines</a><a>Watch</a><a>News</a><span class=\"ds-progress\"></span></nav>",
+      "css": ".ds-snav { font-family: var(--font-sans, Geist, ui-sans-serif, system-ui, sans-serif); position:relative; display:flex; gap:4px; padding:0 40px; height:44px; align-items:center; background:color-mix(in oklab, var(--bg) 90%, transparent); border-bottom:1px solid var(--line); } .ds-snav a { position:relative; padding:12px 10px; font-size:13px; color:var(--fg-3); } .ds-snav a[aria-current] { color:var(--fg); box-shadow:inset 0 -1px 0 var(--fg); } .ds-progress { position:absolute; left:0; bottom:-1px; height:1px; width:40%; background:var(--fg-3); }"
+    },
+    {
+      "name": "Disclosure",
+      "kind": "control",
+      "refersTo": "disclosure-row",
+      "description": "Native details/summary with a chevron that turns 90deg; inline (15px fg-2) or row (16px fg between hairlines).",
+      "html": "<details class=\"ds-disc\"><summary>The ladders: who each engine has beaten</summary><p>Detail one click away.</p></details>",
+      "css": ".ds-disc { font-family: var(--font-sans, Geist, ui-sans-serif, system-ui, sans-serif); color:var(--fg-2); border-bottom:1px solid var(--line); } .ds-disc summary { cursor:pointer; padding:20px 0; font-size:16px; font-weight:500; color:var(--fg); } .ds-disc p { margin:0 0 24px; font-size:15px; }"
     }
   ],
   "narrative": {
     "northStar": "The Referee's Notebook",
-    "overview": "Swarm Arena reads like a well-kept notebook of a long contest: calm, editorial, precise. Long pages run down the vertical axis in chapters, one question per band, with whitespace and a change of ground doing the work that borders and cards used to do. The chrome stays almost colourless (ink, two quieter inks, hairlines), so the saturated things on screen are the data: four engine hues climbing a chart, and the rare green or red of a verdict.\n\nColour comes from Sanzo Wada's _A Dictionary of Color Combinations_ (1933\u201334), through the MIT data package `dictionary-of-colour-combinations`. Palettes are chosen as **whole combinations**, never as single swatches: the ground and ink are one combination, the four engines another, the status colours a third. Each token keeps its book colour's hue; lightness or chroma moved only where WCAG AA required it, and every move is listed below next to the book value. The site credits the source in its footer. No scan or PDF of the book is ever committed.\n\nThere are two themes, light (paper) and dark (night), from the same combination. The page follows the reader's system setting; `data-theme=\"light\"` or `\"dark\"` on `<html>` pins one. Each token is written once as `light-dark(<light>, <dark>)` in `app/globals.css`.\n\nMotion is nearly absent: 150ms colour transitions, a scroll-linked hairline of reading progress, and smooth anchor scrolling only when the reader allows motion. Reduced motion collapses all of it.",
+    "overview": "Swarm Arena reads like a well-kept notebook of a long contest: calm, editorial, precise. Long pages run down the vertical axis in chapters, one question per band, with whitespace and a change of ground doing the work that borders and cards used to do. The chrome stays almost colourless (ink, two quieter inks, hairlines), so the saturated things on screen are the data: four engine hues climbing a chart, and the rare green or red of a verdict.\n\nColour comes from Sanzo Wada's _A Dictionary of Color Combinations_ (1933–34), through the MIT data package `dictionary-of-colour-combinations`. Palettes are chosen as **whole combinations**, never as single swatches: the ground and ink are one combination, the four engines another, the status colours a third. Each token keeps its book colour's hue; lightness or chroma moved only where WCAG AA required it, and every move is listed below next to the book value. The site credits the source in its footer. No scan or PDF of the book is ever committed.\n\nThere are two themes, light (paper) and dark (night), from the same combination. The page follows the reader's system setting; `data-theme=\"light\"` or `\"dark\"` on `<html>` pins one. Each token is written once as `light-dark(<light>, <dark>)` in `app/globals.css`.\n\nMotion is nearly absent: 150ms colour transitions, a scroll-linked hairline of reading progress, and smooth anchor scrolling only when the reader allows motion. Reduced motion collapses all of it.",
     "keyCharacteristics": [
       "Paper and night: Sulpher Yellow and Black (Wada 52), each the other's ink.",
       "One idea per section, stacked vertically, separated by tone and whitespace.",
