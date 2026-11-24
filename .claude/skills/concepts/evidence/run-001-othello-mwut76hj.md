@@ -1,0 +1,1 @@
+- 2026-11-24 · **move ordering** · Othello · buried: Rated 1295 ± 138, not above 1427. · PVS and history-heuristic move ordering in the Othello midgame search, ported from chess v0.5
