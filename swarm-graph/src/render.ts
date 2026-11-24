@@ -1,7 +1,9 @@
 /**
- * The swarm graph renderer: plain D3 on an SVG, no framework. It owns a force simulation that
- * keeps node positions across updates, so a host can call `update()` with every new snapshot
- * (a realtime push, a poll) and the graph moves instead of redrawing.
+ * The swarm graph renderer: plain D3 on an SVG, no framework. Positions come from an off-screen
+ * layout engine (`layout.ts`), computed to rest before anything is drawn; the renderer only tweens
+ * each node from where it stands to its place, never with physics on screen (#221). A host calls
+ * `update()` with every new snapshot (a realtime push, a poll): what was already there stays put,
+ * new nodes fade in at their place, and only nodes whose placement changed glide to their new one.
  *
  * Effort is drawn as motion: live agents stream particles into the work they hold, work flows
  * into its sector, sectors feed the integration branch, and every new event fires a spark from
@@ -24,13 +26,15 @@ import {
 import {
   ARRIVAL,
   DEPARTURE,
+  MOVE,
   arrivalPose,
-  arrivalTarget,
   departurePose,
+  movePoint,
   progressAt,
   staggerAt,
   type Pose,
 } from './lifecycle';
+import { layoutGraph, type LayoutLink, type LayoutNode, type LayoutPoint } from './layout';
 import {
   applyFlow,
   indexAtTime,
@@ -151,9 +155,8 @@ export type SwarmUpdateOptions = {
    */
   quiet?: boolean;
   /**
-   * The same data seen another way (a preset switch): the nodes shown before and after hold
-   * where they are while the ones that arrive or leave fade in or out, so the view does not
-   * shake. They are let go once the layout has settled; later data moves them as usual.
+   * The same data seen another way (a preset switch). Every update now keeps the nodes shown
+   * before and after where they are (the layout pins them), so this only documents intent.
    */
   view?: boolean;
 };
@@ -257,7 +260,8 @@ export const DEFAULT_THEME: SwarmGraphTheme = {
   monoFont: 'var(--font-mono, ui-monospace, monospace)',
 };
 
-type SimNode = SwarmNode & d3.SimulationNodeDatum & { r: number; ring?: { x: number; y: number } };
+/** A node as drawn: `x`/`y` is where it stands this frame (mid-tween, or at its place). */
+type SimNode = SwarmNode & { x?: number; y?: number; r: number; ring?: { x: number; y: number } };
 type SimLink = Omit<SwarmLink, 'source' | 'target'> & {
   source: SimNode;
   target: SimNode;
@@ -576,15 +580,9 @@ export const createSwarmGraph = (
     labels: number;
   };
   let intro: IntroRun | null = null;
-  /** New nodes gliding out of their parent (see `lifecycle.ts`). */
-  type Arrival = {
-    start: number;
-    parent: string | null;
-    from: { x: number; y: number };
-    to: { x: number; y: number };
-  };
-  const arrivals = new Map<string, Arrival>();
-  /** Nodes gone from the graph, fading out before they leave the simulation. */
+  /** New nodes fading and growing in at their place (see `lifecycle.ts`). */
+  const arrivals = new Map<string, { start: number }>();
+  /** Nodes gone from the graph, fading out in place before they leave it. */
   const departures = new Map<string, { start: number }>();
   /** The pose of every arriving or departing node this frame. */
   const life = new Map<string, Pose>();
@@ -593,18 +591,17 @@ export const createSwarmGraph = (
   /** A dead node winding down (`SwarmNode.fading`) is drawn this much dimmer. */
   const FADING_OPACITY = 0.7;
   const liveTimers = new Set<ReturnType<typeof setTimeout>>();
-  /** Nodes held still through a view change (`SwarmUpdateOptions.view`), until it settles. */
-  const held = new Set<string>();
-  const releaseHeld = () => {
-    for (const id of held) {
-      const n = nodeById.get(id);
-      if (n && !departures.has(id)) {
-        n.fx = null;
-        n.fy = null;
-      }
-    }
-    held.clear();
-  };
+  /** Each node's place, as the layout engine last gave it: where it rests once its tween ends. */
+  const places = new Map<string, LayoutPoint>();
+  /**
+   * Each place in ring units (divided by the ring's radii), as last laid out at any size: a
+   * resize scales these, never the last re-fit, so a round trip brings every node home exactly.
+   */
+  const homes = new Map<string, LayoutPoint>();
+  /** What placed each node there (its sector, phase, ties): when it changes, it is re-placed. */
+  const placedBy = new Map<string, string>();
+  /** Nodes on their way to a new place: a straight line with one ease-out, nothing else. */
+  const moves = new Map<string, { from: LayoutPoint; to: LayoutPoint; start: number }>();
 
   const colorOf = (n: SwarmNode) => n.color ?? theme.neutral;
   /** Nodes whose host draws their information inside them (`anchor(…, 'inside')`). */
@@ -625,7 +622,11 @@ export const createSwarmGraph = (
     radiusOf(n, effortOf(n), sizeScale(), options.sectorRadius ?? SECTOR_RADIUS);
   /** Room for the body plus the progress arc drawn around sectors and open work. */
   const collideOf = (n: SimNode) =>
-    n.r + (n.kind === 'agent' ? 6 : n.kind === 'sector' ? 12 : n.kind === 'work' ? 7 : 4);
+    n.kind === 'sector'
+      ? // A sector keeps room for its largest size, so gaining effort (live, or in a replay)
+        // never pushes its neighbours: it grows into space that was already its own.
+        Math.max(n.r, (options.sectorRadius ?? SECTOR_RADIUS).max * sizeScale()) + 12
+      : n.r + (n.kind === 'agent' ? 6 : n.kind === 'work' ? 7 : 4);
 
   /**
    * Where each node is drawn towards: sectors to their slot on the ring, the work and agents of
@@ -654,45 +655,134 @@ export const createSwarmGraph = (
     return n.phase === 'landed' ? 0.3 : 0.2;
   };
 
-  const simulation = d3
-    .forceSimulation<SimNode>()
-    .alphaDecay(0.03)
-    .velocityDecay(0.35)
-    .force(
-      'charge',
-      d3
-        .forceManyBody<SimNode>()
-        .strength((n) => (n.kind === 'sector' ? -420 : n.kind === 'work' ? -50 : -140)),
-    )
-    .force('collide', d3.forceCollide<SimNode>().radius(collideOf))
-    .force('ringX', d3.forceX<SimNode>((n) => anchorOf(n).x).strength(anchorStrength))
-    .force('ringY', d3.forceY<SimNode>((n) => anchorOf(n).y).strength(anchorStrength))
-    .on('tick', () => draw())
-    // A view change's held nodes go free once nothing is fading in or out any more.
-    .on('end', () => {
-      if (held.size && !arrivals.size && !departures.size) releaseHeld();
-    });
+  const chargeOf = (n: SimNode) => (n.kind === 'sector' ? -420 : n.kind === 'work' ? -50 : -140);
+  const linkDistance = (l: SimLink) => {
+    if (l.kind === 'target') return l.target.r + 34;
+    if (l.kind === 'landed') return l.target.r + 12;
+    if (l.kind === 'assignment')
+      return l.target.kind === 'work' ? 34 : l.target.kind === 'hub' ? 70 : l.target.r + 46;
+    if (l.kind === 'contribution') return 160;
+    return ringRadius();
+  };
+  const linkStrength = (l: SimLink) => {
+    // The ring and the anchors place trunk, fork and scope ends; the links are drawn, not pulled.
+    if (l.kind === 'trunk' || l.kind === 'fork' || l.kind === 'scope') return 0;
+    if (l.kind === 'contribution') return Math.min(0.06, 0.01 * Math.sqrt(l.weight));
+    if (l.kind === 'target') return 0.4;
+    if (l.kind === 'landed') return 0.8;
+    return 0.6;
+  };
+  /** Half the box a node stays in: the canvas, less room for its label when it draws one. */
+  const limitOf = (n: SimNode): LayoutPoint => {
+    const pad = 14;
+    return {
+      // Labelled nodes keep room for their label (about 22 characters at 11px).
+      // A hosted node carries its label inside: it needs only room for its body.
+      x:
+        width / 2 -
+        pad -
+        Math.max(
+          n.r,
+          !hosted.has(n.id) && (n.kind === 'sector' || (n.kind === 'agent' && n.active)) ? 62 : 0,
+        ),
+      y: height / 2 - n.r - pad - (n.kind === 'sector' && !hosted.has(n.id) ? 26 : 0),
+    };
+  };
+  /** What decides a node's place: when this changes (a seat reassigned), the node is re-placed. */
+  const placementOf = (n: SimNode) => {
+    const ties = simLinks
+      .filter((l) => l.source.id === n.id && l.kind !== 'contribution' && l.kind !== 'fork')
+      .map((l) => `${l.kind}>${l.target.id}`)
+      .sort()
+      .join(',');
+    return `${n.kind}|${n.sectorId ?? ''}|${n.phase ?? ''}|${ties}`;
+  };
 
-  const linkForce = d3
-    .forceLink<SimNode, SimLink>()
-    .id((n) => n.id)
-    .distance((l) => {
-      if (l.kind === 'target') return l.target.r + 34;
-      if (l.kind === 'landed') return l.target.r + 12;
-      if (l.kind === 'assignment')
-        return l.target.kind === 'work' ? 34 : l.target.kind === 'hub' ? 70 : l.target.r + 46;
-      if (l.kind === 'contribution') return 160;
-      return ringRadius();
-    })
-    .strength((l) => {
-      // The ring and the anchors place trunk, fork and scope ends; the links are drawn, not pulled.
-      if (l.kind === 'trunk' || l.kind === 'fork' || l.kind === 'scope') return 0;
-      if (l.kind === 'contribution') return Math.min(0.06, 0.01 * Math.sqrt(l.weight));
-      if (l.kind === 'target') return 0.4;
-      if (l.kind === 'landed') return 0.8;
-      return 0.6;
-    });
-  simulation.force('link', linkForce);
+  /**
+   * Ask the layout engine where everything stands, then send each node there. Sectors and the
+   * hub are fixed on the ring; every node already placed, whose placement has not changed, is
+   * pinned, so it does not move at all. Only new and re-placed nodes are solved for; a node that
+   * grew into a neighbour pushes it out by the overlap. `refit` (a resized canvas) keeps every
+   * node where `places` already has it (stretched with the canvas) and only clears overlaps.
+   */
+  const relayout = (refit = false) => {
+    if (!graph) return;
+    const hubId = graph.hubId;
+    const nodes: LayoutNode[] = [];
+    const parentOf = new Map<string, string>();
+    for (const l of simLinks)
+      if (l.kind !== 'contribution' && !parentOf.has(l.source.id))
+        parentOf.set(l.source.id, l.target.id);
+    for (const n of nodeById.values()) {
+      const key = placementOf(n);
+      const place = places.get(n.id);
+      const keep = place && (refit || departures.has(n.id) || placedBy.get(n.id) === key);
+      placedBy.set(n.id, key);
+      nodes.push({
+        id: n.id,
+        r: collideOf(n),
+        anchor: anchorOf(n),
+        anchorStrength: anchorStrength(n),
+        charge: chargeOf(n),
+        fixed: n.id === hubId ? { x: 0, y: 0 } : n.kind === 'sector' ? n.ring : undefined,
+        pinned: keep ? place : undefined,
+        // A re-placed node starts from where it stands, so it takes the shortest way over.
+        start: !keep && n.x !== undefined ? { x: n.x, y: n.y ?? 0 } : undefined,
+        parent: parentOf.get(n.id),
+        limit: limitOf(n),
+      });
+    }
+    const ties: LayoutLink[] = simLinks.map((l) => ({
+      source: l.source.id,
+      target: l.target.id,
+      distance: linkDistance(l),
+      strength: linkStrength(l),
+    }));
+    const { positions } = layoutGraph(nodes, ties);
+    const now = performance.now();
+    const R = ringRadii();
+    for (const n of nodeById.values()) {
+      const to = positions.get(n.id);
+      if (!to) continue;
+      places.set(n.id, to);
+      if (!refit || !homes.has(n.id)) homes.set(n.id, { x: to.x / R.x, y: to.y / R.y });
+      if (n.x === undefined || n.y === undefined || !motion || intro) {
+        // New (it fades in right there), or no motion: straight to its place.
+        n.x = to.x;
+        n.y = to.y;
+        moves.delete(n.id);
+        continue;
+      }
+      if (Math.hypot(to.x - n.x, to.y - n.y) < 0.5) {
+        if (!moves.has(n.id)) {
+          n.x = to.x;
+          n.y = to.y;
+        }
+        continue;
+      }
+      const going = moves.get(n.id);
+      if (going && Math.hypot(going.to.x - to.x, going.to.y - to.y) < 0.5) continue;
+      moves.set(n.id, { from: { x: n.x, y: n.y }, to, start: now });
+    }
+  };
+
+  /** One frame of moves. True when anything moved. */
+  const stepMoves = (now: number) => {
+    if (!moves.size) return false;
+    for (const [id, m] of moves) {
+      const n = nodeById.get(id);
+      if (!n) {
+        moves.delete(id);
+        continue;
+      }
+      const p = progressAt(now, m.start, MOVE.durationMs);
+      const at = movePoint(m.from, m.to, p);
+      n.x = at.x;
+      n.y = at.y;
+      if (p >= 1) moves.delete(id);
+    }
+    return true;
+  };
 
   const placeRing = () => {
     if (!graph) return;
@@ -704,11 +794,6 @@ export const createSwarmGraph = (
       const a = (i / sectors.length) * Math.PI * 2 - Math.PI / 2;
       node.ring = { x: Math.cos(a) * R.x, y: Math.sin(a) * R.y };
     });
-    const hub = nodeById.get(graph.hubId);
-    if (hub) {
-      hub.fx = 0;
-      hub.fy = 0;
-    }
   };
 
   // ---- drawing -----------------------------------------------------------------------------
@@ -1126,23 +1211,21 @@ export const createSwarmGraph = (
         d3
           .drag<SVGGElement, SimNode>()
           .clickDistance(4)
-          .on('start', (e, n) => {
+          // Dragging moves only the dragged node; nothing else responds. On release it stays
+          // where it was dropped: that is its place now, so later updates keep it there too.
+          .on('start', (_e, n) => {
             if (n.kind === 'hub') return;
-            held.delete(n.id);
-            if (!e.active) simulation.alphaTarget(0.2).restart();
-            n.fx = n.x;
-            n.fy = n.y;
+            moves.delete(n.id);
           })
           .on('drag', (e, n) => {
             if (n.kind === 'hub') return;
-            n.fx = e.x;
-            n.fy = e.y;
-          })
-          .on('end', (e, n) => {
-            if (n.kind === 'hub') return;
-            if (!e.active) simulation.alphaTarget(0);
-            n.fx = null;
-            n.fy = null;
+            const lim = limitOf(n);
+            n.x = Math.max(-lim.x, Math.min(lim.x, e.x));
+            n.y = Math.max(-lim.y, Math.min(lim.y, e.y));
+            places.set(n.id, { x: n.x, y: n.y });
+            const R = ringRadii();
+            homes.set(n.id, { x: n.x / R.x, y: n.y / R.y });
+            draw();
           }),
       );
 
@@ -1545,24 +1628,7 @@ export const createSwarmGraph = (
   };
 
   const draw = () => {
-    // Keep every node on the canvas, whatever the forces want.
-    const pad = 14;
-    for (const n of nodeById.values()) {
-      const lim = {
-        // Labelled nodes keep room for their label (about 22 characters at 11px).
-        // A hosted node carries its label inside: it needs only room for its body.
-        x:
-          width / 2 -
-          pad -
-          Math.max(
-            n.r,
-            !hosted.has(n.id) && (n.kind === 'sector' || (n.kind === 'agent' && n.active)) ? 62 : 0,
-          ),
-        y: height / 2 - n.r - pad - (n.kind === 'sector' && !hosted.has(n.id) ? 26 : 0),
-      };
-      n.x = Math.max(-lim.x, Math.min(lim.x, n.x ?? 0));
-      n.y = Math.max(-lim.y, Math.min(lim.y, n.y ?? 0));
-    }
+    // The layout keeps every place on the canvas (`limitOf`); drawing never moves a node.
     const scaleOf = intro?.scale;
     const place = (n: SimNode) => {
       const k = scaleOf?.get(n.id) ?? life.get(n.id)?.scale;
@@ -1722,8 +1788,6 @@ export const createSwarmGraph = (
       .filter((n) => !motion || !n.active)
       .attr('r', (n) => n.r * 2.2);
     layoutLabels();
-    (simulation.force('collide') as d3.ForceCollide<SimNode>).radius(collideOf);
-    simulation.alpha(Math.max(simulation.alpha(), 0.05)).restart();
   };
 
   /** Live agents stream effort into what they are on: their branch's worktree, or the PR they gate. */
@@ -1752,7 +1816,8 @@ export const createSwarmGraph = (
   const timer = d3.timer(() => {
     const now = performance.now();
     if (intro) stepIntro(now);
-    stepLife(now);
+    const moved = stepMoves(now);
+    if (stepLife(now) || moved) draw();
     ambient(now);
     advanceReplay(now);
 
@@ -1930,8 +1995,6 @@ export const createSwarmGraph = (
       const pose = introPose(to, plan.timing.get(n.id), t);
       n.x = pose.x;
       n.y = pose.y;
-      n.vx = 0;
-      n.vy = 0;
       scale.set(n.id, pose.scale);
     }
     const fade = (n: SimNode) => {
@@ -1953,7 +2016,7 @@ export const createSwarmGraph = (
     draw();
   };
 
-  /** Land the intro: settled positions, styles back, and the simulation takes over gently. */
+  /** Land the intro: every node at its place, styles back. Nothing moves after it. */
   const finishIntro = () => {
     if (!intro) return;
     const { target, camera } = intro;
@@ -1963,8 +2026,6 @@ export const createSwarmGraph = (
       if (!to) continue;
       n.x = to.x;
       n.y = to.y;
-      n.vx = 0;
-      n.vy = 0;
     }
     gNodes.selectAll<SVGGElement, SimNode>('g.sg-node').style('opacity', null);
     tagGroups().style('opacity', null);
@@ -1977,13 +2038,6 @@ export const createSwarmGraph = (
       .attr('stroke-dashoffset', null);
     if (camera) svg.call(zoom.transform, d3.zoomIdentity);
     draw();
-    // Low alpha and heavy damping for the first second, so there is no second jolt.
-    simulation.velocityDecay(0.6).alpha(0.08).restart();
-    const t = setTimeout(() => {
-      liveTimers.delete(t);
-      simulation.velocityDecay(0.35);
-    }, 1000);
-    liveTimers.add(t);
   };
 
   // ---- arriving and leaving ---------------------------------------------------------------
@@ -1991,26 +2045,18 @@ export const createSwarmGraph = (
   const linksOf = (ids: Set<string>) =>
     linkPaths().filter((l) => ids.has(l.source.id) || ids.has(l.target.id));
 
-  /** One frame of arrivals and departures: positions, sizes, opacities, edges. */
+  /** One frame of arrivals and departures: sizes, opacities, edges. True when anything changed. */
   const stepLife = (now: number) => {
-    if (!arrivals.size && !departures.size && !settled.size) return;
+    if (!arrivals.size && !departures.size && !settled.size) return false;
     const gone: string[] = [];
     for (const [id, a] of arrivals) {
-      const n = nodeById.get(id);
-      if (!n) {
+      if (!nodeById.has(id)) {
         arrivals.delete(id);
         life.delete(id);
         continue;
       }
       const p = progressAt(now, a.start, ARRIVAL.durationMs);
       const pose = arrivalPose(p);
-      // The parent may be moving: the glide starts wherever it is now.
-      const parent = a.parent ? nodeById.get(a.parent) : undefined;
-      const from = parent ? { x: parent.x ?? a.from.x, y: parent.y ?? a.from.y } : a.from;
-      n.x = from.x + (a.to.x - from.x) * pose.travel;
-      n.y = from.y + (a.to.y - from.y) * pose.travel;
-      n.vx = 0;
-      n.vy = 0;
       if (p >= 1) {
         arrivals.delete(id);
         life.delete(id);
@@ -2070,53 +2116,46 @@ export const createSwarmGraph = (
     });
     settled.clear();
     if (gone.length) finishDepartures(gone);
-    draw();
+    return true;
   };
 
-  /** Faded out: the nodes leave the simulation, and the rest ease into the room they leave. */
+  /** A node leaves the renderer's books. */
+  const forget = (id: string) => {
+    nodeById.delete(id);
+    departures.delete(id);
+    life.delete(id);
+    arrivals.delete(id);
+    moves.delete(id);
+    places.delete(id);
+    homes.delete(id);
+    placedBy.delete(id);
+    arcShown.delete(id);
+    shownNumber.delete(id);
+  };
+
+  /** Faded out: the nodes leave the graph. Nothing else moves into the room they leave. */
   const finishDepartures = (ids: string[]) => {
-    for (const id of ids) {
-      departures.delete(id);
-      life.delete(id);
-      nodeById.delete(id);
-      arcShown.delete(id);
-      shownNumber.delete(id);
-    }
+    for (const id of ids) forget(id);
     simLinks = simLinks.filter((l) => nodeById.has(l.source.id) && nodeById.has(l.target.id));
-    simulation.nodes([...nodeById.values()]);
-    linkForce.links(simLinks);
     renderStatic();
-    simulation.alpha(Math.max(simulation.alpha(), DEPARTURE.alpha)).restart();
   };
 
   // ---- public API --------------------------------------------------------------------------
 
   const update = (next: SwarmGraph, updateOptions: SwarmUpdateOptions = {}) => {
-    // A live refresh mid-intro lands the intro at once rather than fighting the simulation.
+    // A live refresh mid-intro lands the intro at once.
     finishIntro();
     const first = graph === null;
     const quiet = first || Boolean(updateOptions.quiet);
     graph = next;
     const keep = new Set(next.nodes.map((n) => n.id));
-    // New data lays out as usual; a view change holds what both views show where it is.
-    releaseHeld();
-    if (updateOptions.view && !first)
-      for (const [id, n] of nodeById)
-        if (keep.has(id) && !departures.has(id) && n.fx == null && n.fy == null) {
-          n.fx = n.x;
-          n.fy = n.y;
-          held.add(id);
-        }
     const now = performance.now();
-    // Gone nodes fade out first (staggered) and leave the simulation after; at once without motion.
+    // Gone nodes fade out in place (staggered) and leave after; at once without motion.
     let leaving = 0;
     for (const [id, n] of [...nodeById]) {
       if (keep.has(id)) continue;
       if (!motion || first) {
-        nodeById.delete(id);
-        departures.delete(id);
-        life.delete(id);
-        arrivals.delete(id);
+        forget(id);
         continue;
       }
       if (departures.has(id)) continue;
@@ -2124,13 +2163,9 @@ export const createSwarmGraph = (
       departures.set(id, {
         start: now + staggerAt(leaving++, DEPARTURE.staggerMs, DEPARTURE.maxSteps),
       });
-      // It holds still while it fades.
-      n.fx = n.x;
-      n.fy = n.y;
       n.active = false;
     }
     let arriving = 0;
-    const fresh: SimNode[] = [];
 
     const advanced: { node: SimNode; stage: SwarmStage }[] = [];
     for (const n of next.nodes) {
@@ -2140,11 +2175,6 @@ export const createSwarmGraph = (
         departures.delete(n.id);
         life.delete(n.id);
         settled.add(n.id);
-        if (updateOptions.view && motion) held.add(n.id);
-        else {
-          existing.fx = null;
-          existing.fy = null;
-        }
       }
       if (existing) {
         const was = existing.workItem?.stage;
@@ -2153,53 +2183,17 @@ export const createSwarmGraph = (
         const now = n.workItem?.stage;
         if (!first && was && now && was !== now) advanced.push({ node: existing, stage: now });
       } else {
-        // New nodes appear beside what they attach to, so they glide in rather than jump.
-        const anchorId = next.links.find(
-          (l) => l.source === n.id && l.kind !== 'contribution',
-        )?.target;
-        const anchor = anchorId ? nodeById.get(anchorId) : undefined;
-        // On a live graph it starts on its parent and glides out (see `stepLife`).
-        const glide = motion && !first && Boolean(anchor);
-        const jitter = () => (glide ? 0 : (Math.random() - 0.5) * 40);
-        const node: SimNode = {
-          ...n,
-          r: 0,
-          x: (anchor?.x ?? 0) + jitter(),
-          y: (anchor?.y ?? 0) + jitter(),
-        };
+        // No position yet: the layout gives it one, and it fades in right there.
+        const node: SimNode = { ...n, r: 0 };
         node.r = rOf(node);
         nodeById.set(n.id, node);
-        if (glide) {
-          fresh.push(node);
+        if (motion && !first)
           arrivals.set(n.id, {
             start: now + staggerAt(arriving++, ARRIVAL.staggerMs, ARRIVAL.maxSteps),
-            parent: anchor!.id,
-            from: { x: anchor!.x ?? 0, y: anchor!.y ?? 0 },
-            to: { x: anchor!.x ?? 0, y: anchor!.y ?? 0 },
           });
-        }
       }
     }
     placeRing();
-    // Where each arrival glides to: just outside its parent, towards where the layout pulls it.
-    for (const n of fresh) {
-      const a = arrivals.get(n.id);
-      const parent = a?.parent ? nodeById.get(a.parent) : undefined;
-      if (!a || !parent) continue;
-      const spin = ((hash(n.id) % 100) / 100 - 0.5) * 0.9;
-      a.to = arrivalTarget(
-        { x: parent.x ?? 0, y: parent.y ?? 0, r: parent.r },
-        anchorOf(n),
-        n.r,
-        spin,
-      );
-    }
-    if (first)
-      for (const n of nodeById.values())
-        if (n.kind === 'sector' && n.ring) {
-          n.x = n.ring.x;
-          n.y = n.ring.y;
-        }
 
     // Departing nodes keep their edges until they have faded with them.
     const nextLinks = new Set(next.links.map((l) => l.id));
@@ -2219,30 +2213,9 @@ export const createSwarmGraph = (
       }))
       .concat(fadingLinks);
 
-    simulation.nodes([...nodeById.values()]);
-    linkForce.links(simLinks);
     const introMode = motion ? (options.intro ?? 'full') : 'none';
-    if (first) {
-      // Settle the layout off-screen first, so every end position is known before anything moves.
-      simulation.stop();
-      for (let i = 0; i < 300; i++) simulation.tick();
-    } else if (!motion && updateOptions.view) {
-      // Without motion a view change is static: the new nodes find their places off-screen.
-      simulation.stop().alpha(0.35);
-      for (let i = 0; i < 300; i++) simulation.tick();
-      releaseHeld();
-    } else if (!motion) simulation.alpha(0.35).restart();
-    else
-      // Arrivals and departures are taken in at low alpha, so nothing already there jolts; a
-      // work item changing phase (a branch becoming a pull request) still moves to its new place.
-      simulation
-        .alpha(
-          Math.max(
-            simulation.alpha(),
-            advanced.length ? 0.2 : arriving || leaving ? ARRIVAL.alpha : 0.03,
-          ),
-        )
-        .restart();
+    // Every place is worked out off-screen before anything moves.
+    relayout();
 
     renderStatic();
     if (first && introMode !== 'none' && nodeById.size > 0) startIntro(introMode);
@@ -2505,7 +2478,11 @@ export const createSwarmGraph = (
     setViewBox();
     placeRing();
     resize();
-    simulation.alpha(0.3).restart();
+    // The layout stretches with the canvas, once: every place scales with the ring, overlaps the
+    // new sizes make are cleared, and each node glides there. Back to the old size, back home.
+    const R = ringRadii();
+    for (const [id, h] of homes) if (places.has(id)) places.set(id, { x: h.x * R.x, y: h.y * R.y });
+    relayout(true);
   });
   observer.observe(container);
 
@@ -2515,7 +2492,6 @@ export const createSwarmGraph = (
     run = null;
     liveTimers.forEach(clearTimeout);
     timer.stop();
-    simulation.stop();
     observer.disconnect();
     svg.remove();
     labelSvg.remove();

@@ -1,6 +1,6 @@
 # @rallypoint/swarm-graph
 
-A live force graph of a Rallypoint swarm: which agents are working which sectors of the codebase,
+A live graph of a Rallypoint swarm: which agents are working which sectors of the codebase,
 the work items (issues) they hold, and how their effort flows into the integration branch.
 
 Built here for the Swarm Arena fleet page, and kept free of the arena so it can ship with
@@ -11,6 +11,7 @@ Rallypoint as is. Nothing in `src/` imports React, Next.js, Tailwind or `@arena/
 | File                | What it is                                                                                                           |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `src/model.ts`      | Pure, deterministic. `buildSwarmGraph(input)` turns agents, work items and events into a graph.                      |
+| `src/layout.ts`     | Pure, deterministic. `layoutGraph(nodes, links)`: every node's place, solved off-screen to rest (#221).              |
 | `src/render.ts`     | Plain D3 on an SVG. `createSwarmGraph(el, options)` returns `{ update, anchor, replay, highlight, reset, destroy }`. |
 | `src/model.test.ts` | `npm test -w swarm-graph`.                                                                                           |
 
@@ -61,14 +62,24 @@ It follows the protocol. **Nothing reaches the integration branch except a merge
   merged, and a branch nobody holds an hour after its last activity; sectors, the hub, issues and
   open pull requests stay. A node spends its last minutes `fading` (drawn 30% dimmer). The thresholds
   are one table, `LIFETIMES`. The renderer fades a leaving node out (opacity to 0, radius to 60%,
-  label first, edges with it, over about 1.8 s, staggered) before it leaves the simulation, and a
-  new node grows out of its parent and glides to its place (about 1.3 s, staggered); see
-  `lifecycle.ts`. Both are instant with `reducedMotion`. `node scripts/lifecycle-check.mjs` checks
-  them in Chromium.
+  label first, edges with it, in place, staggered) before it leaves the graph, and a new node fades
+  and grows in at its place; see `lifecycle.ts`. Both are instant with `reducedMotion`.
+  `node scripts/lifecycle-check.mjs` checks them in Chromium.
+- **No physics on screen (#221).** `layout.ts` decides where every node stands, off-screen and to
+  rest, before anything is drawn: d3-force run headless with a seeded random source, so the same
+  graph gives the same places. Sectors and the hub are fixed on the ring; every node already placed
+  is pinned, so a node arriving or leaving moves nothing else. Only new nodes, and nodes whose
+  placement changed (a seat reassigned, a branch becoming a pull request), are solved for; a node
+  that grows into a neighbour pushes it out by the overlap. The renderer then tweens each moved
+  node in a straight line with one ease-out (`MOVE`, 500 ms): no overshoot, no settling. Every
+  arrival, departure and move is over within 700 ms (`TRANSITION_MS`). A resize scales every place
+  with the ring once and glides there; resizing back brings each node home exactly. A dragged node
+  moves alone and stays where it is dropped. `node scripts/calm-check.mjs` checks all of it in
+  Chromium (`--src <dir>` measures another checkout, for before/after numbers).
 - **View changes hold still.** `update(graph, { view: true })` says the same data is seen another
   way (the site's preset switch, whose `Everything` keeps dead nodes longer): the nodes both views
-  show stay where they are while the others fade in or out, and go free once the layout settles.
-  With `reducedMotion` the switch is static. `node scripts/view-check.mjs` checks it in Chromium.
+  show stay where they are while the others fade in or out. With `reducedMotion` the switch is
+  static. `node scripts/view-check.mjs` checks it in Chromium.
 
 ## Using it
 

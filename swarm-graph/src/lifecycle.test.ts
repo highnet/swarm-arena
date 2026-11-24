@@ -3,12 +3,14 @@ import assert from 'node:assert/strict';
 import {
   ARRIVAL,
   arrivalPose,
-  arrivalTarget,
   DEPARTURE,
   departurePose,
   easeInOut,
+  MOVE,
+  movePoint,
   progressAt,
   staggerAt,
+  TRANSITION_MS,
 } from './lifecycle';
 
 test('easeInOut runs 0 → 1, symmetric, soft at both ends', () => {
@@ -24,9 +26,8 @@ test('an arrival starts small and transparent and ends whole', () => {
   const a = arrivalPose(0);
   assert.equal(a.opacity, 0);
   assert.equal(a.scale, ARRIVAL.startScale);
-  assert.equal(a.travel, 0);
   const z = arrivalPose(1);
-  assert.deepEqual(z, { travel: 1, scale: 1, opacity: 1, label: 1, edge: 1 });
+  assert.deepEqual(z, { scale: 1, opacity: 1, label: 1, edge: 1 });
   const mid = arrivalPose(0.3);
   assert.ok(mid.opacity > 0 && mid.opacity < 1);
   assert.ok(mid.label < mid.opacity, 'label follows the circle');
@@ -52,10 +53,25 @@ test('batches are staggered, capped', () => {
   assert.equal(progressAt(5000, 200, 1000), 1);
 });
 
-test('an arrival glides to just outside its parent, towards its pull', () => {
-  const t = arrivalTarget({ x: 100, y: 0, r: 20 }, { x: 300, y: 0 }, 8);
-  assert.ok(Math.abs(t.y) < 1e-9);
-  assert.equal(t.x, 100 + 20 + 8 + 26);
-  const out = arrivalTarget({ x: 0, y: -100, r: 20 }, { x: 0, y: -100 }, 8);
-  assert.ok(out.y < -100, 'no pull: outward from the hub');
+test('every transition, its stagger included, ends within TRANSITION_MS', () => {
+  const longest = (d: { durationMs: number; staggerMs: number; maxSteps: number }) =>
+    staggerAt(1000, d.staggerMs, d.maxSteps) + d.durationMs;
+  assert.ok(longest(ARRIVAL) <= TRANSITION_MS);
+  assert.ok(longest(DEPARTURE) <= TRANSITION_MS);
+  assert.ok(MOVE.durationMs <= TRANSITION_MS);
+});
+
+test('a move closes on its target monotonically, with no overshoot', () => {
+  const from = { x: -40, y: 12 };
+  const to = { x: 260, y: -90 };
+  let last = Infinity;
+  for (let i = 0; i <= 100; i++) {
+    const p = movePoint(from, to, i / 100);
+    const d = Math.hypot(to.x - p.x, to.y - p.y);
+    assert.ok(d <= last + 1e-9, `distance grew at ${i}%`);
+    last = d;
+  }
+  assert.deepEqual(movePoint(from, to, 0), from);
+  assert.deepEqual(movePoint(from, to, 1), to);
+  assert.deepEqual(movePoint(from, to, 3), to, 'past the end it stays on the target');
 });
