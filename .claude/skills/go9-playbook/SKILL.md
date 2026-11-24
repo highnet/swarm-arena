@@ -202,9 +202,75 @@ Move into "Architecture now" only once the referee passes it.
   per candidate, a search of the move's outcome rather than one search's most-visited child),
   or average several seeds' visit counts; and cover ply 5.
 
+## Candidate (not shipped): MCTS tree reuse between moves (#154)
+
+Move into "Architecture now" only once the referee passes it.
+
+- `search::Tree` = the node arena plus the root board. `search_tree(&mut Tree, …)` grows it
+  (`search_limited`, used by the book generator, builds a fresh one: the book stays
+  deterministic). `main.rs` keeps a process-local `Reuse` (the game record at the last search's
+  root and its tree) between `go` calls; `game` clears it, and so does every `go` answered
+  without a search (pass rule, no/one legal move, book move).
+- On `go`: if the new record extends the saved one, the moves since (ours, then the reply;
+  any number, passes as PASS) are walked through the tree. `Tree::advance` re-roots at the node
+  reached when every move is a child, that node is **expanded**, and the replayed flat board
+  equals the real one (cells and side to move). It **compacts** the arena: breadth-first copy of
+  that subtree into a new `Vec`, children still contiguous, visits/wins/AMAF untouched, so the
+  2M-node cap applies to live nodes only. Root children: the old children the goban/superko
+  oracle still allows (others pruned with their subtrees), plus any oracle move the tree lacked
+  (added unvisited). Anything else starts a fresh tree. The search's root board is always the
+  real position's flat board, as before.
+- `info playouts N reused R winrate W` on stderr (R = root visits inherited).
+- Tests: `reroot_keeps_the_grandchild` (search 20k playouts after e5 c3 g7 c7 g3 d5, re-root
+  after the principal pair: root visits = grandchild visits, an oracle-rejected child is
+  pruned, root children = oracle moves exactly, searching on adds to the inherited visits);
+  `unexpected_reply_starts_fresh` (a reply with < 2 visits, a record that does not extend the
+  saved one, and `game` all give a fresh tree; the expected reply through the same entry point
+  reuses). The 200 ms self-play test now keeps one `Reuse` per side, as two processes would.
+- Measured, `cargo test --release reuse_report -- --ignored --nocapture` (self-play, go 200,
+  4 games each, one cache per side, this 4-core box):
+
+  | | moves | reused | median inherited | median playouts | median root visits |
+  | --- | --- | --- | --- | --- | --- |
+  | off, plies 0–39 | 140 | 0 | 0 | 5792 | 5792 |
+  | on, plies 0–39 | 140 | 125 | 865 | 5600 | 6790 |
+  | off, plies 40+ | 254 | 0 | 0 | 41776 | 41776 |
+  | on, plies 40+ | 243 | 84 | 0 | 43136 | 44160 |
+
+  Early on the tree is reused on ~90% of moves and gives ~+15% root visits (the reply was
+  usually one we searched a few hundred times); playouts per move drop ~3% (compaction and a
+  deeper tree). Late (fast playouts, 40k a move) most replies landed on a node we never
+  expanded, so reuse rarely fires. A diagnostic run found no board mismatches: every miss was
+  an unexpanded reply node or a move answered without a search.
+- Local `arena versus go9` vs main (v0.5), 200 ms, balanced suite: **16–24 (seed 976117434)**
+  and **20–20 (seed 1672814187)**, 36–44 over 80: no measurable gain, within noise of main.
+  Expected from the numbers above: +15% root visits early (and little late) is worth a few Elo
+  at most, below what 80 games can resolve. Reuse is free in the protocol (one process per game,
+  `position` carries the whole record), so it fires in real matches. If buried: the cheap next
+  step is to make the inherited part larger, e.g. keep searching the predicted reply's subtree
+  (ponder is off-limits: no work outside `go`), spend part of a book move's budget searching so
+  the tree survives the book, or a time policy that spends less when the root already holds many
+  visits.
+
+### What Hex would need for the same
+
+`engines/hex/src/search.rs` builds `Vec<Node>` inside `search(black, white, black_to_move,
+limit, seed)` and drops it. To reuse: (1) move the arena and the root bitboards into a struct
+returned to `main.rs` and kept between `go` calls (cleared on `game`); (2) walk our move and
+the reply (`mv` = cell index) through `first..first+count`, re-root only at an expanded node,
+and check the replayed bitboards against `replay(moves)`; (3) compact breadth-first as here
+(`count: u8`, children contiguous) and re-check the root children against `candidates(black,
+white, to_move)` at the new root (no superko in Hex, so that is the only filter); (4) Hex's
+search is seeded from the move list and `search_is_deterministic` asserts that a position
+always searches the same way: with reuse the result also depends on the previous search, so
+that test must build fresh trees (as the go9 book generator does). The win-in-one/block
+shortcuts in `choose` answer without a search and should clear the saved tree.
+
 ## Ideas worth trying
 
-- Tree reuse between moves, progressive widening. RAVE is in (#86).
+- Progressive widening. RAVE is in (#86); tree reuse is the #154 candidate above.
+- Tree reuse follow-ups (#154): keep the tree also across book moves (search the book
+  position briefly) and extend late-game reuse (most late replies land on unexpanded nodes).
 - RAVE follow-ups: K between 3000 and 10000 (the curve was still rising at 3000); a
   playout-policy prior once the policy is smarter (AMAF quality follows playout quality).
 - Playout policy follow-ups (#99 is in): 3×3 patterns around the last move; ladder reading

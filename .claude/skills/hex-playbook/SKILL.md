@@ -141,7 +141,8 @@ order-dependent, so expect a smaller gain there; start its sweep at C = 0 too.
 - Silver's minimum-MSE β schedule instead of sqrt(K / (3n + K)) (not tried).
 - Heuristic prior (the old one-ply score: centre distance, neighbours, bridges) as virtual
   wins on new nodes; the issue left it optional and it was not measured.
-- Tree reuse between moves (the next position's subtree is already searched).
+- Tree reuse between moves (the next position's subtree is already searched). Go 9×9 built it in
+  #154; its playbook lists what Hex would need ("What Hex would need for the same").
 - Bridge pairing worked (#60, 19–1 vs v0.3); second-row edge templates in the same pass did
   not (#73, under 'What failed'). Next: K = 300–500 (only 1000 vs 3000 was tried with pairing); a template stone on row 3 (IIIa,
   needs a 4-cell carrier: pair it as "respond inside the carrier" rather than a fixed split);
