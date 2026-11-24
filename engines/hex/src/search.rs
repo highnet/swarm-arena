@@ -23,6 +23,23 @@ const CHECK_EVERY: u32 = 64;
 /// Inferior-move pruning at expansion (#95): no children on dead cells or on cells the
 /// opponent of the mover has captured.
 pub const PRUNE_EXPANSION: bool = true;
+/// Vulnerable-cell pruning (#180): no child on a cell the opponent could kill by playing a
+/// neighbour d, when d is itself a child (the move at d dominates it).
+pub const PRUNE_VULNERABLE: bool = true;
+
+/// The cells of `keep` that the mover's move on a killer (see [`board::vulnerable`]) dominates,
+/// counting only killers in `keep` that are not themselves vulnerable, so a dominated cell
+/// always leaves a better child behind and two cells never prune each other.
+pub fn dominated(black: u128, white: u128, black_to_move: bool, keep: u128) -> u128 {
+    let by_slot = board::vulnerable(black, white, black_to_move);
+    let vuln = by_slot.iter().fold(0, |m, v| m | v) & keep;
+    let killers = keep & !vuln;
+    let mut out = 0;
+    for (j, v) in by_slot.into_iter().enumerate() {
+        out |= v & board::slot_neighbour_in(killers, j);
+    }
+    out & keep
+}
 
 /// The cells a node with this position gets children on: every empty cell, minus (with
 /// [`PRUNE_EXPANSION`]) the dead cells and the pairs the opponent captured. Never empty while
@@ -34,7 +51,10 @@ pub fn candidates(black: u128, white: u128, black_to_move: bool) -> u128 {
     }
     let inf = board::inferior(black, white);
     let theirs = inf.captured[black_to_move as usize];
-    let keep = empty & !inf.dead & !theirs;
+    let mut keep = empty & !inf.dead & !theirs;
+    if PRUNE_VULNERABLE {
+        keep &= !dominated(black, white, black_to_move, keep);
+    }
     if keep != 0 {
         keep
     } else {
@@ -316,6 +336,28 @@ mod tests {
     }
 
     #[test]
+    fn vulnerable_cells_leave_their_killer_behind() {
+        // Black f5 g5 g6 around f6 (slots 0, 1, 2), White f7 (slot 3). A White stone on e7
+        // (slot 4) makes f6 dead (B B B W W ·), so Black's f6 is dominated by Black's e7.
+        let black = [49, 50, 61].iter().fold(0u128, |m, &i| m | 1u128 << i);
+        let white = 1u128 << 71;
+        let (f6, e7) = (1u128 << 60, 1u128 << 70);
+        let empty = ALL & !(black | white);
+        let v = board::vulnerable(black, white, true);
+        assert_ne!(v[4] & f6, 0);
+        let d = dominated(black, white, true, empty);
+        assert_ne!(d & f6, 0);
+        assert_eq!(d & e7, 0);
+        // No pair of cells prunes each other: every dominated cell has a kept killer.
+        assert_eq!(d & !empty, 0);
+        if PRUNE_VULNERABLE {
+            let c = candidates(black, white, true);
+            assert_eq!(c & f6, 0);
+            assert_ne!(c & e7, 0);
+        }
+    }
+
+    #[test]
     fn expansion_skips_dead_and_opponent_captured_cells() {
         // Black e2 captures e1 and f1; Black f5 g5 g6 f7 make f6 dead.
         let black = 1u128 << 15 | [49, 50, 61, 71].iter().fold(0u128, |m, &i| m | 1u128 << i);
@@ -323,9 +365,18 @@ mod tests {
         let empty = ALL & !black;
         // White to move: no children on the dead cell or Black's pair.
         let c = candidates(black, 0, false);
-        assert_eq!(c, empty & !(e1 | f1 | f6));
+        let dom = |btm: bool, keep: u128| {
+            if PRUNE_VULNERABLE {
+                dominated(black, 0, btm, keep)
+            } else {
+                0
+            }
+        };
+        let keep_w = empty & !(e1 | f1 | f6);
+        assert_eq!(c, keep_w & !dom(false, keep_w));
         // Black to move may still play its own pair, never the dead cell.
-        assert_eq!(candidates(black, 0, true), empty & !f6);
+        let keep_b = empty & !f6;
+        assert_eq!(candidates(black, 0, true), keep_b & !dom(true, keep_b));
         // A lone empty cell is always kept.
         let last = ALL & !board::LEFT & !(1u128 << 60);
         assert_eq!(candidates(last, board::LEFT, true).count_ones(), 1);
