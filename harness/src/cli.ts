@@ -86,6 +86,8 @@ Agent sessions (run inside a Claude Code session on this repo):
   merge <pr>                    merger: merge an approved PR and land its arena task
   land <task-id>                apply a merged task's measured result (merge does this)
   retro "<text>" --as <seat>    at the end of a session: what slowed you down, what should change
+  heartbeat [--stop]            show (or stop) this session's seat heartbeat; any arena command that
+                                leaves the session holding a working seat starts it, retro ends it
   metrics                       the protocol's own numbers: ship rate, time to close, burial reasons
   submit <task-id>              build, smoke test, gate match; open the PR, or bury with a lesson PR
   release <task-id>             put a claimed task back on the board
@@ -308,6 +310,26 @@ Run \`git checkout --detach origin/main\` (or \`npm run arena -- prepare\`, whic
       await retro(seat, body);
       return;
     }
+    case "heartbeat": {
+      const hb = await import("./heartbeat");
+      if (args.includes("--run")) {
+        const last = await hb.runHeartbeat();
+        log(`heartbeat ended: ${last.beat}`);
+        return;
+      }
+      if (args.includes("--stop")) {
+        const pid = hb.stopHeartbeat();
+        log(pid ? `heartbeat ${pid} stopped` : "no heartbeat running");
+        return;
+      }
+      const pid = hb.heartbeatPid();
+      log(
+        pid
+          ? `heartbeat running (pid ${pid}), every ${hb.HEARTBEAT_MS / 1000} s`
+          : "no heartbeat running",
+      );
+      return;
+    }
     case "metrics": {
       console.log(await metrics());
       return;
@@ -467,7 +489,9 @@ Run \`git checkout --detach origin/main\` (or \`npm run arena -- prepare\`, whic
         throw new Error(`--seed must be an integer, got ${opt("seed")}`);
       const suite = openingSeed === undefined ? undefined : loadSuite(game);
       if (openingSeed === undefined) {
-        log("openings: none (--no-openings), every game from the initial position");
+        log(
+          "openings: none (--no-openings), every game from the initial position",
+        );
       } else {
         const picked = pickOpenings(GAMES[game], pairs, openingSeed, { suite });
         log(
@@ -575,3 +599,10 @@ Run \`git checkout --detach origin/main\` (or \`npm run arena -- prepare\`, whic
 // session (no ARENA_PASSWORD) or an offline store must not stop the command it came with.
 await touchSessionSeats().catch(() => 0);
 await main();
+// Heartbeat (#228): a session that holds a working seat keeps it heard from between commands, for
+// its whole lifetime; one that holds none (retro, release) stops it. Not from the loop itself, nor
+// from `heartbeat --stop`, which must not start it again.
+if (!["heartbeat"].includes(process.argv[2] ?? ""))
+  await import("./heartbeat")
+    .then((hb) => hb.syncHeartbeat())
+    .catch(() => null);

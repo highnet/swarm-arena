@@ -36,6 +36,15 @@ One session = one role. Finishing work beats starting it.
    site issue comes with a brief to claim it via `claim.mjs` and deliver a normal PR (no
    `arena submit`).
 
+   **Your seat stays `working` for the whole session** (#228). The first `arena` command that
+   seats you (`next`, a claim) starts a small background heartbeat that keeps the seat heard from
+   once a minute, as of your last action, however long you code, test or review between `arena`
+   commands. Your **retro** (or `arena release`) sets the seat idle and stops it; there is nothing
+   to start or stop by hand. `npm run arena -- heartbeat` shows it, `--stop` ends it early. A
+   session that dies or stops acting stops counting: its seat reads stale within the stale
+   threshold of its last action. So leave the retro as your last step, never before work you
+   still mean to do.
+
    Do exactly the role `next` printed:
 
    | Role | When | What you do |

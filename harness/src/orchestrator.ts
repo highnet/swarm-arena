@@ -75,6 +75,9 @@ const fleet = async (
   if (countSession) await bumpSessions(id);
   await setAgent(id, {
     status: "working",
+    // The dispatched role, not whatever the row was first created as (#228: seats made long ago,
+    // or by a post signed with an unknown name, kept `builder` whatever they later did).
+    role,
     session_id: process.env.CLAUDE_CODE_REMOTE_SESSION_ID ?? null,
     started_at: now(),
     ...patch,

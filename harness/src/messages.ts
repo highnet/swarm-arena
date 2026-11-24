@@ -76,7 +76,20 @@ const seatAgent = async (seat: string, track: GameId | null) => {
     );
     if (own) return own.id;
   }
-  return agent(seat, track, seat === "strategist" ? "strategist" : "builder");
+  return agent(seat, track, roleOfSeat(seat));
+};
+
+/**
+ * The role a seat first seen in a signature gets, from its name (`cd-d2-merger-pr223` is a merger):
+ * every unknown name used to become a `builder`, whatever role the session had (#228).
+ */
+export const roleOfSeat = (seat: string): Agent["role"] => {
+  const s = seat.toLowerCase();
+  if (/strategist|planner/.test(s)) return "strategist";
+  if (/merger/.test(s)) return "merger";
+  if (/reviewer/.test(s)) return "reviewer";
+  if (/improver|steward/.test(s)) return "improver";
+  return "worker";
 };
 
 /** Post a thread or a comment as a seat. */
