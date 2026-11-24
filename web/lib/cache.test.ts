@@ -87,6 +87,18 @@ test('finished games and matches cache for good under their own tags only', () =
     assert.equal(fn.match(/cacheTag\(/g)?.length, 1, 'one per-entity tag, no shared one');
 });
 
+test('long-lived cached reads hold no wall-clock values, so a revalidation writes nothing new', () => {
+  // Vercel bills an ISR write when revalidated output changes: a `new Date()` or `Date.now()`
+  // in a cached result would make every revalidation a full write.
+  const wallClock = /\bnew Date\(\)|Date\.now\(\)/;
+  for (const name of ['getGame', 'getMatchGames']) assert.doesNotMatch(body(data, name), wallClock);
+  assert.doesNotMatch(body(readFileSync(join(WEB, 'lib/news.ts'), 'utf8'), 'getNews'), wallClock);
+  assert.doesNotMatch(
+    body(readFileSync(join(WEB, 'lib/source.ts'), 'utf8'), 'getConcepts'),
+    wallClock,
+  );
+});
+
 test('no cached read shares a tag with another entity', () => {
   for (const file of ALL) {
     const src = readFileSync(file, 'utf8');
