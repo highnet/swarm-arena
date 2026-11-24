@@ -181,9 +181,14 @@ Move into "Architecture now" only once the referee passes it. A rebuild of #44's
 - Not tried: probing the table inside the exact solver (~10 empties up), the issue's optional
   part; measure it separately.
 
-## Candidate (not shipped): transposition table inside the exact solver (task #160)
+## Buried: transposition table inside the exact solver (task #160, lesson PR #188)
 
-Move into "Architecture now" only once the referee passes it.
+**Referee: 12–27–1 vs Edax level 6, rated 1413 ± 116, not above v0.6's 1427** (inside the
+error bar; local matches below were flat too). Not in the engine. Code: commit 7024682 on branch
+`agent/160-transposition-table-inside-the-exact-endga` (may vanish with the branch; the design
+below is enough to rebuild it). The table is correct and fast; it did not buy strength at go 200.
+What to try differently: keep it as the base for a win/loss/draw solve from 16-18 empties, or
+for N scaled with the site's 0.5-3 s budgets, and measure those instead of N = 15 at go 200.
 
 - `SolveTt` in `main.rs`, **separate from the midgame `Tt`** so a final margin is never read as a
   heuristic score or the reverse: 2^18 slots × 16 B = 4 MB (`key` u64 from the same `tt_key`,
@@ -241,7 +246,7 @@ Move into "Architecture now" only once the referee passes it.
   openings since #104 (quote its seed); `arena play` still has none.
 - Evaluation: edge patterns (an edge-configuration table), interior stability, parity.
 - Endgame solver follow-ups (#94's plain solver at N = 14, resubmitted in #112): the TT inside
-  the solve is task #160 (Candidate note above; it pays from 6 empties up, not 10); scale N with the budget (each
+  the solve was task #160 (buried flat, note above; it cuts nodes from 6 empties up, not 10); scale N with the budget (each
   empty ~3×: N 15 at ~0.6 s, 16 at ~1.8 s, the site's 0.5-3 s); a win/loss/draw null-window
   solve (-1, 1) one or two empties beyond N, since only the result counts for the rating;
   start the solve one or two empties early and keep its partial root result; cheaper child
