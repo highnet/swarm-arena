@@ -141,7 +141,9 @@ export const learn = (
     };
   for (const r of rows.records ?? []) {
     if (r.match_id && r.task_id) next.matchTask[r.match_id] = r.task_id;
-    if (r.task_id) next.recorded.push(`${r.kind}:${r.task_id}`);
+    // Once per kind and task, so a long-open page does not grow it per record (#197).
+    const key = `${r.kind}:${r.task_id}`;
+    if (r.task_id && !next.recorded.includes(key)) next.recorded.push(key);
   }
   for (const t of rows.tasks ?? []) {
     next.tasks[t.id] = {

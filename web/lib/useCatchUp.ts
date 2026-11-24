@@ -22,6 +22,54 @@ const STEP_MAX_MS = 450;
 const SLACK_MS = 500;
 /** A refresh that brings at least this many new events at once plays back instead of landing. */
 const BIG_JUMP = 8;
+/**
+ * At most this many held rows (#197). Rows fold per key first (`holdKey`), so the queue is bounded
+ * by the number of distinct things that changed, not by how long the tab was away; past the cap
+ * the oldest go unplayed (the refresh on return brings their state in the snapshot anyway).
+ */
+export const HOLD_CAP = 400;
+
+/**
+ * The key a held row folds under: one per table and row id (a live game, a seat, a rating, a
+ * work item), so a later row replaces an earlier one of the same thing. Rows without an id keep
+ * their own slot.
+ */
+export const holdKey = (change: LiveChange, fallback: number) => {
+  const id = change.new?.id ?? change.old?.id;
+  return typeof id === 'string' || typeof id === 'number'
+    ? `${change.table}:${id}`
+    : `${change.table}#${fallback}`;
+};
+
+/**
+ * Hold one row back: it replaces the held row of the same key and moves to the back (it is the
+ * newest), and the oldest go once the cap is passed.
+ */
+export const holdRow = (
+  held: Map<string, LiveChange>,
+  change: LiveChange,
+  fallback: number,
+  cap = HOLD_CAP,
+) => {
+  const key = holdKey(change, fallback);
+  held.delete(key);
+  held.set(key, change);
+  for (const k of held.keys()) {
+    if (held.size <= cap) break;
+    held.delete(k);
+  }
+};
+
+/** Take the `n` oldest held rows out of the queue, in order. */
+const takeHeld = (held: Map<string, LiveChange>, n: number) => {
+  const out: LiveChange[] = [];
+  for (const [k, change] of held) {
+    if (out.length >= n) break;
+    out.push(change);
+    held.delete(k);
+  }
+  return out;
+};
 
 export type CatchUpBasis<I, E> = { input: I; engines: E };
 
@@ -74,8 +122,9 @@ export const useCatchUp = <I, E>({
     current.current = next;
     setCatchUpState(next);
   }, []);
-  /** Realtime rows that arrived while holding or draining, in arrival order. */
-  const queue = useRef<LiveChange[]>([]);
+  /** Realtime rows that arrived while holding or draining, latest per key, oldest first. */
+  const queue = useRef(new Map<string, LiveChange>());
+  const arrivals = useRef(0);
   /** The next renderer update takes its new events without sparking them (a coalesced batch). */
   const quietNext = useRef(false);
 
@@ -125,8 +174,8 @@ export const useCatchUp = <I, E>({
       const c = current.current;
       if (!c) return;
       const { apply: applyNow, onFinish: done } = latest.current;
-      const held = queue.current;
-      queue.current = [];
+      const held = [...queue.current.values()];
+      queue.current = new Map();
       held.forEach(applyNow);
       quietNext.current = quiet;
       setCatchUp(null);
@@ -142,7 +191,7 @@ export const useCatchUp = <I, E>({
   /** Hold a Realtime row back while catching up; false means apply it now. */
   const offer = useCallback((change: LiveChange) => {
     if (!current.current) return false;
-    queue.current.push(change);
+    holdRow(queue.current, change, arrivals.current++);
     return true;
   }, []);
 
@@ -183,7 +232,7 @@ export const useCatchUp = <I, E>({
       if (!c || c.phase !== 'draining') return;
       const { events: all, shows: visible, apply: applyNow } = latest.current;
       const pending = all.filter((e) => !c.released.has(e.id) && visible(e));
-      const left = pending.length + queue.current.length;
+      const left = pending.length + queue.current.size;
       const elapsed = Date.now() - started;
       if (!left || elapsed > CATCH_UP_MS + SLACK_MS) {
         finish(left > 0);
@@ -191,7 +240,7 @@ export const useCatchUp = <I, E>({
       }
       // Beyond the step budget, the oldest land together in one quiet batch.
       const take = Math.max(1, left - STEPS + 1);
-      queue.current.splice(0, take).forEach(applyNow);
+      takeHeld(queue.current, take).forEach(applyNow);
       const out = pending.slice(0, take);
       quietNext.current = take > 1;
       const released = new Set(c.released);
