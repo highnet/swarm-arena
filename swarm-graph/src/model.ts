@@ -98,9 +98,29 @@ export type SwarmWorkItem = {
   at?: string | null;
 };
 
-/** What an event means on the graph. Only `merge` moves work into the integration branch. */
+/**
+ * What an event means on the graph. Only `merge` moves work into the integration branch.
+ * `result` is a measurement finishing (a game, a match), `rating` a score changing, `session` an
+ * agent's session starting, changing step or ending, `post` something said on a discussion
+ * board, `pr` a pull request opening or moving.
+ */
 export type SwarmEventKind =
-  'plan' | 'claim' | 'progress' | 'review' | 'merge' | 'reject' | 'milestone' | 'protocol';
+  | 'plan'
+  | 'claim'
+  | 'progress'
+  | 'review'
+  | 'merge'
+  | 'reject'
+  | 'milestone'
+  | 'protocol'
+  | 'result'
+  | 'rating'
+  | 'session'
+  | 'post'
+  | 'pr';
+
+/** How a measured result went for the sector's side. */
+export type SwarmOutcome = 'win' | 'loss' | 'draw';
 
 export type SwarmEvent = {
   id: string;
@@ -110,6 +130,16 @@ export type SwarmEvent = {
   sector: string | null;
   workItem: string | null;
   title: string;
+  /** A host's finer label for the event (what a filter or preset keys on). */
+  sub?: string | null;
+  /**
+   * Events that belong to one burst (the games of one match, say) share a group, so a host can
+   * show them as one updating line. `title` names the burst.
+   */
+  group?: { id: string; title: string } | null;
+  outcome?: SwarmOutcome | null;
+  /** A signed change the event carries (a rating delta). */
+  delta?: number | null;
 };
 
 export type SwarmInput = {
@@ -199,6 +229,12 @@ export type SwarmFlow = {
   at: string;
   kind: SwarmEventKind;
   title: string;
+  sub: string | null;
+  group: { id: string; title: string } | null;
+  outcome: SwarmOutcome | null;
+  delta: number | null;
+  agent: string | null;
+  sector: string | null;
   /** At least two node ids. A merge runs branch → integration branch → sector. */
   path: string[];
   weight: number;
@@ -231,6 +267,12 @@ export const DEFAULT_WEIGHTS: Record<SwarmEventKind, number> = {
   reject: 1,
   milestone: 2,
   protocol: 1,
+  // Frequent and small: a gate plays dozens of games, a session heartbeats.
+  result: 0.1,
+  rating: 1,
+  session: 0.2,
+  post: 0.3,
+  pr: 0.5,
 };
 
 /** Rallypoint's branch slug (`.rallypoint/scripts/lib/claim.mjs`), so names match the real ones. */
@@ -548,6 +590,11 @@ export const buildSwarmGraph = (input: SwarmInput, options: SwarmGraphOptions = 
       case 'plan':
         path = [actor, itemNode ?? sectorNode ?? hubId];
         break;
+      case 'result':
+      case 'rating':
+        // Measured on the branch when there is one, otherwise on what the sector ships.
+        path = itemNode ? [actor, itemNode] : [agentNode ?? hubId, sectorNode];
+        break;
       case 'milestone':
         // Gate matches measure a branch; rungs are cleared by what is on the integration branch.
         path = itemNode ? [actor, itemNode] : [hubId, sectorNode];
@@ -563,6 +610,12 @@ export const buildSwarmGraph = (input: SwarmInput, options: SwarmGraphOptions = 
       at: e.at,
       kind: e.kind,
       title: e.title,
+      sub: e.sub ?? null,
+      group: e.group ?? null,
+      outcome: e.outcome ?? null,
+      delta: e.delta ?? null,
+      agent: e.agent,
+      sector: s,
       path: deduped,
       weight: weights[e.kind],
     });

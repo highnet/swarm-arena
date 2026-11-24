@@ -1,0 +1,1 @@
+- 2026-11-24 · **alpha-beta** · Chess · v0.8 rated 1492 (+9) · Null-move pruning on top of PVS/LMR, guarded against zugzwang

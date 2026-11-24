@@ -1,27 +1,62 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Crosshair, History, Square } from 'lucide-react';
+import type { Agent, GameRow, Track } from '@arena/shared';
 import {
   agentNodeId,
   buildSwarmGraph,
   createSwarmGraph,
+  planReplay,
+  stateAt,
+  summarizeReplay,
+  type SwarmAgent,
+  type SwarmEvent,
   type SwarmFlow,
   type SwarmGraphRenderer,
   type SwarmInput,
   type SwarmNode,
+  type SwarmReplayMode,
+  type SwarmReplayPlan,
   type SwarmReplayState,
   type SwarmStage,
 } from '@rallypoint/swarm-graph';
 import { Button } from '@/components/ui/Button';
 import { Typography } from '@/components/ui/Typography';
 import { formatDay, formatTime } from '@/lib/format';
+import { onLive, type LiveChange } from '@/lib/liveBus';
+import {
+  realtimeEvents,
+  TABLE_SUBS,
+  gameOfRow,
+  toSwarmAgent,
+  type ArenaEventContext,
+  type EngineGame,
+  type EngineNode,
+  type ArenaRealtimeTable,
+} from '@/lib/swarmEvents';
+import {
+  DEFAULT_PRESET,
+  PRESETS,
+  presetForPath,
+  presetOf,
+  showsFlow,
+  type SwarmPresetId,
+} from '@/lib/swarmPresets';
+import { useCatchUp } from '@/lib/useCatchUp';
 import { cn } from '@/lib/utils';
+import type { EngineBoardSource } from './EngineBoard';
 import { useFleetHover } from './FleetHover';
+import { ReplayScrubber } from './ReplayScrubber';
 import { agentHref } from './seats';
+import { SwarmNodeOverlay, type NodeRating } from './SwarmNodeOverlay';
 
 const TICKER = 5;
+
+/** What a replay dwells on: merges, rungs cleared and rating changes (not every match ending). */
+const replayMilestone = (f: SwarmFlow) =>
+  f.kind === 'merge' || f.sub === 'rung' || (f.kind === 'rating' && Boolean(f.delta));
 
 const FLOW_VERB: Record<SwarmFlow['kind'], string> = {
   plan: 'planned',
@@ -32,6 +67,11 @@ const FLOW_VERB: Record<SwarmFlow['kind'], string> = {
   reject: 'rejected',
   milestone: 'milestone',
   protocol: 'protocol',
+  result: 'result',
+  rating: 'rating',
+  session: 'session',
+  post: 'post',
+  pr: 'pull request',
 };
 
 const STAGE_TEXT: Record<SwarmStage, string> = {
@@ -128,7 +168,7 @@ const PipelineBar = ({ stages }: PipelineBarProps) => {
 };
 
 type Hover = { node: SwarmNode; x: number; y: number; width: number };
-type Tick = SwarmFlow & { key: string; source: 'live' | 'replay' };
+type Tick = SwarmFlow & { key: string; source: 'live' | 'replay'; line: string };
 
 type NodeCardProps = {
   node: SwarmNode;
@@ -209,31 +249,303 @@ const NodeCard = ({ node }: NodeCardProps) => {
   );
 };
 
+type PresetSwitchProps = {
+  value: SwarmPresetId;
+  onChange: (id: SwarmPresetId) => void;
+};
+
+/** Who the feed is for: a segmented control, a select on phones. Filters events, never nodes. */
+const PresetSwitch = ({ value, onChange }: PresetSwitchProps) => (
+  <div className="relative flex items-center gap-2 border-b border-line px-4 py-2">
+    <Typography variant="label" as="span" className="shrink-0">
+      Show
+    </Typography>
+    <div
+      role="group"
+      aria-label="Events shown"
+      className="hidden items-center gap-0.5 rounded-md border border-line bg-panel p-0.5 sm:flex"
+    >
+      {PRESETS.map((p) => (
+        <Button
+          key={p.id}
+          variant="segment"
+          size="xs"
+          aria-pressed={p.id === value}
+          title={p.who}
+          onClick={() => onChange(p.id)}
+        >
+          {p.label}
+        </Button>
+      ))}
+    </div>
+    <select
+      aria-label="Events shown"
+      value={value}
+      onChange={(e) => onChange(e.target.value as SwarmPresetId)}
+      className="h-7 min-w-0 flex-1 rounded-md border border-line bg-panel px-2 text-xs text-fg sm:hidden"
+    >
+      {PRESETS.map((p) => (
+        <option key={p.id} value={p.id}>
+          {p.label}
+        </option>
+      ))}
+    </select>
+    <Typography variant="meta" as="span" className="hidden truncate lg:inline">
+      {PRESETS.find((p) => p.id === value)?.who}
+    </Typography>
+  </div>
+);
+
 type SwarmGraphProps = {
   input: SwarmInput;
+  /** What the row mapping knows about the run; kept current from Realtime on the client. */
+  context: ArenaEventContext;
+  /** Each engine's node: rating, version timeline, latest game. */
+  engines: EngineNode[];
   /** Agent ids with a fleet page; the rest (event-only actors) are not linked. */
   seatIds: string[];
   /** Sector ids with an engine page. */
   engineIds: string[];
   /** Where Rallypoint-only issues and pull requests open. */
   repoUrl: string;
+  /** The preset named in the URL (`?view=`), if any. */
+  view?: string | null;
   className?: string;
 };
 
+/** Live events kept on the client between refreshes. */
+const LIVE_CAP = 400;
+const PRESET_KEY = 'swarm-graph-view';
+
+type GroupTally = { games: number; win: number; loss: number; draw: number };
+
+type LiveState = {
+  events: SwarmEvent[];
+  agents: Record<string, SwarmAgent>;
+  ratings: Record<
+    string,
+    { elo: number | null; version: string | null; delta: number | null; at: string; key: number }
+  >;
+  games: Record<string, EngineGame & { at: string }>;
+};
+
+const emptyLive = (): LiveState => ({ events: [], agents: {}, ratings: {}, games: {} });
+
+const readPreset = (view: string | null | undefined): SwarmPresetId => {
+  const fromUrl = presetOf(view);
+  if (fromUrl) return fromUrl.id;
+  try {
+    const stored = presetOf(window.localStorage.getItem(PRESET_KEY));
+    if (stored) return stored.id;
+  } catch {
+    // Storage blocked: fall through to where the visitor came from.
+  }
+  try {
+    const ref = document.referrer ? new URL(document.referrer) : null;
+    if (ref && ref.origin === window.location.origin) {
+      const implied = presetForPath(ref.pathname);
+      if (implied) return implied;
+    }
+  } catch {
+    // An unreadable referrer implies nothing.
+  }
+  return DEFAULT_PRESET;
+};
+
 /**
- * The fleet as a live graph: the arena's mount of `@rallypoint/swarm-graph`. The page re-renders
- * on every realtime change (see `LiveIndicator`), so new props here mean new rows in Supabase;
- * the renderer diffs them and animates what changed.
+ * The fleet as a live graph: the arena's mount of `@rallypoint/swarm-graph`. A Realtime row
+ * becomes an event here at once, from the payload (see `realtimeEvents`), and the route refresh
+ * that follows (`LiveIndicator`) brings the snapshot, which maps the same rows to the same ids.
+ * Without a socket the snapshot alone draws the same events.
  */
-const SwarmGraph = ({ input, seatIds, engineIds, repoUrl, className }: SwarmGraphProps) => {
+const SwarmGraph = ({
+  input,
+  context,
+  engines,
+  seatIds,
+  engineIds,
+  repoUrl,
+  view,
+  className,
+}: SwarmGraphProps) => {
   const router = useRouter();
   const host = useRef<HTMLDivElement>(null);
   const renderer = useRef<SwarmGraphRenderer | null>(null);
-  const graph = useMemo(() => buildSwarmGraph(input), [input]);
+  const [live, setLive] = useState<LiveState>(emptyLive);
+  const liveCtx = useRef(context);
+  useEffect(() => {
+    liveCtx.current = context;
+  }, [context]);
+
+  const [presetId, setPresetId] = useState<SwarmPresetId>(presetOf(view)?.id ?? DEFAULT_PRESET);
+  const preset = presetOf(presetId) ?? PRESETS[0];
+  const [reducedMotion, setReducedMotion] = useState(false);
+
+  // The visitor's own choice (URL, then storage), else what the page they came from implies.
+  useEffect(() => {
+    const id = requestAnimationFrame(() => {
+      setPresetId(readPreset(new URLSearchParams(window.location.search).get('view')));
+      setReducedMotion(window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    });
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  const choosePreset = (id: SwarmPresetId) => {
+    setPresetId(id);
+    try {
+      window.localStorage.setItem(PRESET_KEY, id);
+    } catch {
+      // Storage blocked: the URL still remembers it.
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.set('view', id);
+    window.history.replaceState(window.history.state, '', url);
+  };
+
+  // The engines as the overlays show them (the catch-up basis while one plays).
+  const shownEngines = useRef(engines);
+
+  // One Realtime row onto the graph's live state.
+  const applyChange = useCallback((change: LiveChange) => {
+    if (change.eventType === 'DELETE') return;
+    const table = change.table as ArenaRealtimeTable;
+    if (!(table in TABLE_SUBS)) return;
+    const { ctx, events } = realtimeEvents(liveCtx.current, table, change.new);
+    liveCtx.current = ctx;
+    const row = change.new;
+    const now = new Date().toISOString();
+    setLive((l) => {
+      const next: LiveState = { ...l };
+      if (events.length) {
+        const ids = new Set(events.map((e) => e.id));
+        next.events = [...l.events.filter((e) => !ids.has(e.id)), ...events].slice(-LIVE_CAP);
+      }
+      if (table === 'agents' && row) {
+        const a = toSwarmAgent(ctx, row as unknown as Agent, now);
+        next.agents = { ...l.agents, [a.id]: a };
+      }
+      if (table === 'tracks' && row) {
+        const t = row as unknown as Track;
+        const before =
+          l.ratings[t.id]?.elo ?? shownEngines.current.find((e) => e.id === t.id)?.elo ?? null;
+        const delta =
+          t.current_elo !== null && before !== null ? Math.round(t.current_elo - before) : null;
+        next.ratings = {
+          ...l.ratings,
+          [t.id]: {
+            elo: t.current_elo,
+            version: t.current_version,
+            delta: delta || null,
+            at: now,
+            key: Date.now(),
+          },
+        };
+      }
+      if (table === 'games' && row && Array.isArray(row.moves) && row.moves.length) {
+        const g = row as unknown as GameRow;
+        next.games = {
+          ...l.games,
+          [g.track_id]: {
+            ...gameOfRow(g, ctx.matches[g.match_id]?.opponent),
+            at: now,
+          },
+        };
+      }
+      return next;
+    });
+  }, []);
+
+  // Every event, snapshot and live, in time order.
+  const events = useMemo(() => {
+    const known = new Set(input.events.map((e) => e.id));
+    return [...input.events, ...live.events.filter((e) => !known.has(e.id))].sort((a, b) =>
+      a.at.localeCompare(b.at),
+    );
+  }, [input.events, live.events]);
+
+  // After a hidden tab or a big jump, the missed events play back in order instead of landing.
+  const shows = useCallback((e: SwarmEvent) => showsFlow(preset, { sub: e.sub ?? null }), [preset]);
+  const finishCatchUp = useCallback(
+    (basis: { engines: EngineNode[] }) => {
+      // Ratings the playback did not step through count up from where they stood.
+      const now = new Date().toISOString();
+      setLive((l) => {
+        const ratings = { ...l.ratings };
+        for (const e of engines) {
+          const from = basis.engines.find((b) => b.id === e.id);
+          const shownElo = l.ratings[e.id]?.elo ?? from?.elo ?? null;
+          if (e.elo === null || shownElo === null || e.elo === shownElo) continue;
+          if (l.ratings[e.id] && l.ratings[e.id].at > input.asOf) continue;
+          ratings[e.id] = {
+            elo: e.elo,
+            version: e.version,
+            delta: Math.round(e.elo - shownElo) || null,
+            at: now,
+            key: Date.now(),
+          };
+        }
+        return { ...l, ratings };
+      });
+    },
+    [engines, input.asOf],
+  );
+  const { catchUp, offer, skip, takeQuiet } = useCatchUp({
+    events,
+    shows,
+    input,
+    engines,
+    reducedMotion,
+    apply: applyChange,
+    onFinish: finishCatchUp,
+  });
+  const basisInput = catchUp?.basis.input ?? input;
+  const basisEngines = catchUp?.basis.engines ?? engines;
+  useEffect(() => {
+    shownEngines.current = basisEngines;
+  }, [basisEngines]);
+
+  // Realtime rows, straight onto the graph (held back while catching up).
+  useEffect(
+    () =>
+      onLive((change) => {
+        if (!offer(change)) applyChange(change);
+      }),
+    [offer, applyChange],
+  );
+
+  // The snapshot, with whatever Realtime has said since it was read. The snapshot wins where
+  // both speak, so the refresh that follows a live row never disagrees with it. While a
+  // catch-up plays, agents start from where they stood and step forward with the held rows.
+  const merged = useMemo<SwarmInput>(() => {
+    const agents = basisInput.agents.map((a) => {
+      const l = live.agents[a.id];
+      return l && l.lastSeen > a.lastSeen ? l : a;
+    });
+    const seen = new Set(agents.map((a) => a.id));
+    for (const a of Object.values(live.agents)) if (!seen.has(a.id)) agents.push(a);
+    return { ...input, agents, events };
+  }, [input, basisInput, live.agents, events]);
+
+  const graph = useMemo(() => buildSwarmGraph(merged), [merged]);
+  const shownGraph = useMemo(
+    () => ({ ...graph, flows: graph.flows.filter((f) => showsFlow(preset, f)) }),
+    [graph, preset],
+  );
+  /** What the renderer gets: during a catch-up, only the events played so far. */
+  const presented = useMemo(
+    () =>
+      catchUp
+        ? { ...shownGraph, flows: shownGraph.flows.filter((f) => catchUp.released.has(f.id)) }
+        : shownGraph,
+    [shownGraph, catchUp],
+  );
+
   const [hover, setHover] = useState<Hover | null>(null);
   const [ticker, setTicker] = useState<Tick[]>([]);
+  const groups = useRef(new Map<string, GroupTally>());
   const [replay, setReplay] = useState<SwarmReplayState | null>(null);
-  const [replaying, setReplaying] = useState(false);
+  const [replayPlan, setReplayPlan] = useState<SwarmReplayPlan | null>(null);
+  const replaying = replayPlan !== null;
 
   // Callbacks read the latest props through a ref so the renderer is created once.
   const { hovered, setHovered } = useFleetHover();
@@ -243,6 +555,7 @@ const SwarmGraph = ({ input, seatIds, engineIds, repoUrl, className }: SwarmGrap
     router,
     setHovered,
     repoUrl,
+    preset,
   });
   useEffect(() => {
     links.current = {
@@ -251,8 +564,9 @@ const SwarmGraph = ({ input, seatIds, engineIds, repoUrl, className }: SwarmGrap
       router,
       setHovered,
       repoUrl,
+      preset,
     };
-  }, [seatIds, engineIds, router, setHovered, repoUrl]);
+  }, [seatIds, engineIds, router, setHovered, repoUrl, preset]);
 
   useEffect(() => {
     const el = host.current;
@@ -270,7 +584,7 @@ const SwarmGraph = ({ input, seatIds, engineIds, repoUrl, className }: SwarmGrap
         );
       },
       onSelect: (node) => {
-        const { seatIds: seats, engineIds: engines, router: nav } = links.current;
+        const { seatIds: seats, engineIds: engs, router: nav } = links.current;
         if (node.kind === 'agent' && node.agent && seats.has(node.agent.id))
           nav.push(agentHref(node.agent.id));
         else if (node.kind === 'work' && node.workItem) {
@@ -283,31 +597,57 @@ const SwarmGraph = ({ input, seatIds, engineIds, repoUrl, className }: SwarmGrap
               '_blank',
               'noopener',
             );
-        } else if (node.kind === 'sector' && node.sectorId && engines.has(node.sectorId))
+        } else if (node.kind === 'sector' && node.sectorId && engs.has(node.sectorId))
           nav.push(`/engines/${node.sectorId}`);
       },
-      onFlow: (flow, source) =>
+      onFlow: (flow, source) => {
+        const p = links.current.preset;
+        const title = p.word?.(flow) ?? flow.title;
+        const key = flow.group ? `group:${flow.group.id}` : `${source}-${flow.id}-${Date.now()}`;
+        let line = title;
+        if (flow.group) {
+          // A burst (one match's start, games, verdict and rating) is one line that updates.
+          const g = groups.current.get(flow.group.id) ?? { games: 0, win: 0, loss: 0, draw: 0 };
+          if (flow.sub === 'game' && flow.outcome) {
+            g.games++;
+            g[flow.outcome]++;
+          }
+          groups.current.set(flow.group.id, g);
+          if (g.games > 1)
+            line = `${flow.group.title}: ${g.games} games, ${g.win}–${g.loss}${g.draw ? `–${g.draw}` : ''}`;
+        }
         setTicker((t) =>
-          [{ ...flow, source, key: `${source}-${flow.id}-${Date.now()}` }, ...t].slice(0, TICKER),
-        ),
+          [{ ...flow, source, key, line }, ...t.filter((x) => x.key !== key)].slice(0, TICKER),
+        );
+      },
       onReplay: (state) => {
         setReplay(state);
-        if (!state) setReplaying(false);
+        if (!state) setReplayPlan(null);
       },
     });
     renderer.current = r;
+    // Overlays mounted before the renderer existed pin themselves now.
+    el.parentElement
+      ?.querySelectorAll<HTMLElement>('[data-slot="swarm-node-overlay"]')
+      .forEach((o) => o.dataset.nodeId && r.anchor(o.dataset.nodeId, o));
     return () => {
       r.destroy();
       renderer.current = null;
     };
   }, []);
 
+  // A preset change shows other events but is not news: take it without sparking the history.
+  const lastPreset = useRef(preset.id);
+  // A coalesced catch-up batch lands without sparking too.
   useEffect(() => {
-    renderer.current?.update(graph);
-  }, [graph]);
+    const quiet = takeQuiet() || lastPreset.current !== preset.id;
+    lastPreset.current = preset.id;
+    renderer.current?.update(presented, { quiet });
+  }, [presented, preset.id, takeQuiet]);
 
-  // A card under the pointer lights up its agent's node.
-  const fromCard = hovered?.source === 'card' ? hovered.agentId : null;
+  // A card under the pointer, or an agent chip, lights up its agent's node.
+  const [chipAgent, setChipAgent] = useState<string | null>(null);
+  const fromCard = chipAgent ?? (hovered?.source === 'card' ? hovered.agentId : null);
   useEffect(() => {
     renderer.current?.highlight(fromCard ? agentNodeId(fromCard) : null);
   }, [fromCard, graph]);
@@ -320,14 +660,98 @@ const SwarmGraph = ({ input, seatIds, engineIds, repoUrl, className }: SwarmGrap
       .reverse()
       .map((id) => colorById.get(id))
       .find(Boolean) ?? undefined;
-  const startReplay = () => {
+  /** The last 24 actively worked hours (or the whole run), from the state when it began. */
+  const startReplay = (mode: SwarmReplayMode = 'window') => {
+    const plan = planReplay(shownGraph.flows, shownGraph.hubId, {
+      mode,
+      durationMs: 60_000,
+      isMilestone: replayMilestone,
+    });
+    if (!plan.flows.length) return;
     setTicker([]);
-    setReplaying(true);
-    renderer.current?.replay(Math.min(45_000, Math.max(15_000, graph.flows.length * 250)));
+    groups.current.clear();
+    // The renderer reports the old replay stopping first; the new plan must land after that.
+    renderer.current?.replay(plan);
+    setReplayPlan(plan);
   };
   const stopReplay = () => {
     renderer.current?.stopReplay();
-    setReplaying(false);
+    setReplayPlan(null);
+    setReplay(null);
+  };
+  const replaySummary = useMemo(
+    () => (replayPlan ? summarizeReplay(replayPlan) : null),
+    [replayPlan],
+  );
+  /** Each engine's rating change still to come in the window, from the playhead to the end. */
+  const replayEnd = useMemo(
+    () =>
+      replayPlan
+        ? stateAt(replayPlan.seed, replayPlan.flows, replayPlan.flows.length, replayPlan.hubId)
+        : null,
+    [replayPlan],
+  );
+  const sectorColors = useMemo(
+    () =>
+      new Map(
+        graph.nodes.filter((n) => n.kind === 'sector').map((n) => [n.sectorId ?? '', n.color]),
+      ),
+    [graph],
+  );
+  const sectorLabels = useMemo(
+    () =>
+      new Map(
+        graph.nodes.filter((n) => n.kind === 'sector').map((n) => [n.sectorId ?? '', n.label]),
+      ),
+    [graph],
+  );
+  const replayClock = useCallback(() => renderer.current?.replayClock() ?? null, []);
+
+  // Node overlays: rating, live agents and latest game, in every preset.
+  const items = useMemo(() => new Map(merged.workItems.map((w) => [w.id, w])), [merged]);
+  const seatSet = useMemo(() => new Set(seatIds), [seatIds]);
+  const engineById = useMemo(
+    () => new Map(basisEngines.map((e) => [e.id as string, e])),
+    [basisEngines],
+  );
+  const anchor = useCallback(
+    (nodeId: string, el: HTMLElement | null) => renderer.current?.anchor(nodeId, el),
+    [],
+  );
+  const liveIn = (sectorId: string) =>
+    merged.agents
+      .filter((a) => a.status === 'working' && a.sector === sectorId)
+      .sort((a, b) => b.lastSeen.localeCompare(a.lastSeen));
+  const liveRatingOf = (e: EngineNode): NodeRating => {
+    const l = live.ratings[e.id];
+    return l && l.at > basisInput.asOf
+      ? { elo: l.elo, version: l.version, delta: l.delta, key: l.key }
+      : { elo: e.elo, version: e.version, delta: null, key: 0 };
+  };
+  /** During a replay a rating stands where it stood at the playhead and counts up from there. */
+  const ratingOf = (e: EngineNode): NodeRating => {
+    const now = liveRatingOf(e);
+    if (!replay || !replayPlan || !replayEnd || now.elo === null) return now;
+    const ahead = (replayEnd.rating[e.id] ?? 0) - (replay.snapshot.rating[e.id] ?? 0);
+    let last = -1;
+    for (let i = replay.index - 1; i >= 0; i--) {
+      const f = replayPlan.flows[i];
+      if (f.kind === 'rating' && f.sector === e.id && f.delta) {
+        last = i;
+        break;
+      }
+    }
+    return {
+      elo: now.elo - ahead,
+      version: now.version,
+      delta: last >= 0 ? replayPlan.flows[last].delta : null,
+      key: last + 1,
+    };
+  };
+  const boardOf = (e: EngineNode): EngineBoardSource | null => {
+    const l = live.games[e.id];
+    const g = l && (!e.latestGame || l.finishedAt > e.latestGame.finishedAt) ? l : e.latestGame;
+    return g ? { kind: 'finished', game: g } : null;
   };
 
   return (
@@ -355,9 +779,14 @@ const SwarmGraph = ({ input, seatIds, engineIds, repoUrl, className }: SwarmGrap
               Stop
             </Button>
           ) : (
-            <Button size="sm" onClick={startReplay} disabled={graph.flows.length === 0}>
+            <Button
+              size="sm"
+              onClick={() => startReplay('window')}
+              disabled={shownGraph.flows.length === 0 || catchUp !== null}
+              title="Play back the last 24 actively worked hours; choose the whole run on the timeline"
+            >
               <History className="size-3.5" aria-hidden="true" />
-              Replay run
+              Replay last 24 h
             </Button>
           )}
           <Button
@@ -372,28 +801,49 @@ const SwarmGraph = ({ input, seatIds, engineIds, repoUrl, className }: SwarmGrap
         </div>
       </div>
 
+      <PresetSwitch value={preset.id} onChange={choosePreset} />
+
       <PipelineBar stages={graph.totals.stages} />
 
       <div className="relative">
         <div ref={host} className="h-120 w-full sm:h-150" />
 
-        {replay && (
-          <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
-            <div className="rounded-md border border-line bg-panel-raised px-3 py-1.5 text-xs text-fg-2 shadow-lg">
-              Replaying ·{' '}
-              <span className="font-mono tabular text-fg">
-                {formatDay(replay.at)} {formatTime(replay.at)}
+        {sectors.map((n) => {
+          const engine = engineById.get(n.sectorId ?? '') ?? null;
+          return (
+            <SwarmNodeOverlay
+              key={n.id}
+              nodeId={n.id}
+              anchor={anchor}
+              engine={engine}
+              rating={engine ? ratingOf(engine) : null}
+              board={engine ? boardOf(engine) : null}
+              agents={liveIn(n.sectorId ?? '')}
+              items={items}
+              agentDetail={preset.agentDetail}
+              seatIds={seatSet}
+              reducedMotion={reducedMotion}
+              repoUrl={repoUrl}
+              onHighlight={setChipAgent}
+            />
+          );
+        })}
+
+        {catchUp?.phase === 'draining' && catchUp.left > 0 && !replay && (
+          <div
+            data-slot="swarm-catch-up"
+            className="absolute inset-x-0 top-3 flex justify-center"
+            role="status"
+          >
+            <div className="flex items-center gap-2 rounded-md border border-line bg-panel-raised py-1 pr-1 pl-3 text-xs text-fg-2 shadow-lg">
+              <span>
+                Catching up · <span className="font-mono tabular text-fg">{catchUp.left}</span>{' '}
+                event
+                {catchUp.left === 1 ? '' : 's'}
               </span>
-              <span className="text-fg-3">
-                {' '}
-                · {replay.index}/{replay.total}
-              </span>
-              <div className="mt-1 h-0.5 w-full overflow-hidden rounded bg-line">
-                <div
-                  className="h-full bg-fg-2 transition-[width] duration-200"
-                  style={{ width: `${(replay.index / replay.total) * 100}%` }}
-                />
-              </div>
+              <Button variant="ghost" size="xs" onClick={skip}>
+                Skip
+              </Button>
             </div>
           </div>
         )}
@@ -407,7 +857,7 @@ const SwarmGraph = ({ input, seatIds, engineIds, repoUrl, className }: SwarmGrap
               <li
                 key={t.key}
                 className={cn(
-                  'flex items-center gap-2 truncate rounded-md border border-line bg-panel-raised/90 px-2 py-1 text-xs shadow-md backdrop-blur-sm transition-opacity duration-500 animate-record-in',
+                  'flex items-center gap-2 truncate rounded-md border border-line bg-panel-raised/90 px-2 py-1 text-xs shadow-md backdrop-blur-sm transition-opacity duration-500 animate-record-in motion-reduce:animate-none',
                   i === 0 && t.kind === 'merge' && 'border-good/60',
                   i > 0 && 'opacity-80',
                   i > 2 && 'opacity-45',
@@ -428,7 +878,7 @@ const SwarmGraph = ({ input, seatIds, engineIds, repoUrl, className }: SwarmGrap
                 >
                   {FLOW_VERB[t.kind]}
                 </span>
-                <span className="truncate text-fg-2">{t.title}</span>
+                <span className="truncate text-fg-2">{t.line}</span>
                 {t.source === 'live' && (
                   <span className="ml-auto shrink-0 font-mono text-[10px] text-fg-3">
                     {ago(t.at)}
@@ -451,6 +901,24 @@ const SwarmGraph = ({ input, seatIds, engineIds, repoUrl, className }: SwarmGrap
           </div>
         )}
       </div>
+
+      {replayPlan && replay && replaySummary && (
+        <ReplayScrubber
+          plan={replayPlan}
+          state={replay}
+          summary={replaySummary}
+          colors={sectorColors}
+          labels={sectorLabels}
+          reducedMotion={reducedMotion}
+          clock={replayClock}
+          onSeek={(i) => renderer.current?.seek(i)}
+          onSeekTime={(ms) => renderer.current?.seekTime(ms)}
+          onPlaying={(p) => renderer.current?.setPlaying(p)}
+          onSpeed={(v) => renderer.current?.setSpeed(v)}
+          onMode={(m) => m !== replayPlan.mode && startReplay(m)}
+          onClose={stopReplay}
+        />
+      )}
 
       <ul className="relative flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line px-4 py-2.5 text-xs text-fg-3">
         {sectors.map((s) => (

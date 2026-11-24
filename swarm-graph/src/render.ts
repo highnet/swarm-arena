@@ -5,10 +5,19 @@
  *
  * Effort is drawn as motion: live agents stream particles into the work they hold, work flows
  * into its sector, sectors feed the integration branch, and every new event fires a spark from
- * whoever logged it to where it landed. `replay()` plays the whole event history back.
+ * whoever logged it to where it landed. `replay()` plays a planned window of the event history
+ * back (see `replay.ts`), from the state the graph had when that window opened.
  */
 import * as d3 from 'd3';
 import type { SwarmFlow, SwarmGraph, SwarmLink, SwarmNode, SwarmStage } from './model';
+import {
+  applyFlow,
+  indexAtTime,
+  planReplay,
+  stateAt,
+  type SwarmReplayPlan,
+  type SwarmReplaySnapshot,
+} from './replay';
 
 export type SwarmGraphTheme = {
   fg: string;
@@ -27,7 +36,21 @@ export type SwarmGraphTheme = {
   monoFont: string;
 };
 
-export type SwarmReplayState = { at: string; index: number; total: number };
+export type SwarmReplayState = {
+  /** Time of the last event played (the window's start before any has). */
+  at: string;
+  /** Events played so far. */
+  index: number;
+  total: number;
+  playing: boolean;
+  speed: number;
+  /** The playhead reached the end; the replay stays up until stopped. */
+  done: boolean;
+  /** The state at the playhead: seed plus the events played. */
+  snapshot: SwarmReplaySnapshot;
+  /** The real length of the idle pause just crossed, if the last event followed one. */
+  gapMs: number | null;
+};
 
 export type SwarmGraphRendererOptions = {
   theme?: Partial<SwarmGraphTheme>;
@@ -43,11 +66,38 @@ export type SwarmGraphRendererOptions = {
   title?: string;
 };
 
+export type SwarmUpdateOptions = {
+  /**
+   * Take the new graph without firing its unseen events: a host that changes which events it
+   * shows (a filter) passes this so the newly visible history does not spark as if it were new.
+   */
+  quiet?: boolean;
+};
+
 export type SwarmGraphRenderer = {
-  update: (graph: SwarmGraph) => void;
-  /** Play the event history back over `durationMs` (default 30 s). */
-  replay: (durationMs?: number) => void;
+  update: (graph: SwarmGraph, options?: SwarmUpdateOptions) => void;
+  /**
+   * Pin a host element to a node: every frame the renderer sets its CSS `transform` (from the
+   * container's top left, zoom and pan included) to sit beside the node on the side away from
+   * the centre, inside the canvas, and sets `data-side` to `left` or `right`. It is hidden while
+   * the node is not on the graph. `null` releases it. Hosts use this for HTML badges on nodes.
+   */
+  anchor: (nodeId: string, el: HTMLElement | null) => void;
+  /**
+   * Play a planned replay (`planReplay`), or the whole history over `durationMs` (default 30 s).
+   * The graph starts from the plan's seed state and ends at the live state.
+   */
+  replay: (plan?: SwarmReplayPlan | number) => void;
   stopReplay: () => void;
+  /** Pause or resume the running replay. */
+  setPlaying: (playing: boolean) => void;
+  setSpeed: (speed: number) => void;
+  /** Jump to the state after `index` events have played, and continue from there. */
+  seek: (index: number) => void;
+  /** Jump to a playback offset (ms) on the plan's schedule. */
+  seekTime: (ms: number) => void;
+  /** The playhead's offset (ms) on the plan's schedule, for a host animating a scrubber. */
+  replayClock: () => number | null;
   /**
    * Emphasise a node as if the pointer were on it, from outside the graph (a list item the
    * host links to it, say). `null` clears it. Does not call `onHover`, so hosts can mirror the
@@ -283,10 +333,15 @@ export const createSwarmGraph = (
   const gBursts = root.append('g').attr('pointer-events', 'none');
   const gFloaters = root.append('g').attr('pointer-events', 'none');
 
+  let view = d3.zoomIdentity;
   const zoom = d3
     .zoom<SVGSVGElement, unknown>()
     .scaleExtent([0.4, 3])
-    .on('zoom', (e) => root.attr('transform', e.transform.toString()));
+    .on('zoom', (e) => {
+      root.attr('transform', e.transform.toString());
+      view = e.transform;
+      placeAnchors();
+    });
   svg.call(zoom).on('dblclick.zoom', null);
 
   const setViewBox = () => svg.attr('viewBox', [-width / 2, -height / 2, width, height].join(' '));
@@ -304,7 +359,20 @@ export const createSwarmGraph = (
   const lastEmit = new Map<string, number>();
   let hovered: SimNode | null = null;
   let replayOverride: Map<string, number> | null = null;
-  let replayTimers: ReturnType<typeof setTimeout>[] = [];
+  type ReplayRun = {
+    plan: SwarmReplayPlan;
+    clock: number;
+    next: number;
+    playing: boolean;
+    speed: number;
+    done: boolean;
+    snap: SwarmReplaySnapshot;
+    last: number;
+    /** Effort changed since the nodes were last resized. */
+    dirty: boolean;
+    shownAt: number;
+  };
+  let run: ReplayRun | null = null;
   const liveTimers = new Set<ReturnType<typeof setTimeout>>();
 
   const colorOf = (n: SwarmNode) => n.color ?? theme.neutral;
@@ -1059,6 +1127,43 @@ export const createSwarmGraph = (
       });
   };
 
+  const anchors = new Map<string, HTMLElement>();
+  const placeAnchors = () => {
+    // Read every size first, then write every position: one layout per frame, not one per badge.
+    const placed = [...anchors].map(([id, el]) => ({
+      el,
+      n: nodeById.get(id),
+      w: el.offsetWidth,
+      h: el.offsetHeight,
+    }));
+    const pad = 4;
+    for (const { el, n, w, h } of placed) {
+      if (!n) {
+        el.style.visibility = 'hidden';
+        continue;
+      }
+      const cx = width / 2 + view.x + view.k * (n.x ?? 0);
+      const cy = height / 2 + view.y + view.k * (n.y ?? 0);
+      const r = view.k * n.r + 8;
+      // Beside the node, on the side away from the centre, so the middle of the graph stays
+      // clear; the other side when that one has no room. Kept inside the canvas vertically.
+      const outward = (n.x ?? 0) < 0 ? 'left' : 'right';
+      const fits = (side: string) =>
+        side === 'right' ? cx + r + w <= width - pad : cx - r - w >= pad;
+      const side = fits(outward) ? outward : outward === 'left' ? 'right' : 'left';
+      const x = side === 'right' ? cx + r : cx - r - w;
+      const y = Math.max(pad, Math.min(height - h - pad, cy - h / 2));
+      el.dataset.side = side;
+      el.style.visibility = 'visible';
+      el.style.transform = `translate(${Math.round(Math.max(pad, Math.min(width - w - pad, x)))}px, ${Math.round(y)}px)`;
+    }
+  };
+  const anchor = (nodeId: string, el: HTMLElement | null) => {
+    if (el) anchors.set(nodeId, el);
+    else anchors.delete(nodeId);
+    placeAnchors();
+  };
+
   const draw = () => {
     // Keep every node on the canvas, whatever the forces want.
     const pad = 14;
@@ -1090,6 +1195,7 @@ export const createSwarmGraph = (
       .attr('cy', (n) => n.y ?? 0)
       .attr('r', (n) => n.r + 5);
     layoutLabels();
+    placeAnchors();
   };
 
   // ---- motion ------------------------------------------------------------------------------
@@ -1122,20 +1228,15 @@ export const createSwarmGraph = (
         const hub = graph ? nodeById.get(graph.hubId) : undefined;
         if (hub) pop(hub, 0.8);
       } else if (flow.kind === 'milestone') celebrate(last, color, 10, 'milestone');
-      else if (flow.kind === 'reject') celebrate(last, color, 0, 'changes asked');
-      if (replayOverride) {
-        const sector =
-          last.kind === 'sector'
-            ? last
-            : last.sectorId
-              ? nodeById.get(`sector:${last.sectorId}`)
-              : undefined;
-        if (sector)
-          replayOverride.set(sector.id, (replayOverride.get(sector.id) ?? 0) + flow.weight);
-        if (flow.kind === 'merge' && graph)
-          replayOverride.set(graph.hubId, (replayOverride.get(graph.hubId) ?? 0) + flow.weight);
-        resize();
-      }
+      else if (flow.kind === 'rating' && flow.delta) {
+        pop(last, flow.delta > 0 ? 1.4 : 0.6);
+        celebrate(
+          last,
+          flow.delta > 0 ? theme.good : theme.fgMuted,
+          flow.delta > 0 ? 10 : 0,
+          `${flow.delta > 0 ? '+' : ''}${flow.delta}`,
+        );
+      } else if (flow.kind === 'reject') celebrate(last, color, 0, 'changes asked');
     };
     options.onFlow?.(flow, source);
     if (!motion) {
@@ -1216,6 +1317,7 @@ export const createSwarmGraph = (
   const timer = d3.timer(() => {
     const now = performance.now();
     ambient(now);
+    advanceReplay(now);
 
     const alive: Particle[] = [];
     for (const p of particles) {
@@ -1343,8 +1445,9 @@ export const createSwarmGraph = (
 
   // ---- public API --------------------------------------------------------------------------
 
-  const update = (next: SwarmGraph) => {
+  const update = (next: SwarmGraph, updateOptions: SwarmUpdateOptions = {}) => {
     const first = graph === null;
+    const quiet = first || Boolean(updateOptions.quiet);
     graph = next;
     const keep = new Set(next.nodes.map((n) => n.id));
     for (const id of [...nodeById.keys()]) if (!keep.has(id)) nodeById.delete(id);
@@ -1421,7 +1524,7 @@ export const createSwarmGraph = (
     for (const f of next.flows) {
       if (seenFlows.has(f.id)) continue;
       seenFlows.add(f.id);
-      if (first || replayOverride) continue;
+      if (quiet || replayOverride) continue;
       const t = setTimeout(() => {
         liveTimers.delete(t);
         fireFlow(f, 'live', performance.now());
@@ -1431,9 +1534,71 @@ export const createSwarmGraph = (
     }
   };
 
+  const replayState = (r: ReplayRun): SwarmReplayState => {
+    const i = r.next;
+    const gap = r.plan.gaps.find((g) => g.index === i - 1);
+    return {
+      at: r.plan.flows[i - 1]?.at ?? r.plan.startAt ?? new Date().toISOString(),
+      index: i,
+      total: r.plan.flows.length,
+      playing: r.playing,
+      speed: r.speed,
+      done: r.done,
+      snapshot: r.snap,
+      gapMs: gap ? gap.ms : null,
+    };
+  };
+  const emitReplay = () => {
+    if (run) options.onReplay?.(replayState(run));
+  };
+
+  /** Show a snapshot's effort on the nodes (sectors and hub grow as work lands). */
+  const showSnapshot = (snap: SwarmReplaySnapshot) => {
+    replayOverride = new Map(Object.entries(snap.effort));
+    resize();
+  };
+
+  /** Most events a single frame sparks; a bigger jump (a hidden tab) lands the rest silently. */
+  const FRAME_SPARKS = 6;
+  /** Node sizes follow the playback at most this often: resizing every node is the costly part. */
+  const RESIZE_MS = 160;
+
+  /** One frame of playback: move the clock and fire what it passed. */
+  const advanceReplay = (now: number) => {
+    const r = run;
+    if (!r) return;
+    const dt = Math.min(250, Math.max(0, now - r.last));
+    r.last = now;
+    if (!r.playing) return;
+    r.clock += dt * r.speed;
+    const due = indexAtTime(r.plan, r.clock);
+    if (due > r.next) {
+      const from = Math.max(r.next, due - FRAME_SPARKS);
+      for (let i = r.next; i < due; i++) {
+        const f = r.plan.flows[i];
+        applyFlow(r.snap, f, r.plan.hubId);
+        if (i >= from) fireFlow(f, 'replay', now);
+      }
+      r.next = due;
+      r.dirty = true;
+    }
+    // Hosts re-render on every state; the playhead itself glides on `replayClock()`.
+    if (r.dirty && (now - r.shownAt >= RESIZE_MS || r.clock >= r.plan.total)) {
+      r.dirty = false;
+      r.shownAt = now;
+      showSnapshot(r.snap);
+      emitReplay();
+    }
+    if (r.clock >= r.plan.total && !r.done) {
+      r.clock = r.plan.total;
+      r.playing = false;
+      r.done = true;
+      emitReplay();
+    }
+  };
+
   const stopReplay = () => {
-    replayTimers.forEach(clearTimeout);
-    replayTimers = [];
+    run = null;
     if (replayOverride) {
       replayOverride = null;
       particles = [];
@@ -1445,34 +1610,81 @@ export const createSwarmGraph = (
     }
   };
 
-  const replay = (durationMs = 30_000) => {
+  const replay = (planOrDuration: SwarmReplayPlan | number = 30_000) => {
     if (!graph) return;
     stopReplay();
-    const flows = graph.flows;
-    if (!flows.length) return;
-    replayOverride = new Map();
+    const plan =
+      typeof planOrDuration === 'number'
+        ? planReplay(graph.flows, graph.hubId, { mode: 'all', durationMs: planOrDuration })
+        : planOrDuration;
+    if (!plan.flows.length) return;
+    run = {
+      plan,
+      clock: 0,
+      next: 0,
+      playing: true,
+      speed: 1,
+      done: false,
+      snap: stateAt(plan.seed, [], 0, plan.hubId),
+      last: performance.now(),
+      dirty: false,
+      shownAt: 0,
+    };
     particles = [];
-    resize();
-    // Real time, compressed; long quiet gaps are squeezed so the replay never stalls.
-    const times = flows.map((f) => Date.parse(f.at));
-    const gaps = times.map((t, i) => (i === 0 ? 0 : Math.min(t - times[i - 1], 10 * 60_000)));
-    const span = gaps.reduce((a, b) => a + b, 0) || 1;
-    const scale = (durationMs - 1500) / span;
-    let at = 0;
-    flows.forEach((f, i) => {
-      at += gaps[i] * scale;
-      replayTimers.push(
-        setTimeout(
-          () => {
-            fireFlow(f, 'replay', performance.now());
-            options.onReplay?.({ at: f.at, index: i + 1, total: flows.length });
-          },
-          Math.max(i * 40, at),
-        ),
-      );
-    });
-    replayTimers.push(setTimeout(stopReplay, Math.max(flows.length * 40, at) + 1600));
+    showSnapshot(run.snap);
+    renderStatic();
+    emitReplay();
   };
+
+  const setPlaying = (playing: boolean) => {
+    if (!run) return;
+    if (playing && run.done) {
+      // Play after the end starts over from the window's beginning.
+      seek(0);
+      run.done = false;
+    }
+    run.playing = playing;
+    run.last = performance.now();
+    emitReplay();
+  };
+
+  const setSpeed = (speed: number) => {
+    if (!run) return;
+    run.speed = Math.max(0.25, Math.min(8, speed));
+    emitReplay();
+  };
+
+  const jump = (index: number, clock: number) => {
+    const r = run;
+    if (!r) return;
+    const i = Math.max(0, Math.min(index, r.plan.flows.length));
+    r.next = i;
+    r.clock = clock;
+    r.done = false;
+    r.snap = stateAt(r.plan.seed, r.plan.flows, i, r.plan.hubId);
+    r.last = performance.now();
+    r.dirty = false;
+    r.shownAt = r.last;
+    particles = [];
+    bursts = [];
+    floaters = [];
+    showSnapshot(r.snap);
+    emitReplay();
+  };
+
+  const seek = (index: number) => {
+    if (!run) return;
+    const i = Math.max(0, Math.min(index, run.plan.flows.length));
+    jump(i, i > 0 ? run.plan.times[i - 1] : -1);
+  };
+
+  const seekTime = (ms: number) => {
+    if (!run) return;
+    const clock = Math.max(-1, Math.min(ms, run.plan.total));
+    jump(indexAtTime(run.plan, clock), clock);
+  };
+
+  const replayClock = () => (run ? Math.max(0, run.clock) : null);
 
   const highlight = (nodeId: string | null) => {
     const next = nodeId ? (nodeById.get(nodeId) ?? null) : null;
@@ -1499,7 +1711,7 @@ export const createSwarmGraph = (
   observer.observe(container);
 
   const destroy = () => {
-    replayTimers.forEach(clearTimeout);
+    run = null;
     liveTimers.forEach(clearTimeout);
     timer.stop();
     simulation.stop();
@@ -1507,5 +1719,18 @@ export const createSwarmGraph = (
     svg.remove();
   };
 
-  return { update, replay, stopReplay, highlight, reset, destroy };
+  return {
+    update,
+    anchor,
+    replay,
+    stopReplay,
+    setPlaying,
+    setSpeed,
+    seek,
+    seekTime,
+    replayClock,
+    highlight,
+    reset,
+    destroy,
+  };
 };

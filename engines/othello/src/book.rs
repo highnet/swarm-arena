@@ -15,7 +15,7 @@ use crate::{evaluate, ordered, Search, INF};
 use othello::Game;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::io::{self, BufRead, Write};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const BOOK: &[u8] = include_bytes!("../book/othello-book.bin");
 const RECORD: usize = 19;
@@ -160,12 +160,7 @@ pub fn layers(plies: &[u32]) -> BTreeSet<(u64, u64)> {
 pub fn fixed_depth(g: &Game, depth: u32) -> (usize, i32, u64) {
     let avail = g.available_moves();
     let mut best = ordered(avail, None)[0];
-    let mut s = Search {
-        start: Instant::now(),
-        deadline: Duration::from_secs(1 << 30),
-        nodes: 0,
-        stopped: false,
-    };
+    let mut s = Search::new(Duration::from_secs(1 << 30), None);
     let mut score = 0;
     for d in 1..=depth {
         let mut alpha = -INF;
