@@ -54,6 +54,15 @@ import { SwarmNodeOverlay, type NodeRating } from './SwarmNodeOverlay';
 
 const TICKER = 5;
 
+/**
+ * When this page load first showed the graph. Coming back to the fleet page later in the same
+ * visit (a client-side route change) plays the short intro; a remount straight away (React's
+ * development double-mount) still gets the full one.
+ */
+let introShownAt: number | null = null;
+const introMode = () =>
+  introShownAt !== null && performance.now() - introShownAt > 1500 ? 'short' : 'full';
+
 /** What a replay dwells on: merges, rungs cleared and rating changes (not every match ending). */
 const replayMilestone = (f: SwarmFlow) =>
   f.kind === 'merge' || f.sub === 'rung' || (f.kind === 'rating' && Boolean(f.delta));
@@ -575,6 +584,7 @@ const SwarmGraph = ({
     const r = createSwarmGraph(el, {
       title: 'Agents and the sectors of the codebase they are working in',
       reducedMotion: reduced,
+      intro: introMode(),
       onHover: (node, point) => {
         setHover(node && point ? { node, ...point, width: el.clientWidth } : null);
         // Mirror the graph's hover onto the fleet's cards.
@@ -643,6 +653,7 @@ const SwarmGraph = ({
     const quiet = takeQuiet() || lastPreset.current !== preset.id;
     lastPreset.current = preset.id;
     renderer.current?.update(presented, { quiet });
+    if (renderer.current && presented.nodes.length > 0) introShownAt ??= performance.now();
   }, [presented, preset.id, takeQuiet]);
 
   // A card under the pointer, or an agent chip, lights up its agent's node.
