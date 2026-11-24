@@ -22,6 +22,7 @@ import { getMergedPulls, getRallypoint, REPO_URL } from '@/lib/github';
 import { pageMeta } from '@/lib/site';
 import { engineNodes, toSwarmInput } from '@/lib/swarmGraph';
 import { cn } from '@/lib/utils';
+import { snapshotAsOf, workingNow } from '@/lib/working';
 
 export const metadata: Metadata = pageMeta(
   'Fleet',
@@ -181,7 +182,7 @@ const FleetContent = async ({ searchParams }: FleetContentProps) => {
     liveGames(),
     getMergedPulls(),
   ]);
-  const asOf = s.asOf ?? new Date().toISOString();
+  const asOf = snapshotAsOf(s);
   const slots = Object.fromEntries(s.tracks.map((t) => [t.id, t.color_slot])) as Partial<
     Record<GameId, number>
   >;
@@ -191,12 +192,7 @@ const FleetContent = async ({ searchParams }: FleetContentProps) => {
       .filter((r) => r.agent_id === id && r.kind !== 'task_opened')
       .sort((a, b) => b.at.localeCompare(a.at))
       .slice(0, 4);
-  const seats = [...s.agents].sort(
-    (a, b) =>
-      Number(b.status === 'working') - Number(a.status === 'working') ||
-      b.last_seen.localeCompare(a.last_seen),
-  );
-  const working = seats.filter((a) => isLive(a, asOf));
+  const working = workingNow(s, rp.items).map((w) => w.agent);
 
   return (
     <FleetHoverProvider>

@@ -1,7 +1,7 @@
 import { Suspense, type ReactNode } from 'react';
 import Link from 'next/link';
 import { ArrowRight, ArrowUpRight } from 'lucide-react';
-import type { Snapshot } from '@arena/shared';
+import type { GameId, Snapshot } from '@arena/shared';
 import { EngineFeature } from '@/components/arena/EngineFeature';
 import { GameReplay } from '@/components/arena/GameReplay';
 import { ReplayHold } from '@/components/arena/ReplayHold';
@@ -19,11 +19,13 @@ import { Typography } from '@/components/ui/Typography';
 import { getSnapshot } from '@/lib/data';
 import { counters, latestGame, snapshotNow, trackSummaries } from '@/lib/derive';
 import { formatDay, formatElo, formatInt } from '@/lib/format';
+import { getRallypoint } from '@/lib/github';
 import { getNews, newsHref } from '@/lib/news';
 import { PAGES, type PageKey } from '@/lib/pages';
 import { gameHref, matchHref } from '@/lib/routes';
 import { SERIES } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
+import { workingNow } from '@/lib/working';
 
 const CHAPTERS: SectionNavItem[] = [
   { id: 'overview', label: 'Overview' },
@@ -109,9 +111,13 @@ const QuietLink = ({ href, children, external, className }: QuietLinkProps) => {
 };
 
 const HomeContent = async () => {
-  const [s, news] = await Promise.all([getSnapshot(), getNews()]);
+  // Rallypoint items: the same cached read the fleet graph uses, to name what each agent is on.
+  const [s, news, rp] = await Promise.all([getSnapshot(), getNews(), getRallypoint()]);
   const now = snapshotNow(s);
   const tracks = trackSummaries(s);
+  const slots = Object.fromEntries(s.tracks.map((t) => [t.id, t.color_slot])) as Partial<
+    Record<GameId, number>
+  >;
   const c = counters(s);
   const game = latestGame(s);
   const gameMatch = game ? s.matches.find((m) => m.id === game.match_id) : null;
@@ -153,7 +159,7 @@ const HomeContent = async () => {
       {/* 2 · Right now: who is at work, and the latest event. */}
       <Section id="now" labelledBy="now-title" tone="band" space="compact">
         <SectionHeading id="now-title" title="Right now" className="mb-10 sm:mb-12" />
-        <RightNow s={s} />
+        <RightNow s={s} working={workingNow(s, rp.items)} slots={slots} />
       </Section>
 
       {/* 3 · The engines: each given room. */}

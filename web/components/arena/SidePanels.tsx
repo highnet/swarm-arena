@@ -16,7 +16,7 @@ import { ideaHref, recordHref, taskHref } from '@/lib/routes';
 import { SERIES, SHORT_NAME } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
 import { AgentTag } from './AgentAvatar';
-import { liveAgents, shownStatus } from './seats';
+import { bySeatStatus, liveAgents, shownStatus, STALE_TITLE } from './seats';
 import { TaskTypeChip } from './TaskChips';
 
 type Slots = Partial<Record<GameId, number>>;
@@ -251,12 +251,7 @@ const STATUS_DOT: Record<ReturnType<typeof shownStatus>, string> = {
 
 /** Every seat in the swarm, working ones first. */
 const Fleet = ({ agents, asOf, slots }: FleetProps) => {
-  const order = ['working', 'stale', 'idle', 'stopped'];
-  const sorted = [...agents].sort(
-    (a, b) =>
-      order.indexOf(shownStatus(a, asOf)) - order.indexOf(shownStatus(b, asOf)) ||
-      a.seat.localeCompare(b.seat),
-  );
+  const sorted = [...agents].sort(bySeatStatus(asOf));
   const working = liveAgents(agents, asOf).length;
   return (
     <Panel
@@ -290,11 +285,7 @@ const Fleet = ({ agents, asOf, slots }: FleetProps) => {
               )}
               <span
                 className="w-14 shrink-0 text-right text-xs text-fg-3"
-                title={
-                  shownStatus(a, asOf) === 'stale'
-                    ? 'Says it is working, but has not been heard from in 45 minutes'
-                    : undefined
-                }
+                title={shownStatus(a, asOf) === 'stale' ? STALE_TITLE : undefined}
               >
                 {shownStatus(a, asOf)}
               </span>
