@@ -29,7 +29,7 @@ const HomeBackdrop = () => {
   return (
     <div
       aria-hidden="true"
-      className="bleed-full pointer-events-none absolute inset-0 -z-10 overflow-hidden home-backdrop-mask max-md:opacity-70"
+      className="bleed-full pointer-events-none absolute inset-0 -z-10 overflow-hidden home-backdrop-mask"
     >
       {ready && <HomeBackdropScene />}
     </div>

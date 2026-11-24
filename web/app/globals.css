@@ -645,3 +645,8 @@ a {
     linear-gradient(to right, rgb(0 0 0 / 0.25) 20%, black 80%);
   mask-composite: intersect;
 }
+@media (width < 48rem) {
+  .home-backdrop-mask {
+    mask-image: linear-gradient(to bottom, black 20%, transparent 50%);
+  }
+}

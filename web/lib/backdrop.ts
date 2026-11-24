@@ -8,24 +8,25 @@
 
 export type Vec3 = [number, number, number];
 
-/** One board: hairlines as segment pairs, optional filled quads, and the points motes visit. */
+/** One board: hairlines as segment pairs, and the points motes visit. */
 export type BoardShape = {
   /** Series slot (0 chess, 1 go9, 2 othello, 3 hex), read from `--series-<slot+1>`. */
   slot: number;
   /** Flat list of segment endpoints: x0 y0 z0 x1 y1 z1 … */
   lines: number[];
-  /** Quads as four corners each (chess squares). */
-  quads: Vec3[][];
   /** Cell centres or intersections, in world space. */
   anchors: Vec3[];
 };
 
-/** Where each board lies: x, z and a yaw (radians). Near boards right, far ones across. */
+/**
+ * Where each board lies: x, z and a yaw (radians). All four sit right of the text column, one
+ * board's width apart, at four depths, so each game reads and none is the subject.
+ */
 export const LAYOUT: { x: number; z: number; yaw: number }[] = [
-  { x: 12.5, z: -11, yaw: 0.32 },
-  { x: 0, z: -21, yaw: -0.22 },
-  { x: 20, z: -24, yaw: 0.12 },
-  { x: 10, z: -34, yaw: -0.38 },
+  { x: 11, z: -10, yaw: 0.3 },
+  { x: 23, z: -17, yaw: -0.2 },
+  { x: 8, z: -24, yaw: 0.14 },
+  { x: 21, z: -32, yaw: -0.34 },
 ];
 
 /** One full drift of the field, and one hop of a mote (travel then rest), in milliseconds. */
@@ -72,10 +73,9 @@ const grid = (n: number, size: number): Vec3[] => {
   return out;
 };
 
-const build = (slot: number, local: Vec3[], quads: Vec3[][], anchors: Vec3[]): BoardShape => ({
+const build = (slot: number, local: Vec3[], anchors: Vec3[]): BoardShape => ({
   slot,
   lines: local.flatMap((p) => place(p, slot)),
-  quads: quads.map((q) => q.map((p) => place(p, slot))),
   anchors: anchors.map((p) => place(p, slot)),
 });
 
@@ -88,23 +88,8 @@ const cells = (n: number, size: number): Vec3[] => {
   return out;
 };
 
-/** Chess: an 8×8 frame with the dark squares filled. */
-const chess = (): BoardShape => {
-  const quads: Vec3[][] = [];
-  for (let i = 0; i < 8; i++)
-    for (let j = 0; j < 8; j++)
-      if ((i + j) % 2 === 1) {
-        const x = i - 4;
-        const z = j - 4;
-        quads.push([
-          [x, 0, z],
-          [x + 1, 0, z],
-          [x + 1, 0, z + 1],
-          [x, 0, z + 1],
-        ]);
-      }
-  return build(0, grid(9, 8), quads, cells(8, 8));
-};
+/** Chess: an 8×8 board of squares, hairlines only. */
+const chess = (): BoardShape => build(0, grid(9, 8), cells(8, 8));
 
 /** Go: nine lines each way and the five star points. */
 const go = (): BoardShape => {
@@ -119,7 +104,7 @@ const go = (): BoardShape => {
     lines.push(...ring(x, z, 0.12, 8));
   const anchors: Vec3[] = [];
   for (let i = 0; i < 9; i++) for (let j = 0; j < 9; j++) anchors.push([i - 4, 0, j - 4]);
-  return build(1, lines, [], anchors);
+  return build(1, lines, anchors);
 };
 
 /** Othello: an 8×8 frame and the four discs it opens with. */
@@ -132,7 +117,7 @@ const othello = (): BoardShape => {
     [0.5, -0.5],
   ])
     lines.push(...ring(x, z, 0.38, 20));
-  return build(2, lines, [], cells(8, 8));
+  return build(2, lines, cells(8, 8));
 };
 
 /** Hex: an 11×11 rhombus of hexagons, centred. */
@@ -157,7 +142,7 @@ const hex = (): BoardShape => {
         );
       }
     }
-  return build(3, lines, [], anchors);
+  return build(3, lines, anchors);
 };
 
 export const boards = (): BoardShape[] => [chess(), go(), othello(), hex()];
@@ -169,6 +154,10 @@ const smooth = (u: number) => u * u * (3 - 2 * u);
  * hop crosses from one game to the next, the way an idea is carried across the four.
  */
 export const stopBoard = (n: number, mote: number, k: number) => (mote + k) % n;
+
+/** The board mote `m` is heading for (or resting on) at time `t`: it takes that game's colour. */
+export const moteBoard = (n: number, m: number, t: number) =>
+  stopBoard(n, m, Math.max(0, Math.floor(t / HOP_MS + m / MOTES)) + 1);
 
 /** The anchor a mote rests on during hop `k`: a seeded cell of that hop's board. */
 const stop = (shapes: BoardShape[], mote: number, k: number) => {
@@ -202,13 +191,15 @@ export const driftAngle = (t: number) => 0.06 * Math.sin((2 * Math.PI * t) / DRI
 
 /** Camera framing for a viewport: narrow screens step back and centre the field. */
 export const framing = (width: number, height: number) => {
+  // Phones: the text fills the band, so the field sits high, above and behind the headline,
+  // and the mask fades it out before the intro and the actions.
   const narrow = width < 768;
   return {
     fov: 36,
-    position: (narrow ? [8, 20, 12] : [2, 11, 10]) as Vec3,
-    target: (narrow ? [10, 0, -26] : [7, 0, -18]) as Vec3,
+    position: (narrow ? [16, 40, 14] : [2, 11, 10]) as Vec3,
+    target: (narrow ? [16, 0, -6] : [7, 0, -18]) as Vec3,
     aspect: width / Math.max(1, height),
-    fogNear: narrow ? 22 : 16,
-    fogFar: narrow ? 64 : 58,
+    fogNear: narrow ? 36 : 16,
+    fogFar: narrow ? 80 : 58,
   };
 };

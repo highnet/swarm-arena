@@ -12,6 +12,7 @@ import {
   MOTES,
   boards,
   driftAngle,
+  moteBoard,
   motePosition,
   stopBoard,
 } from './backdrop';
@@ -24,7 +25,6 @@ test('one board per game, in series order, with the cells each game is played on
     b.map((s) => s.slot),
     [0, 1, 2, 3],
   );
-  assert.equal(b[0].quads.length, 32, 'chess fills the 32 dark squares');
   assert.equal(b[0].anchors.length, 64);
   assert.equal(b[1].anchors.length, 81, 'go is played on 9×9 intersections');
   assert.equal(b[2].anchors.length, 64);
@@ -53,6 +53,21 @@ test('boards lie flat on one floor and do not overlap', () => {
 test('each hop carries a mote from one game to the next', () => {
   for (let m = 0; m < MOTES; m++)
     for (let k = 0; k < 50; k++) assert.notEqual(stopBoard(4, m, k), stopBoard(4, m, k + 1));
+});
+
+test('a mote wears the colour of the game it is heading for', () => {
+  const b = boards();
+  for (let m = 0; m < MOTES; m++)
+    for (const u of [0.2, 0.9]) {
+      const t = (7 - m / MOTES + u) * HOP_MS;
+      const p = motePosition(b, m, t);
+      const dest = b[moteBoard(4, m, t)];
+      if (u === 0.9)
+        assert.ok(
+          dest.anchors.some((a) => a[0] === p[0] && a[2] === p[2]),
+          'rests on it',
+        );
+    }
 });
 
 test('motes are a pure function of time, rest on cells and rise between boards', () => {

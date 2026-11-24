@@ -2,15 +2,24 @@
 
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { MOTES, boards, driftAngle, framing, motePosition, type BoardShape } from '@/lib/backdrop';
+import {
+  MOTES,
+  boards,
+  driftAngle,
+  framing,
+  moteBoard,
+  motePosition,
+  type BoardShape,
+} from '@/lib/backdrop';
 
 /** Frames drawn per second while the field drifts: the motion is slow enough that 30 is smooth. */
 const FRAME_MS = 1000 / 30;
 const MAX_DPR = 1.5;
-/** Hairline and fill strengths. Kept low so the headline keeps AA over the brightest frame. */
-const LINE_OPACITY = 0.26;
-const FILL_OPACITY = 0.05;
-const MOTE_OPACITY = 0.6;
+/** Hairline and mote strengths. Kept low so the text keeps AA over the brightest frame. */
+const LINE_OPACITY = 0.3;
+const MOTE_OPACITY = 0.85;
+/** Mote diameter in CSS pixels. */
+const MOTE_SIZE = 4;
 
 /** The host also carries a frame count and mean draw time, read by the browser check only. */
 type BackdropHost = HTMLDivElement & { backdropFrames?: number; backdropFrameMs?: number };
@@ -46,12 +55,18 @@ const lineGeometry = (shape: BoardShape) => {
   return g;
 };
 
-const quadGeometry = (shape: BoardShape) => {
-  const pts: number[] = [];
-  for (const [a, b, c, d] of shape.quads) pts.push(...a, ...b, ...c, ...a, ...c, ...d);
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-  return g;
+/** A round dot, drawn here so the scene loads nothing from the network. */
+const dotTexture = () => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 32;
+  const ctx = c.getContext('2d');
+  if (ctx) {
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(16, 16, 14, 0, 2 * Math.PI);
+    ctx.fill();
+  }
+  return new THREE.CanvasTexture(c);
 };
 
 const cameraFor = (w: number, h: number) => {
@@ -101,10 +116,24 @@ const SERIES_STROKE = [
   'stroke-series-4',
 ] as const;
 
+const SERIES_FILL = ['fill-series-1', 'fill-series-2', 'fill-series-3', 'fill-series-4'] as const;
+
+/** The motes where the clock starts, so the still picture carries them too. */
+const projectMotes = (shapes: BoardShape[], w: number, h: number) => {
+  const { camera } = cameraFor(w, h);
+  camera.updateMatrixWorld();
+  return Array.from({ length: MOTES }, (_, m) => {
+    const v = new THREE.Vector3(...motePosition(shapes, m, 0)).project(camera);
+    return { m, x: ((v.x + 1) / 2) * w, y: ((1 - v.y) / 2) * h, slot: moteBoard(4, m, 0) };
+  });
+};
+
 type StaticFieldProps = { width: number; height: number };
 
 const StaticField = ({ width, height }: StaticFieldProps) => {
-  const strokes = projectStrokes(boards(), width, height);
+  const shapes = boards();
+  const strokes = projectStrokes(shapes, width, height);
+  const motes = projectMotes(shapes, width, height);
   return (
     <svg
       viewBox={`0 0 ${width} ${height}`}
@@ -115,6 +144,17 @@ const StaticField = ({ width, height }: StaticFieldProps) => {
     >
       {strokes.map((s) => (
         <path key={s.slot} d={s.d} className={SERIES_STROKE[s.slot]} opacity={s.opacity} />
+      ))}
+      {motes.map((p) => (
+        <circle
+          key={`m${p.m}`}
+          cx={p.x}
+          cy={p.y}
+          r={MOTE_SIZE / 2}
+          className={SERIES_FILL[p.slot]}
+          stroke="none"
+          opacity={MOTE_OPACITY}
+        />
       ))}
     </svg>
   );
@@ -182,7 +222,6 @@ const HomeBackdropScene = () => {
 
     const shapes = boards();
     const lineMats: THREE.LineBasicMaterial[] = [];
-    const fillMats: THREE.MeshBasicMaterial[] = [];
     for (const s of shapes) {
       const lm = new THREE.LineBasicMaterial({
         transparent: true,
@@ -191,39 +230,34 @@ const HomeBackdropScene = () => {
       });
       lineMats[s.slot] = lm;
       field.add(new THREE.LineSegments(lineGeometry(s), lm));
-      if (s.quads.length) {
-        const fm = new THREE.MeshBasicMaterial({
-          transparent: true,
-          opacity: FILL_OPACITY,
-          depthWrite: false,
-          side: THREE.DoubleSide,
-        });
-        fillMats[s.slot] = fm;
-        field.add(new THREE.Mesh(quadGeometry(s), fm));
-      }
     }
 
     const motePos = new Float32Array(MOTES * 3);
     const moteGeo = new THREE.BufferGeometry();
+    const moteCol = new Float32Array(MOTES * 3);
     moteGeo.setAttribute('position', new THREE.BufferAttribute(motePos, 3));
+    moteGeo.setAttribute('color', new THREE.BufferAttribute(moteCol, 3));
+    const dot = dotTexture();
     const moteMat = new THREE.PointsMaterial({
-      size: 3,
+      size: MOTE_SIZE,
       sizeAttenuation: false,
+      map: dot,
+      alphaTest: 0.5,
+      vertexColors: true,
       transparent: true,
       opacity: MOTE_OPACITY,
       depthWrite: false,
     });
+    const series: THREE.Color[] = [];
     field.add(new THREE.Points(moteGeo, moteMat));
 
     const paint = () => {
       // Fog fades far boards into the ground they sit on; the canvas itself stays transparent.
       fog.color.copy(tokens.read('bg'));
       shapes.forEach((s) => {
-        const c = tokens.read(`series-${s.slot + 1}`);
-        lineMats[s.slot].color.copy(c);
-        fillMats[s.slot]?.color.copy(c);
+        series[s.slot] = tokens.read(`series-${s.slot + 1}`);
+        lineMats[s.slot].color.copy(series[s.slot]);
       });
-      moteMat.color.copy(tokens.read('line-strong'));
     };
     paint();
 
@@ -247,8 +281,13 @@ const HomeBackdropScene = () => {
     let spent = 0;
     const render = () => {
       field.rotation.y = driftAngle(clock);
-      for (let m = 0; m < MOTES; m++) motePos.set(motePosition(shapes, m, clock), m * 3);
+      for (let m = 0; m < MOTES; m++) {
+        motePos.set(motePosition(shapes, m, clock), m * 3);
+        // Each mote takes the colour of the game it is carrying the idea to.
+        series[moteBoard(shapes.length, m, clock)].toArray(moteCol, m * 3);
+      }
       moteGeo.attributes.position.needsUpdate = true;
+      moteGeo.attributes.color.needsUpdate = true;
       // A few pixels of parallax from the pointer, eased; nothing follows the cursor.
       pointer.x += (pointer.tx - pointer.x) * 0.04;
       camera.position.x = baseX + pointer.x * 0.35;
@@ -350,10 +389,10 @@ const HomeBackdropScene = () => {
       darkQuery.removeEventListener('change', onTheme);
       motionQuery.removeEventListener('change', onMotion);
       scene.traverse((o) => {
-        if (o instanceof THREE.Mesh || o instanceof THREE.LineSegments || o instanceof THREE.Points)
-          o.geometry.dispose();
+        if (o instanceof THREE.LineSegments || o instanceof THREE.Points) o.geometry.dispose();
       });
-      [...lineMats, ...fillMats.filter(Boolean), moteMat].forEach((m) => m.dispose());
+      [...lineMats, moteMat].forEach((m) => m.dispose());
+      dot.dispose();
       tokens.dispose();
       renderer.dispose();
       renderer.domElement.remove();
