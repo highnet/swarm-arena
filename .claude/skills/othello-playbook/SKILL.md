@@ -95,6 +95,49 @@ One thread, modest memory, and every reply within the `go <ms>` budget (200 ms i
   ~140 ms solve window of a go-200 move, so N stays 14. The spec's "16-20 empties in
   200 ms" needs a TT and/or faster move generation than the crate's `make_move` per child.
 
+## Candidate (not shipped): self-generated opening book (task #109)
+
+Move into "Architecture now" only once the referee passes it.
+
+- `src/book.rs`. `best_move()` probes the book first and plays the stored move instantly; a miss
+  falls back to the normal search. The book is embedded with `include_bytes!` from
+  `book/othello-book.bin` (19-byte records sorted by position: me u64, opp u64, move u8,
+  score i16; binary search, no allocation). Every probe result is checked against
+  `available_moves()`.
+- **Keyed by canonical position**, not move sequence: the smallest (me, opp) pair over the
+  board's 8 symmetries (rank flip = `swap_bytes`, file flip, a1-h8 transpose, and their
+  compositions; tested against a square-by-square reference). Transpositions and mirrored
+  openings share one entry; the stored move is mapped back through the same symmetry.
+- **What it covers.** Two parts. (1) A tree built for #103's 4-ply random openings: all
+  **382 canonical positions** at plies 4-5, *every* opponent reply after each book move (2237),
+  then the **2 best replies by our own depth-6 search** up to ply 9 (`replies_followed`,
+  `MAX_PLY`): 6971 entries. (2) Since #125 the gate plays 6-ply lines from the balanced suite
+  (`shared/src/openings/othello.txt`), so the engine first moves at ply 6 (Black) or 7 (White),
+  which part (1) mostly misses (it only holds ply-6/7 positions reached through its own book
+  moves). So the book also stores **every canonical position at plies 6 and 7** as a leaf
+  (`COVER_PLIES`: 1773 + 10649, no follow-ups): any 6-ply opening, not just the suite's 200,
+  gets an instant first move. Nothing comes from Edax or an external book: replies are ranked
+  and moves chosen by this engine's search only.
+- **How it was built** (regenerate with `othello/book/generate.sh [shards]` from `engines/`):
+  `fixed_depth()` = the engine's own iterative-deepening negamax and `evaluate()`, no clock.
+  Tree depth 12 at plies 4-5 (`book_depth`), 11 below; cover-only positions 11 at ply 6, 10 at
+  ply 7 (`cover_depth`); a `go 200` search reaches 8-9 there. `book frontier` prints each
+  missing position with its depth, so the book is deterministic whatever the shard count. Cost
+  on this machine (4 shards as separate processes; the crate may not use threads): depth 10
+  0.35 s/position, 11 ~1.4 s alone (~2 s with 4 shards running), 12 ~4.6 s. Tree: 382 roots
+  ~7 min, 2237 ~20 min, 4352 ~40 min; cover: 10185 new positions ~40 min. `book/entries.txt`
+  is the readable source (me, opp hex, move index, score, depth); the script resumes from it.
+  Size: 17156 entries (6971 tree + 10185 cover-only), 325 964 bytes embedded.
+- **Rebuild after packing**: the book is `include_bytes!`, so a binary built before `pack` still
+  plays the old book (one local match was wasted that way; `generate.sh` now rebuilds last).
+- Hit rate: `othello-engine book stats [opening plies]` (default 6) reads `b|w move…` game lines
+  and reports the engine's in-book plies per game and its first out-of-book ply. Local, suite
+  openings, seed 109, 40 games each (not referee evidence): vs main +21 −17 =2, vs Edax 4
+  +19 −19 =2; **1.2 in-book plies per game** (every game's first move, then the tree sometimes);
+  first out-of-book ply 8-9 in 32 of 40 games, 10-11 in the rest. With the pre-cover book
+  (6971 entries) the same games gave 0.4 per game and 16-22 vs Edax 4. Deeper coverage after
+  ply 7 is the obvious next step but costs ~6x per extra ply (67 245 canonical positions at ply 8).
+
 ## Ideas worth trying
 
 - Resubmit the #44 transposition table (see "What failed": its burial was judged against v0.2's
@@ -278,3 +321,4 @@ differently. Never re-propose an idea from this list unchanged.
 - 2026-11-23 18:29 UTC · v0.3 passed the referee · Resubmit #67: potential mobility + edge-anchored stable discs, measured on the fixed gate · rated 1265 (+92 vs v0.2 on the same rung)
 - 2026-11-23 19:34 UTC · buried · Exact endgame solver: search to the final disc count once few empties remain · Rated 541 ± 485, not above 1265.
 - 2026-11-23 20:14 UTC · v0.4 passed the referee · Resubmit #94's exact endgame solver on the varied-opening gate · rated 1317 (+52)
+- 2026-11-24 08:50 UTC · v0.5 passed the referee · Self-generated opening book: the engine's own long searches over the first moves, probed instantly · rated 1274 (+81 vs v0.4 on the same rung)
