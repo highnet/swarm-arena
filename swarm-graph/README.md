@@ -76,6 +76,13 @@ It follows the protocol. **Nothing reaches the integration branch except a merge
   with the ring once and glides there; resizing back brings each node home exactly. A dragged node
   moves alone and stays where it is dropped. `node scripts/calm-check.mjs` checks all of it in
   Chromium (`--src <dir>` measures another checkout, for before/after numbers).
+- **Readable sizes (#221).** Sectors grow with effort inside a bounded range (default radius 26
+  to 40, at most about 1.6×; `sectorRadius` overrides it) and show their count as text; the layout
+  reserves each sector's largest size, so growing never pushes a neighbour. Agents are at least
+  24 px across (room for a 16–20 px icon), work items at least 14 px, and no node name, sub-line
+  or glyph is drawn under 11 px (`MIN_LABEL_PX`) at the default zoom; long branch names are
+  truncated, with the full name on hover. Nothing springs or wobbles: growth and pulses use one
+  ease-out.
 - **View changes hold still.** `update(graph, { view: true })` says the same data is seen another
   way (the site's preset switch, whose `Everything` keeps dead nodes longer): the nodes both views
   show stay where they are while the others fade in or out. With `reducedMotion` the switch is

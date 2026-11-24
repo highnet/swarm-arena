@@ -44,7 +44,7 @@ const bundle = await build({
 });
 
 const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+const page = await browser.newPage({ viewport: { width: 1280, height: 880 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(String(e)));
 await page.setContent(
@@ -338,7 +338,43 @@ const results = await page.evaluate(async () => {
   });
   sampling = false;
   r.destroy();
-  return { out, moved };
+
+  // Sizes (#221): with very unequal effort, the largest sector is at most 1.6× the smallest;
+  // agents have room for a 16–20 px icon; no label, sub-line or glyph renders under 11 px.
+  el.innerHTML = '';
+  const sized = createSwarmGraph(el, { intro: 'none' });
+  const heavy = base();
+  heavy.events = Array.from({ length: 400 }, (_, k) => ({
+    id: `heavy-${k}`,
+    at: at(-500 + k),
+    kind: k % 4 === 3 ? 'merge' : 'progress',
+    agent: 'chess-w',
+    sector: 'chess',
+    workItem: 'chess-b',
+    title: `step ${k}`,
+  }));
+  sized.update(graphOf(heavy, { all: true }));
+  await sleep(1200);
+  const nodes = [...el.querySelectorAll('g.sg-node')].map((g) => g.__data__);
+  const sectorsR = nodes.filter((n) => n.kind === 'sector').map((n) => n.r);
+  const agentsR = nodes.filter((n) => n.kind === 'agent').map((n) => n.r);
+  const workR = nodes.filter((n) => n.kind === 'work').map((n) => n.r);
+  let minFont = Infinity;
+  let minText = '';
+  for (const t of el.querySelectorAll('text.sg-label, text.sg-sub, text.sg-glyph')) {
+    if (!t.textContent) continue;
+    const px = Number(t.getAttribute('font-size')) * (t.getScreenCTM()?.a ?? 1);
+    if (px < minFont) [minFont, minText] = [px, t.textContent];
+  }
+  const sizes = {
+    sectorRatio: Math.max(...sectorsR) / Math.min(...sectorsR),
+    minAgentDiameter: 2 * Math.min(...agentsR),
+    minWorkDiameter: 2 * Math.min(...workR),
+    minFont,
+    minText,
+  };
+  sized.destroy();
+  return { out, moved, sizes };
 });
 await browser.close();
 
@@ -363,6 +399,32 @@ for (const s of results.out) {
       `peak ${s.perFrame.toFixed(1)} px/frame` +
       (pass ? '' : ` (${[s.who, s.oWho].filter(Boolean).join(', ')})`),
   );
+}
+const z = results.sizes;
+for (const [name, pass, value] of [
+  [
+    'the largest sector is at most 1.6× the smallest',
+    z.sectorRatio <= 1.6,
+    z.sectorRatio.toFixed(2) + '×',
+  ],
+  [
+    'agents have room for a 16–20 px icon (diameter ≥ 24 px)',
+    z.minAgentDiameter >= 24,
+    z.minAgentDiameter + ' px',
+  ],
+  [
+    'work items are never dots (diameter ≥ 14 px)',
+    z.minWorkDiameter >= 14,
+    z.minWorkDiameter + ' px',
+  ],
+  [
+    'no node text under 11 px at the default zoom',
+    z.minFont >= 11,
+    `${z.minFont} px ("${z.minText}")`,
+  ],
+]) {
+  ok &&= pass;
+  console.log(`${pass ? 'ok  ' : 'FAIL'} ${name}: ${value}`);
 }
 if (errors.length) console.log('FAIL page errors', errors);
 process.exit(ok ? 0 : 1);

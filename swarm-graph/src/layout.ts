@@ -10,9 +10,10 @@
  *
  * - **Sectors and the hub are fixed** (`fixed`): the ring, set by the canvas, never by the data.
  * - **Every node already laid out is pinned** (`pinned`): only new or re-placed nodes are free.
- *   A node arriving or leaving anywhere moves nothing else. When something grows into a pinned
- *   neighbour (a sector gaining effort), `separate` pushes that neighbour out by exactly the
- *   overlap and no further.
+ *   A node arriving or leaving anywhere moves nothing else; pinned nodes never give way to
+ *   each other. (Growth has room reserved: a sector is laid out at its largest size.) Only a
+ *   re-fit (`settle`, a resized canvas) lets a pinned node that overlaps another move out, by
+ *   exactly the overlap and no further.
  *
  * Deterministic: the same nodes, links and pins give the same positions (a seeded random source,
  * start points derived from ids, no clock). Pure: no DOM, so it can run in a test or a worker.
@@ -31,7 +32,7 @@ export type LayoutNode = {
   charge: number;
   /** Held here whatever happens: the sectors on their ring, the hub at the centre. */
   fixed?: LayoutPoint;
-  /** Already laid out: it stays here, unless something grows into it. */
+  /** Already laid out: it stays exactly here (unless `settle` must clear an overlap). */
   pinned?: LayoutPoint;
   /** Where a free node starts (its last place, for a re-placed node). Default: beside `parent`. */
   start?: LayoutPoint;
@@ -56,6 +57,11 @@ export type LayoutOptions = {
   seed?: number;
   /** Most solver ticks; it stops earlier once the free nodes rest. */
   maxTicks?: number;
+  /**
+   * Clear overlaps between held nodes too (the smaller pinned one gives way by the overlap).
+   * For a re-fit after a resize; never for a data update, so nothing pinned moves then.
+   */
+  settle?: boolean;
 };
 
 type Body = { node: LayoutNode; mobile: boolean; x: number; y: number };
@@ -101,11 +107,11 @@ const clampTo = (b: Body) => {
 };
 
 /**
- * Push overlapping nodes apart by exactly their overlap. Fixed nodes never move; pinned nodes
- * move only when what they overlap cannot (a sector that grew, another pinned node), and then
- * the smaller one gives way. A few sweeps over all pairs: the graph has a few hundred nodes.
+ * Push overlapping nodes apart by exactly their overlap. Fixed nodes never move; free nodes give
+ * way first; with `settle`, of two held nodes the smaller pinned one gives way. A few sweeps over
+ * all pairs: the graph has a few hundred nodes.
  */
-export const separate = (bodies: Body[], sweeps = 24) => {
+export const separate = (bodies: Body[], settle = false, sweeps = 24) => {
   for (let s = 0; s < sweeps; s++) {
     let moved = false;
     for (let i = 0; i < bodies.length; i++) {
@@ -122,6 +128,7 @@ export const separate = (bodies: Body[], sweeps = 24) => {
         let wa = a.mobile ? 1 : 0;
         let wb = b.mobile ? 1 : 0;
         if (!wa && !wb) {
+          if (!settle) continue;
           const pa = a.node.fixed ? 0 : a.node.r;
           const pb = b.node.fixed ? 0 : b.node.r;
           if (!pa && !pb) continue;
@@ -357,7 +364,7 @@ export const layoutGraph = (
 
   let ticks = 0;
   if (free.length) ticks = solve(bodies, links, maxTicks, options.seed ?? 221);
-  separate(bodies);
+  separate(bodies, options.settle);
   for (const b of bodies) clampTo(b);
 
   const positions = new Map<string, LayoutPoint>();

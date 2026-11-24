@@ -393,22 +393,30 @@ const pointAt = (a: SimNode, b: SimNode, t: number) => {
   };
 };
 
-const SECTOR_RADIUS = { min: 18, max: 48 };
+/**
+ * Sector size range (#221): bounded, so the largest sector is at most about 1.6× the smallest. A
+ * sector's count is drawn as text, not area; size only hints at effort.
+ */
+const SECTOR_RADIUS = { min: 26, max: 40 };
+/** No node label, sub-line or glyph is drawn smaller than this at the default zoom (px). */
+export const MIN_LABEL_PX = 11;
 
 const radiusOf = (n: SwarmNode, effort: number, scale = 1, sector = SECTOR_RADIUS) => {
   switch (n.kind) {
     case 'hub':
       return 26;
     case 'sector':
-      // Grows with effort (the default: 18 + 2.6 per √effort, up to 48).
+      // Grows with effort, inside the bounded range (the default: 26 to 40).
       return (
         (sector.min + (sector.max - sector.min) * Math.min(1, (Math.sqrt(effort) * 2.6) / 30)) *
         scale
       );
     case 'work':
-      return n.phase === 'pr' ? 8 : n.phase === 'branch' ? 8 : n.phase === 'issue' ? 5 : 4;
+      // Big enough to hit and to read (#221): never a dot.
+      return n.phase === 'pr' || n.phase === 'branch' ? 10 : n.phase === 'issue' ? 8 : 7;
     case 'agent':
-      return n.active ? 11 : 8.5;
+      // Room for a 16–20 px icon in the circle (#200).
+      return n.active ? 14 : 12;
   }
 };
 
@@ -701,9 +709,9 @@ export const createSwarmGraph = (
   /**
    * Ask the layout engine where everything stands, then send each node there. Sectors and the
    * hub are fixed on the ring; every node already placed, whose placement has not changed, is
-   * pinned, so it does not move at all. Only new and re-placed nodes are solved for; a node that
-   * grew into a neighbour pushes it out by the overlap. `refit` (a resized canvas) keeps every
-   * node where `places` already has it (stretched with the canvas) and only clears overlaps.
+   * pinned, so it does not move at all. Only new and re-placed nodes are solved for. `refit` (a
+   * resized canvas) keeps every node where `places` already has it (stretched with the canvas)
+   * and only clears overlaps.
    */
   const relayout = (refit = false) => {
     if (!graph) return;
@@ -738,7 +746,14 @@ export const createSwarmGraph = (
       distance: linkDistance(l),
       strength: linkStrength(l),
     }));
-    const { positions } = layoutGraph(nodes, ties);
+    const began = performance.now();
+    const { positions } = layoutGraph(nodes, ties, { settle: refit });
+    // Visible in a performance trace (and to the site's calm check) as one named entry.
+    try {
+      performance.measure('swarm-graph layout', { start: began, end: performance.now() });
+    } catch {
+      // An older runtime without measure options: the layout still ran.
+    }
     const now = performance.now();
     const R = ringRadii();
     for (const n of nodeById.values()) {
@@ -938,15 +953,15 @@ export const createSwarmGraph = (
             .transition()
             .duration(500)
             .attr('opacity', 1);
-          // New nodes spring in from nothing.
+          // New nodes grow in from nothing.
           if (motion)
             inner
               .filter((n) => !arrivals.has(n.id))
               .attr('transform', 'scale(0.01)')
               .transition()
-              .delay(80)
-              .duration(900)
-              .ease(d3.easeElasticOut.amplitude(1).period(0.45))
+              .duration(500)
+              // One ease-out, no spring: it grows to full size and stops there (#221).
+              .ease(d3.easeCubicOut)
               .attr('transform', 'scale(1)');
           return g;
         },
@@ -980,9 +995,9 @@ export const createSwarmGraph = (
               .filter((n) => !arrivals.has(n.id))
               .attr('transform', 'scale(0.01)')
               .transition()
-              .delay(80)
-              .duration(900)
-              .ease(d3.easeElasticOut.amplitude(1).period(0.45))
+              .duration(500)
+              // One ease-out, no spring: it grows to full size and stops there (#221).
+              .ease(d3.easeCubicOut)
               .attr('transform', 'scale(1)');
           return g;
         },
@@ -1116,7 +1131,11 @@ export const createSwarmGraph = (
       .select<SVGTextElement>('text.sg-glyph')
       .style('font-family', (n) => (n.kind === 'agent' ? theme.font : theme.monoFont))
       .attr('font-size', (n) =>
-        n.kind === 'sector' ? Math.max(10, Math.min(15, n.r * 0.5)) : n.kind === 'hub' ? 11 : 10,
+        n.kind === 'sector'
+          ? Math.max(MIN_LABEL_PX, Math.min(15, n.r * 0.5))
+          : n.kind === 'agent'
+            ? 12
+            : MIN_LABEL_PX,
       )
       .attr('font-weight', 600)
       .style('fill', (n) => (n.kind === 'agent' && !n.active ? theme.fgFaint : theme.fg))
@@ -1140,7 +1159,7 @@ export const createSwarmGraph = (
           ? theme.monoFont
           : theme.font,
       )
-      .attr('font-size', (n) => (n.kind === 'sector' ? 13 : 11))
+      .attr('font-size', (n) => (n.kind === 'sector' ? 13 : MIN_LABEL_PX))
       .attr('font-weight', (n) => (n.kind === 'sector' ? 600 : 500))
       .style('fill', (n) => (n.kind === 'sector' || n.active ? theme.fg : theme.fgFaint))
       .style('paint-order', 'stroke')
@@ -1152,7 +1171,7 @@ export const createSwarmGraph = (
     tags
       .select<SVGTextElement>('text.sg-sub')
       .style('font-family', theme.font)
-      .attr('font-size', 10)
+      .attr('font-size', MIN_LABEL_PX)
       .style('fill', theme.fgFaint)
       .style('paint-order', 'stroke')
       .style('stroke', theme.panel)
@@ -1339,8 +1358,9 @@ export const createSwarmGraph = (
       .ease(d3.easeQuadOut)
       .attr('transform', `scale(${1 + 0.16 * strength})`)
       .transition()
-      .duration(750)
-      .ease(d3.easeElasticOut.amplitude(1).period(0.35))
+      .duration(450)
+      // Back to size with one ease-out: a pulse, never a wobble (#221).
+      .ease(d3.easeCubicOut)
       .attr('transform', 'scale(1)');
   };
 
@@ -1372,7 +1392,8 @@ export const createSwarmGraph = (
       return n.active || n === hovered ? shortLabel(n.label, narrow ? 16 : 22) : '';
     if (n.kind === 'work') {
       if (n.phase === 'branch' || n.phase === 'pr')
-        return shortLabel(n.label, n === hovered ? (narrow ? 30 : 48) : narrow ? 18 : 30);
+        // Truncated, never shrunk: the full name shows on hover.
+        return shortLabel(n.label, n === hovered ? (narrow ? 30 : 48) : narrow ? 16 : 24);
       return n === hovered ? shortLabel(n.label, narrow ? 24 : 34) : '';
     }
     return '';
@@ -1780,7 +1801,7 @@ export const createSwarmGraph = (
     tagGroups()
       .select<SVGTextElement>('text.sg-glyph')
       .filter((n) => n.kind === 'sector')
-      .attr('font-size', (n) => Math.max(10, Math.min(15, n.r * 0.5)));
+      .attr('font-size', (n) => Math.max(MIN_LABEL_PX, Math.min(15, n.r * 0.5)));
     countUp();
     renderArcs(gNodes.selectAll<SVGGElement, SimNode>('g.sg-node'));
     gBloom

@@ -174,7 +174,7 @@ test('an agent leaving moves nothing; nothing free means no solving at all', () 
   for (const n of rest) assert.deepEqual(positions.get(n.id), before.get(n.id), n.id);
 });
 
-test('a sector growing pushes an overlapped neighbour out by exactly the overlap', () => {
+test('a re-fit (settle) pushes an overlapped neighbour out by exactly the overlap', () => {
   const { nodes, links } = fleet(6);
   const before = layoutGraph(nodes, links).positions;
   const pinned = pinnedTo(nodes, before);
@@ -189,7 +189,10 @@ test('a sector growing pushes an overlapped neighbour out by exactly the overlap
     if (gap < nearest.gap) nearest = { id: n.id, gap };
   }
   const grown = pinned.map((n) => (n.id === s.id ? { ...n, r: n.r + nearest.gap + 10 } : n));
-  const { positions } = layoutGraph(grown, links);
+  const { positions } = layoutGraph(grown, links, { settle: true });
+  // A data update never moves a pinned node, overlap or not.
+  const kept = layoutGraph(grown, links).positions;
+  for (const [id, p] of before) assert.deepEqual(kept.get(id), p, `${id} moved on an update`);
   const was = before.get(nearest.id)!;
   const now = positions.get(nearest.id)!;
   const moved = Math.hypot(now.x - was.x, now.y - was.y);
