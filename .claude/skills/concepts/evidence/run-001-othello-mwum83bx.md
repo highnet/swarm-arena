@@ -1,0 +1,1 @@
+- 2026-11-24 · **transposition table** · Othello · buried: Rated 1413 ± 116, not above 1427. · Transposition table inside the exact endgame solver, then raise SOLVE_EMPTIES if the saving buys a ply

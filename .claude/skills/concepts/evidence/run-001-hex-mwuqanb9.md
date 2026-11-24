@@ -1,0 +1,1 @@
+- 2026-11-24 · **inferior-move pruning** · Hex 11×11 · buried: Rated 2681 ± 109, not above 2734. · Extend inferior-cell pruning: more dead-cell patterns and the mover's vulnerable cells left out of the tree
