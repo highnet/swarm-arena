@@ -66,8 +66,9 @@ No synthetic data, invented testimonials, press, or benchmarks.
 
 ## Brand Commitments
 
-- Visual direction chosen by the user: the category standard played straight, a dark dashboard.
-  Craft bar: Linear (dense, quiet, precise; near-black ground, hairline structure, one accent).
+- Visual direction chosen by the user (2026-11-24, #206): calm and editorial, one idea per section,
+  spread along the vertical axis; colour from Sanzo Wada's combinations, light and dark. Study
+  Stripe, Linear and Vercel for rhythm and composition, without imitating them.
 - Working name "Swarm Arena" is provisional.
 - Site copy speaks about the engines, their progress and the results. It never mentions the tooling
   behind the agents (model, vendor, subscription) and carries no meta commentary about the site

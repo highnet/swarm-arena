@@ -37,7 +37,7 @@ const SectionNav = ({ items, label = 'On this page', className }: SectionNavProp
         if (first) setActive(first.id);
       },
       // A section counts as "being read" while it crosses a band just under the nav.
-      { rootMargin: '-30% 0px -60% 0px' },
+      { rootMargin: '-15% 0px -75% 0px' },
     );
     sections.forEach((s) => observer.observe(s));
     return () => observer.disconnect();
@@ -50,7 +50,7 @@ const SectionNav = ({ items, label = 'On this page', className }: SectionNavProp
       className={cn('sticky top-12 z-20 border-b border-line bg-bg/90 backdrop-blur-md', className)}
     >
       <div className="section-grid">
-        <ul className="no-scrollbar -mx-2.5 flex gap-1 overflow-x-auto">
+        <ul className="no-scrollbar -mx-2.5 flex gap-1 overflow-x-auto [mask-image:linear-gradient(to_right,black_85%,transparent)] sm:[mask-image:none]">
           {items.map((i) => (
             <li key={i.id} className="shrink-0">
               <a

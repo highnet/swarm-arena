@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import type { TrackSummary } from '@/lib/derive';
@@ -5,13 +6,22 @@ import { formatElo } from '@/lib/format';
 import { ENGINE_FACTS, SHORT_NAME } from '@/lib/tracks';
 import { EngineLogo } from './EngineLogo';
 
-/** Where the engine stands on its ladder, in words. Past the ladder the rating is self-relative. */
-const standing = (track: TrackSummary) => {
+/**
+ * Where the engine stands on its ladder, in words, with its numbers in mono. Past the ladder the
+ * rating is self-relative, so the sentence says so.
+ */
+const standing = (track: TrackSummary): ReactNode => {
   const { opponents } = ENGINE_FACTS[track.id];
+  const ladder = opponents.endsWith('ladder') ? opponents : `${opponents} ladder`;
   if (track.pastLadder)
-    return `Past its ${opponents} ladder: now rated against its own last version.`;
+    return `Past the top of its ${ladder}: now rated against its own last version, so this number is not on the same scale as the others.`;
   if (track.nextRung)
-    return `Next: ${track.nextRung.label}, rated ${formatElo(track.nextRung.elo)}.`;
+    return (
+      <>
+        Next: {track.nextRung.label}, rated{' '}
+        <span className="font-mono tabular">{formatElo(track.nextRung.elo)}</span>.
+      </>
+    );
   return `Climbing against ${opponents}.`;
 };
 

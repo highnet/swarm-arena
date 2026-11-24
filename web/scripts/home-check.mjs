@@ -51,7 +51,7 @@ try {
     );
 
     await page.$eval('#engines', (e) => e.scrollIntoView({ block: 'start' }));
-    await page.waitForTimeout(400);
+    await page.waitForTimeout(1500); // anchor scrolling is smooth when motion is allowed
     const current = await page.$eval('[data-slot="section-nav"] [aria-current]', (a) =>
       a.getAttribute('href'),
     );

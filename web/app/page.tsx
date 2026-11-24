@@ -18,7 +18,7 @@ import { SectionNav, type SectionNavItem } from '@/components/ui/SectionNav';
 import { Typography } from '@/components/ui/Typography';
 import { getSnapshot } from '@/lib/data';
 import { counters, latestGame, snapshotNow, trackSummaries } from '@/lib/derive';
-import { formatDay, formatInt } from '@/lib/format';
+import { formatDay, formatElo, formatInt } from '@/lib/format';
 import { getNews, newsHref } from '@/lib/news';
 import { PAGES, type PageKey } from '@/lib/pages';
 import { gameHref, matchHref } from '@/lib/routes';
@@ -176,7 +176,7 @@ const HomeContent = async () => {
         <SectionHeading
           id="watch-title"
           title="Watch them improve"
-          intro="Each line is one engine's rating, version by version, from the referee's games. A step up means a new version beat what came before it."
+          intro="Each line is one engine's rating, version by version, from the referee's games. A step up means a new version beat what came before it. Each game has its own ladder, so compare an engine with its past, not with the others."
         />
         <FullBleed>
           <ProgressChart
@@ -185,6 +185,19 @@ const HomeContent = async () => {
             end={Date.parse(now)}
             height={420}
           />
+          {/* Phones lose the chart's direct labels: name the lines here instead. */}
+          <ul className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-[13px] text-fg-2 sm:hidden">
+            {tracks.map((t) => (
+              <li key={t.id} className="inline-flex items-center gap-1.5">
+                <span
+                  className={cn('size-2 rounded-full', SERIES[t.colorSlot].bg)}
+                  aria-hidden="true"
+                />
+                {t.name}
+                <span className="font-mono tabular text-fg">{formatElo(t.elo)}</span>
+              </li>
+            ))}
+          </ul>
         </FullBleed>
         <Disclosure
           summary="The ladders: who each engine has beaten, and who is next"
@@ -217,9 +230,9 @@ const HomeContent = async () => {
                 </p>
                 <dl className="mt-8 grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-[15px]">
                   <dt className="text-fg-3">{gameTrack.id === 'chess' ? 'White' : 'Black'}</dt>
-                  <dd className="text-fg">{first}</dd>
+                  <dd className="font-mono tabular text-fg">{first}</dd>
                   <dt className="text-fg-3">{gameTrack.id === 'chess' ? 'Black' : 'White'}</dt>
-                  <dd className="text-fg">{second}</dd>
+                  <dd className="font-mono tabular text-fg">{second}</dd>
                   <dt className="text-fg-3">Result</dt>
                   <dd className="text-fg">{resultText(game.outcome, first, second)}</dd>
                 </dl>
