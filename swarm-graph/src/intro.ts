@@ -108,7 +108,9 @@ export const planIntro = (nodes: IntroNode[], options: IntroOptions = {}): Intro
     const base = (key ? sectorDelay.get(key)! : o.hubLeadMs) + o.satelliteLagMs;
     list
       .sort((a, b) => Math.hypot(a.x, a.y) - Math.hypot(b.x, b.y) || a.id.localeCompare(b.id))
-      .forEach((n, i) => timing.set(n.id, at(base + Math.min(i, MAX_STEPS) * o.satelliteStaggerMs)));
+      .forEach((n, i) =>
+        timing.set(n.id, at(base + Math.min(i, MAX_STEPS) * o.satelliteStaggerMs)),
+      );
   }
 
   let last = 0;
