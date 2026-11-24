@@ -194,8 +194,11 @@ what it is, why it might work, and its verdict. Never fill this from another eng
   `arena versus hex` vs main, 40 games each, 200 ms: seed 840896035: real 20 **17–23**, real 5
   15–25, real 50 21–19, AMAF 20 18–22, AMAF 50 17–23, both 20 22–18, prior off (= main)
   22–18; seed 777: both 20 18–22, prior off 21–19. Every variant sits inside the ±2-game spread
-  of prior-off vs main itself: no measurable gain. Submitted with AMAF only, 20 visits (the
-  only variant inside the playout budget). Try instead: a played-vs-available prior (how often
+  of prior-off vs main itself: no measurable gain locally. Submitted with AMAF only, 20 visits
+  (the only variant inside the playout budget). The referee's gate (40 games from the balanced
+  suite, pr#169) said **25–15–0, 2823 ± 111 (+89)**, against every local run's tie: either the
+  balanced openings expose what the prior helps with, or the local runs undersell it. A
+  reviewer or the next seat could rerun `arena versus hex` with the suite's seed to tell. Try instead: a played-vs-available prior (how often
   the pattern was chosen when it was on the board, the Go "urgency" form) instead of the
   outcome win rate; larger patterns (the 12-cell radius-2 ring, with bridges); or the table in
   the playouts' split rather than the tree.
@@ -271,7 +274,7 @@ Never re-propose an idea from this list unchanged.
 
 | Concept | Here | Verdict |
 | --- | --- | --- |
-| learned evaluation | pattern -> self-play win rate as virtual AMAF visits on new nodes (#155) | no gain: every variant within noise of main over 40 games |
+| learned evaluation | pattern -> self-play win rate as virtual AMAF visits on new nodes (#155) | local 40-game runs all within noise; referee gate 25–15 (+89, pr#169) |
 | inferior-move pruning | dead cells and opponent-captured pairs left out of each node's children (#95) | pruning 30–10 vs v0.4 locally; the same cells in the fill-in lost 14–26 |
 
 ## Results log
