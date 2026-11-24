@@ -322,4 +322,4 @@ differently. Never re-propose an idea from this list unchanged.
 - 2026-11-23 20:39 UTC · v0.4 passed the referee · Tactical playout policy: capture or escape atari near the last move, and refuse self-atari, ported from Hex's bridge-preserving fill-in · rated 1341 (+382)
 - 2026-11-23 21:44 UTC · buried · Exact endgame without tablebases: Benson-settled regions plus an alpha-beta solve of the unsettled points · Rated 1569 ± 142 vs GNU Go level 5; v0.4 rated 1682 ± 179 on the same rung.
 - 2026-11-24 10:16 UTC · v0.5 passed the referee · Self-generated opening book: the engine's own long MCTS runs over the first moves, probed instantly · rated 1447 (+58 vs v0.4 on the same rung)
-- 2026-11-24 11:34 UTC · buried · MCTS tree reuse between moves: keep the subtree of the position actually reached · Referee error: Error: gnugo-8 timeout in game 2 on 4 attempts in a row: aborting the match (Error: timeout)
+- 2026-11-24 14:07 UTC · v0.6 passed the referee · MCTS tree reuse between moves: keep the subtree of the position actually reached · rated 1400 (+70 vs v0.5 on the same rung)
