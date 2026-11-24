@@ -50,6 +50,13 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
 };
 
+/**
+ * Every page shows the live run (the header's seats, the footer's run), and live data is read per
+ * request, never prerendered into ISR (#222). The root layout therefore blocks on that read rather
+ * than offering a static shell; long-lived data (playbooks, news, finished games) stays cached.
+ */
+export const instant = false;
+
 export const viewport: Viewport = {
   // The ground of each theme: Sulpher Yellow and Black (Wada, combination 52).
   themeColor: [

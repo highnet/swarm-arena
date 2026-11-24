@@ -1,4 +1,5 @@
 import { cacheLife, cacheTag } from 'next/cache';
+import { connection } from 'next/server';
 import {
   LIVE_GAME_STALE_MS,
   newestLiveGames,
@@ -129,13 +130,17 @@ const perVersion = (points: EloPoint[]): EloPoint[] => {
   return [...byVersion.values()].map(({ first, latest }) => ({ ...latest, at: first.at }));
 };
 
-/** Expired on demand by `refreshLive` whenever Supabase Realtime reports a change. */
-export const SNAPSHOT_TAG = 'snapshot';
-
+/**
+ * The run as it stands. Live data, so it is never part of a prerender (#222): a 2-second
+ * `revalidate` and 15-second `expire` make it a request-time "dynamic hole" held only in the
+ * server's memory, never an ISR entry. Everything on screen changes every few seconds (seats
+ * heartbeat, records land, moves stream), so a prerendered copy would be rewritten far more often
+ * than it is read. The short memory cache only folds the reads of one burst of refreshes into one.
+ * Nothing expires it by tag; the browser keeps up through Realtime (`LiveIndicator`).
+ */
 export const getSnapshot = async (): Promise<Snapshot> => {
   'use cache';
-  cacheTag(SNAPSHOT_TAG);
-  cacheLife({ stale: 30, revalidate: 30, expire: 3600 });
+  cacheLife({ stale: 0, revalidate: 2, expire: 15 });
   if (supabaseConfigured()) {
     const live = await fromSupabase().catch((e) => {
       console.error('supabase snapshot failed', e);
@@ -146,29 +151,45 @@ export const getSnapshot = async (): Promise<Snapshot> => {
   return notStarted();
 };
 
-export const getMatchGames = async (matchId: string): Promise<GameRow[]> => {
+/**
+ * A match's games. A finished match never changes, so it is cached for good under its own tag
+ * (`match:<id>`); a match still being played is read live, like the snapshot.
+ */
+export const getMatchGames = async (matchId: string, finished: boolean): Promise<GameRow[]> => {
   'use cache';
-  cacheTag(SNAPSHOT_TAG);
-  cacheLife({ stale: 60, revalidate: 300, expire: 86400 });
+  cacheTag(`match:${matchId}`);
+  if (finished) cacheLife('max');
+  else cacheLife({ stale: 0, revalidate: 2, expire: 15 });
   if (!supabaseConfigured()) return [];
   const { data } = await getSupabase().from('games').select('*').eq('match_id', matchId);
   return (data ?? []) as GameRow[];
 };
 
+/**
+ * One finished game. A `games` row is written once, when the game ends, so a found game is cached
+ * for good under its own tag (`game:<id>`). A miss is not: the game may be written in a moment.
+ */
 export const getGame = async (id: string): Promise<GameRow | null> => {
   'use cache';
-  cacheTag(SNAPSHOT_TAG);
-  cacheLife({ stale: 60, revalidate: 300, expire: 86400 });
-  if (!supabaseConfigured()) return null;
+  cacheTag(`game:${id}`);
+  if (!supabaseConfigured()) {
+    cacheLife({ stale: 0, revalidate: 2, expire: 15 });
+    return null;
+  }
   const { data } = await getSupabase().from('games').select('*').eq('id', id).maybeSingle();
-  return (data as GameRow | null) ?? null;
+  const game = (data as GameRow | null) ?? null;
+  if (game) cacheLife('max');
+  else cacheLife({ stale: 0, revalidate: 2, expire: 15 });
+  return game;
 };
 
-/** Every game of the run with its moves, oldest first. Paged past PostgREST's row cap. */
+/**
+ * Every game of the run with its moves, oldest first. Paged past PostgREST's row cap. Megabytes,
+ * read only by the download route, so it is never cached (#222): an entry this size rewritten on
+ * every new game cost far more than the rare download that reads it.
+ */
 export const getAllGames = async (): Promise<GameRow[]> => {
-  'use cache';
-  cacheTag(SNAPSHOT_TAG);
-  cacheLife({ stale: 60, revalidate: 300, expire: 86400 });
+  await connection();
   if (!supabaseConfigured()) return [];
   const s = await getSnapshot();
   const db = getSupabase();
@@ -190,13 +211,12 @@ export const getAllGames = async (): Promise<GameRow[]> => {
 
 /**
  * The game each track's referee is playing right now: the newest live game per track that was
- * updated within `LIVE_GAME_STALE_MS` (#144). Empty when nothing is being played. Expired with the
- * snapshot whenever Realtime reports a change, so it keeps up with the moves.
+ * updated within `LIVE_GAME_STALE_MS` (#144). Empty when nothing is being played. Read per request
+ * and never cached (#222): it changes every move, and the page follows the moves through Realtime
+ * from there (`useLiveBoards`).
  */
 export const liveGames = async (): Promise<Partial<Record<GameId, LiveGameRow>>> => {
-  'use cache';
-  cacheTag(SNAPSHOT_TAG);
-  cacheLife({ stale: 5, revalidate: 5, expire: 60 });
+  await connection();
   if (!supabaseConfigured()) return {};
   const s = await getSnapshot();
   const since = new Date(Date.now() - LIVE_GAME_STALE_MS).toISOString();

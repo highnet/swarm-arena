@@ -3,7 +3,6 @@
 import { startTransition, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
-import { refreshLive } from '@/app/actions';
 import { publishLive } from '@/lib/liveBus';
 import { cn } from '@/lib/utils';
 
@@ -17,8 +16,16 @@ type Mode = 'snapshot' | 'connecting' | 'live' | 'polling';
 
 const POLL_MS = 30_000;
 const CONNECT_TIMEOUT_MS = 8_000;
-/** Bursts (a gate match finishing game after game) collapse into one refresh this often. */
-const REFRESH_GAP_MS = 1_500;
+/**
+ * Bursts (a gate match finishing game after game, seats heartbeating) collapse into one refresh
+ * this often. Each refresh is a server render with fresh reads, so it is kept to a few seconds.
+ */
+const REFRESH_GAP_MS = 5_000;
+/**
+ * Tables the page follows from the pushed rows alone (`publishLive`), with no refresh: moves of
+ * the games being played stream every second or so, and the boards patch themselves (#222).
+ */
+const PUSH_ONLY = new Set<string>(['live_games']);
 
 /** Every table the site renders. All but `runs` are scoped to the run on screen. */
 const RUN_TABLES = [
@@ -49,12 +56,13 @@ const TITLE: Record<Mode, string> = {
 };
 
 /**
- * Keeps every page live. It subscribes to Supabase Realtime for every table the site renders;
- * on a change it expires the server's cached snapshot (`refreshLive`) and re-renders the route,
- * so the page shows the new rows rather than a cached copy. Each row is also published on the
- * page (`publishLive`) for components that show it at once, before the refresh lands. Bursts are
- * coalesced, a hidden tab does not refresh, a tab that comes back into view catches up at once, and if the stream cannot be opened (blocked socket,
- * network policy, auth) it falls back to refreshing on a timer.
+ * Keeps every page live. It subscribes to Supabase Realtime for every table the site renders.
+ * Each row is published on the page (`publishLive`) for components that show it at once; a change
+ * to any table but the live moves also re-renders the route, whose live reads are never cached
+ * (`getSnapshot`), so the refresh shows the new rows. The browser never expires the server's cache:
+ * that was an unauthenticated lever on ISR writes (#222). Bursts are coalesced, a hidden tab does
+ * not refresh, a tab that comes back into view catches up at once, and if the stream cannot be
+ * opened (blocked socket, network policy, auth) it falls back to refreshing on a timer.
  */
 const LiveIndicator = ({ runId, working }: LiveIndicatorProps) => {
   const router = useRouter();
@@ -68,10 +76,9 @@ const LiveIndicator = ({ runId, working }: LiveIndicatorProps) => {
     let poll: ReturnType<typeof setInterval> | undefined;
     let pending: ReturnType<typeof setTimeout> | undefined;
     let last = 0;
-    const pull = async () => {
+    const pull = () => {
       pending = undefined;
       last = Date.now();
-      await refreshLive().catch(() => undefined);
       startTransition(() => router.refresh());
     };
     // Leading-edge after quiet, then at most one refresh per gap while changes keep coming. A
@@ -111,7 +118,7 @@ const LiveIndicator = ({ runId, working }: LiveIndicatorProps) => {
               new: row(payload.new),
               old: row(payload.old),
             });
-            refresh();
+            if (!PUSH_ONLY.has(table)) refresh();
           },
         );
     channel.subscribe((status) => {
