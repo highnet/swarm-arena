@@ -56,6 +56,9 @@ export type SwarmEffectsStats = {
   /** Median and 95th-percentile frame interval over the last few seconds, ms. */
   medianMs: number;
   p95Ms: number;
+  /** Median and 95th-percentile time spent inside the layer's own frame work, ms. */
+  workMedianMs: number;
+  workP95Ms: number;
   level: QualityLevel;
   particles: number;
   mode: EffectsMode;
@@ -78,6 +81,11 @@ export type SwarmEffectsOptions = {
   mode: Exclude<EffectsMode, 'off'>;
   /** A referee match started (`start`) or ended (`end`) at this flow's sector. */
   gateOf?: (f: SwarmFlow) => 'start' | 'end' | null;
+  /**
+   * Even the lowest quality cannot keep up on this machine: the layer has stopped and hidden
+   * itself, leaving the SVG graph alone. The host should show effects as off.
+   */
+  onGiveUp?: () => void;
 };
 
 const LIGHTS = 12;
@@ -244,7 +252,10 @@ const MULTIPLY_SHADER = {
 const canWebGL = () => {
   try {
     const c = document.createElement('canvas');
-    return Boolean(c.getContext('webgl2') ?? c.getContext('webgl'));
+    const gl = c.getContext('webgl2') ?? c.getContext('webgl');
+    // Only a probe: hand its context back at once.
+    gl?.getExtension('WEBGL_lose_context')?.loseContext();
+    return Boolean(gl);
   } catch {
     return false;
   }
@@ -308,8 +319,7 @@ export const createSwarmEffects = (
   const colors = colorResolver(host);
   const bodyBg = colors.resolve(getComputedStyle(document.body).backgroundColor);
   const light = 0.2126 * bodyBg.r + 0.7152 * bodyBg.g + 0.0722 * bodyBg.b > 0.5;
-  const mobile =
-    window.matchMedia('(pointer: coarse)').matches || Math.min(host.clientWidth, 9999) < 640;
+  const mobile = window.matchMedia('(pointer: coarse)').matches || host.clientWidth < 640;
   const capacity = mobile ? 1000 : 4000;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
 
@@ -434,26 +444,34 @@ export const createSwarmEffects = (
   let width = 0;
   let height = 0;
   let frame = 0;
+  let frameNo = 0;
+  let gaveUp = false;
   let running = false;
   let last = performance.now();
   const frameTimes = new Float32Array(FRAMES);
+  const workTimes = new Float32Array(FRAMES);
   let frameIndex = 0;
   let frameCount = 0;
   const pointer = { x: 0, y: 0, tx: 0, ty: 0 };
 
-  const resize = () => {
+  let sizedFor = '';
+  const resize = (level: QualityLevel) => {
     const w = Math.max(1, host.clientWidth);
     const h = Math.max(1, host.clientHeight);
-    if (w === width && h === height) return;
+    const key = `${w}x${h}@${level}`;
+    if (key === sizedFor) return;
+    sizedFor = key;
     width = w;
     height = h;
-    over.setPixelRatio(dpr);
+    const res = QUALITY[level].resolution;
+    over.setPixelRatio(dpr * res);
     over.setSize(w, h, false);
-    // The background is soft: half resolution is plenty.
-    under.setPixelRatio(Math.max(0.5, dpr / 2));
+    // The background is soft: half resolution (or less) is plenty.
+    under.setPixelRatio((dpr * res) / 2);
     under.setSize(w, h, false);
-    composer.setPixelRatio(dpr);
+    composer.setPixelRatio(dpr * res);
     composer.setSize(w, h);
+    pointUniforms.uPixelRatio.value = dpr * res;
     camera.left = -w / 2;
     camera.right = w / 2;
     camera.top = h / 2;
@@ -537,11 +555,16 @@ export const createSwarmEffects = (
   const lightNodes: SwarmNodeView[] = [];
 
   const step = (now: number) => {
-    const dt = Math.min(100, now - last);
+    const raw = now - last;
+    const dt = Math.min(100, raw);
     last = now;
-    resize();
-    const level = quality.sample(dt);
-    frameTimes[frameIndex] = dt;
+    const level = quality.sample(raw);
+    resize(level);
+    if (quality.hopeless) {
+      giveUp();
+      return;
+    }
+    frameTimes[frameIndex] = raw;
     frameIndex = (frameIndex + 1) % FRAMES;
     frameCount = Math.min(FRAMES, frameCount + 1);
     const q = QUALITY[level];
@@ -645,18 +668,32 @@ export const createSwarmEffects = (
       );
     }
     while (ripples.length && now - ripples[0].start > 1100) ripples.shift();
-    under.render(quadScene, quadCamera);
+    if (frameNo++ % QUALITY[level].backgroundEvery === 0) under.render(quadScene, quadCamera);
     over.domElement.dataset.level = level;
     over.domElement.dataset.particles = String(count);
   };
 
+  /** This machine cannot carry the layer: stop, hide, and hand everything back to the SVG. */
+  const giveUp = () => {
+    if (gaveUp) return;
+    gaveUp = true;
+    stop();
+    pool.clear();
+    over.domElement.style.display = 'none';
+    under.domElement.style.display = 'none';
+    graph.setLayered(false);
+    options.onGiveUp?.();
+  };
+
   const loop = (now: number) => {
     if (!running) return;
+    const slot = frameIndex;
     step(now);
+    workTimes[slot] = performance.now() - now;
     frame = requestAnimationFrame(loop);
   };
   const start = () => {
-    if (running) return;
+    if (running || gaveUp) return;
     running = true;
     last = performance.now();
     frame = requestAnimationFrame(loop);
@@ -675,15 +712,21 @@ export const createSwarmEffects = (
   document.addEventListener('visibilitychange', onVisible);
   host.addEventListener('pointermove', onPointer, { passive: true });
   graph.setLayered(true);
-  resize();
+  resize(quality.level);
   if (!document.hidden) start();
 
   const stats = (): SwarmEffectsStats => {
-    const xs = Array.from(frameTimes.subarray(0, frameCount)).sort((a, b) => a - b);
-    const at = (p: number) => xs[Math.min(xs.length - 1, Math.floor(xs.length * p))] ?? 0;
+    const pct = (arr: Float32Array) => {
+      const xs = Array.from(arr.subarray(0, frameCount)).sort((a, b) => a - b);
+      return (p: number) => xs[Math.min(xs.length - 1, Math.floor(xs.length * p))] ?? 0;
+    };
+    const frames = pct(frameTimes);
+    const work = pct(workTimes);
     return {
-      medianMs: at(0.5),
-      p95Ms: at(0.95),
+      medianMs: frames(0.5),
+      p95Ms: frames(0.95),
+      workMedianMs: work(0.5),
+      workP95Ms: work(0.95),
       level: quality.level,
       particles: pool.count,
       mode,

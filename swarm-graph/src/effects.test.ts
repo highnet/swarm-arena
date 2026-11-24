@@ -117,19 +117,32 @@ test('quality steps down when frames slip and back up only after a long fast run
   const q = createQuality();
   assert.equal(q.level, 'high');
   for (let i = 0; i < 200; i++) q.sample(33);
-  assert.equal(q.level, 'low', 'two steps down at 30 fps');
+  assert.equal(q.level, 'low', 'two steps down at 30 fps within seven seconds');
   for (let i = 0; i < 100; i++) q.sample(8);
   assert.equal(q.level, 'low', 'hysteresis: not straight back up');
-  for (let i = 0; i < 700; i++) q.sample(8);
+  for (let i = 0; i < 2200; i++) q.sample(8);
   assert.equal(q.level, 'high');
   q.sample(5000);
   assert.equal(q.level, 'high', 'a stalled frame (hidden tab) is ignored');
 });
 
+test('very slow frames still step down, and give up at the lowest level', () => {
+  const q = createQuality();
+  for (let i = 0; i < 13; i++) q.sample(270);
+  assert.equal(q.level, 'low', 'frames of a quarter second count, capped');
+  assert.equal(q.hopeless, false);
+  for (let i = 0; i < 20; i++) q.sample(270);
+  assert.equal(q.hopeless, true);
+  const ok = createQuality();
+  for (let i = 0; i < 2000; i++) ok.sample(30);
+  assert.equal(ok.level, 'low');
+  assert.equal(ok.hopeless, false, '30 fps at low is slow, not hopeless');
+});
+
 test('quality respects its maximum', () => {
   const q = createQuality({ max: 'medium' });
   assert.equal(q.level, 'medium');
-  for (let i = 0; i < 1000; i++) q.sample(8);
+  for (let i = 0; i < 3000; i++) q.sample(8);
   assert.equal(q.level, 'medium');
   q.setMax('low');
   assert.equal(q.level, 'low');

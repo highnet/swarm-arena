@@ -493,33 +493,76 @@ export const emitMote = (
 export type QualityLevel = 'high' | 'medium' | 'low';
 const LEVELS: QualityLevel[] = ['low', 'medium', 'high'];
 
-/** What each level allows, as fractions of the host's budget. */
+/**
+ * What each level allows: a share of the host's particle budget, the canvases' resolution, how
+ * often the background redraws (every n-th frame) and which extras run.
+ */
 export const QUALITY: Record<
   QualityLevel,
-  { particles: number; trails: boolean; post: boolean; bloom: boolean; ambient: boolean }
+  {
+    particles: number;
+    resolution: number;
+    backgroundEvery: number;
+    trails: boolean;
+    post: boolean;
+    bloom: boolean;
+    ambient: boolean;
+  }
 > = {
-  high: { particles: 1, trails: true, post: true, bloom: true, ambient: true },
-  medium: { particles: 0.55, trails: true, post: true, bloom: true, ambient: false },
-  low: { particles: 0.25, trails: false, post: false, bloom: false, ambient: false },
+  high: {
+    particles: 1,
+    resolution: 1,
+    backgroundEvery: 1,
+    trails: true,
+    post: true,
+    bloom: true,
+    ambient: true,
+  },
+  medium: {
+    particles: 0.55,
+    resolution: 0.75,
+    backgroundEvery: 2,
+    trails: true,
+    post: true,
+    bloom: true,
+    ambient: false,
+  },
+  low: {
+    particles: 0.25,
+    resolution: 0.5,
+    backgroundEvery: 4,
+    trails: false,
+    post: false,
+    bloom: false,
+    ambient: false,
+  },
 };
 
 export type QualityOptions = {
   initial?: QualityLevel;
-  /** Highest level allowed (Calm mode caps at medium, say). */
+  /** Highest level allowed. */
   max?: QualityLevel;
   /** Smoothed frame time above this steps down. Default 20 ms (a slipping 60 fps). */
   slowMs?: number;
   /** Smoothed frame time below this, held long enough, steps back up. Default 13 ms. */
   fastMs?: number;
-  /** Frames a condition must hold before the level changes. Default 45 down, 300 up. */
-  downAfter?: number;
-  upAfter?: number;
+  /** How long (ms of frames) a condition must hold first. Default 1.5 s down, 8 s up. */
+  downAfterMs?: number;
+  upAfterMs?: number;
+  /** At the lowest level, frames this slow for `giveUpAfterMs` mean the layer should stop. */
+  giveUpMs?: number;
+  giveUpAfterMs?: number;
 };
 
 export type Quality = {
   readonly level: QualityLevel;
   /** The smoothed frame time, ms. */
   readonly frameMs: number;
+  /**
+   * Even the lowest level cannot keep up (frames slower than `giveUpMs` for `giveUpAfterMs`):
+   * the host should switch its effects off and leave the graph alone.
+   */
+  readonly hopeless: boolean;
   /** Feed one frame's time; returns the (possibly new) level. */
   sample: (frameMs: number) => QualityLevel;
   setMax: (max: QualityLevel) => void;
@@ -530,11 +573,14 @@ export const createQuality = (options: QualityOptions = {}): Quality => {
   let level = Math.min(max, LEVELS.indexOf(options.initial ?? 'high'));
   const slow = options.slowMs ?? 20;
   const fast = options.fastMs ?? 13;
-  const downAfter = options.downAfter ?? 45;
-  const upAfter = options.upAfter ?? 300;
+  const downAfter = options.downAfterMs ?? 1500;
+  const upAfter = options.upAfterMs ?? 8000;
+  const giveUp = options.giveUpMs ?? 50;
+  const giveUpAfter = options.giveUpAfterMs ?? 4000;
   let ema = 16.7;
-  let slowRun = 0;
-  let fastRun = 0;
+  let slowFor = 0;
+  let fastFor = 0;
+  let hopelessFor = 0;
   return {
     get level() {
       return LEVELS[level];
@@ -542,20 +588,25 @@ export const createQuality = (options: QualityOptions = {}): Quality => {
     get frameMs() {
       return ema;
     },
-    sample: (ms) => {
+    get hopeless() {
+      return hopelessFor >= giveUpAfter;
+    },
+    sample: (raw) => {
       // A frame after a hidden tab or a breakpoint says nothing about the machine.
-      if (!(ms > 0) || ms > 250) return LEVELS[level];
+      if (!(raw > 0) || raw > 1000) return LEVELS[level];
+      const ms = Math.min(raw, 250);
       ema += (ms - ema) * 0.1;
-      slowRun = ema > slow ? slowRun + 1 : 0;
-      fastRun = ema < fast ? fastRun + 1 : 0;
-      if (slowRun >= downAfter && level > 0) {
+      slowFor = ema > slow ? slowFor + ms : 0;
+      fastFor = ema < fast ? fastFor + ms : 0;
+      hopelessFor = level === 0 && ema > giveUp ? hopelessFor + ms : 0;
+      if (slowFor >= downAfter && level > 0) {
         level--;
-        slowRun = 0;
+        slowFor = 0;
         // Give the lighter level a fair start.
         ema = (slow + fast) / 2;
-      } else if (fastRun >= upAfter && level < max) {
+      } else if (fastFor >= upAfter && level < max) {
         level++;
-        fastRun = 0;
+        fastFor = 0;
       }
       return LEVELS[level];
     },

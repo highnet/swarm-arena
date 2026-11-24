@@ -427,6 +427,8 @@ const SwarmGraph = ({
   const [effectsMode, setEffectsMode] = useState<EffectsMode>('full');
   /** null until known: whether this browser can draw the WebGL layer at all. */
   const [webgl, setWebgl] = useState<boolean | null>(null);
+  /** The layer switched itself off: this device could not keep its frame rate up. */
+  const [tooSlow, setTooSlow] = useState(false);
   const effects = useRef<SwarmEffectsLayer | null>(null);
   const [haptics, setHaptics] = useState(false);
   const hapticsOn = useRef(false);
@@ -722,7 +724,8 @@ const SwarmGraph = ({
   }, []);
 
   // The three.js layer: loaded on demand, only here, only with motion and WebGL.
-  const effectsOn = effectsMode !== 'off' && !reducedMotion && webgl !== false;
+  const effectsBlocked = reducedMotion || webgl === false || tooSlow;
+  const effectsOn = effectsMode !== 'off' && !effectsBlocked;
   const effectsKind: 'calm' | 'full' = effectsMode === 'calm' ? 'calm' : 'full';
   const initialKind = useRef(effectsKind);
   useEffect(() => {
@@ -738,7 +741,11 @@ const SwarmGraph = ({
     import('@/lib/swarmEffects')
       .then(({ createSwarmEffects }) => {
         if (cancelled) return;
-        layer = createSwarmEffects(el, r, { mode: initialKind.current, gateOf });
+        layer = createSwarmEffects(el, r, {
+          mode: initialKind.current,
+          gateOf,
+          onGiveUp: () => setTooSlow(true),
+        });
         if (!layer) {
           setWebgl(false);
           return;
@@ -920,7 +927,9 @@ const SwarmGraph = ({
                 ? 'Effects are off: your system asks for reduced motion'
                 : webgl === false
                   ? 'Effects need WebGL, which this browser does not offer'
-                  : 'Particle and light effects'
+                  : tooSlow
+                    ? 'Effects switched themselves off: this device could not keep the frame rate up'
+                    : 'Particle and light effects'
             }
           >
             <Sparkles className="mx-1 size-3.5 text-fg-3" aria-hidden="true" />
@@ -930,8 +939,8 @@ const SwarmGraph = ({
                 variant="segment"
                 size="xs"
                 title={m.title}
-                aria-pressed={(reducedMotion || webgl === false ? 'off' : effectsMode) === m.id}
-                disabled={(reducedMotion || webgl === false) && m.id !== 'off'}
+                aria-pressed={(effectsBlocked ? 'off' : effectsMode) === m.id}
+                disabled={effectsBlocked && m.id !== 'off'}
                 onClick={() => chooseEffects(m.id)}
               >
                 {m.label}
