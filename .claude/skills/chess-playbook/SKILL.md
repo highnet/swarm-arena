@@ -163,6 +163,31 @@ Moves into "Architecture now" only if the referee passes it.
   book is tuned to the opponent main *is*, so it says more about the book being hit than about
   strength; the Stockfish result is flat.
 
+## Candidate (not shipped): null-move pruning (#152)
+
+Moves into "Architecture now" only if the referee passes it.
+
+- `negamax` tries a null move (`swap_turn`, which clears en passant, so the null position gets
+  its own Zobrist hash) before ordering moves, when `null_move_ok` holds: null window
+  (`beta - alpha == 1`, i.e. a PVS/LMR scout node, never the root), remaining depth >= 3, not in
+  check, the previous ply not a null move (`null_ply`), `|beta|` outside mate range, the side to
+  move owns a knight/bishop/rook/queen (`has_non_pawn_material`, the zugzwang guard), and
+  `evaluate >= beta`. It searches `depth-1-R` (R 2; R 3 from depth 7) with `(beta-1, beta)` and
+  returns beta on a fail high (no TT store for the cut).
+- Repetition: `rep_floor` hides the path before the null move and the game history inside a
+  null-move subtree, so positions across the pass never count as a repetition draw.
+- `run_feats` switches it on its own; `run` ties it to `use_pvs`. `null_report` (ignored test)
+  prints the comparison; `null_tries` / `null_cuts` count it.
+- Measured (`null_report`, native release, 8 TT FENs, fixed depth, full = TT+ordering+PVS/LMR):
+  d5 182.6k → 181.1k nodes (−0.8%), same move+score 8/8, 8 tries/2 cuts; d6 623k → 604k
+  (−3.1%), 7/8 (other: same move, 1 cp); d7 1.49M → 1.20M (−19.4%), 7/8 (start position: same
+  move e2e4, 22 → 18 cp). At depth ≤ 6 few interior nodes have remaining depth ≥ 3 with eval ≥
+  beta, so the saving only shows from d7. `go 200` (120/60 ms, wall clock, ±1 ply): start d7 → d8,
+  Italian d6 → d7, Kiwipete d6 → d5, fen3 d6 → d5, fen4 d10 → d11. Mate sanity: four mate-in-3
+  positions (`MATE_IN_3`) give the same mate-in-5-plies score and move with and without it at d7.
+- Local `arena versus chess` vs main (v0.7): +23 −11 =6 over 40 games, 200 ms, balanced
+  suite openings (seed 1513850399).
+
 ## Ideas worth trying
 
 - Opening book follow-ups (#108): predict replies with the opponent's real distribution (record
@@ -177,8 +202,9 @@ Moves into "Architecture now" only if the referee passes it.
   which is most of the remaining qnode waste; checks in the first quiescence ply.
 - The 30%/60% time split is conservative; with the TT, re-searches are cheaper and the soft limit
   could rise (each new depth costs ~2.5–3× the previous with the table, ~6–7× without).
-- Null-move pruning (guard pawn-only endgames), now that PVS/LMR (#98) make the null window
-  routine. LMR tuning: reduction by a log(depth)·log(index) table, reduce less for moves with
+- Null-move pruning: candidate in #152 (above). Follow-ups if it lands: allow it from depth 2
+  (straight into quiescence), adaptive R (depth/4 + eval margin), verification search at high
+  depth against zugzwang with pieces. LMR tuning: reduction by a log(depth)·log(index) table, reduce less for moves with
   high history, and PVS/aspiration windows at the root (the root is still full-window).
 - Counter-move table (quiet reply to the opponent's last move) and history-gravity updates
   (penalise quiets that were searched before the cut move), once quiet ordering ships at all.
@@ -256,3 +282,4 @@ differently. Never re-propose an idea from this list unchanged.
 - 2026-11-23 20:04 UTC · v0.5 passed the referee · PVS and late move reductions on top of killer + history quiet ordering (retry of #87 with a consumer) · rated 1458 (+28 vs v0.4 on the same rung)
 - 2026-11-23 21:07 UTC · v0.6 passed the referee · Self-generated endgame bitbases (KPK, KQK, KRK) solved by the engine's own retrograde analysis · rated 1463 (+5)
 - 2026-11-24 09:56 UTC · v0.7 passed the referee · Self-generated opening book: the engine's own long searches over the first plies, probed instantly · rated 1483 (+20)
+- 2026-11-24 11:19 UTC · v0.8 passed the referee · Null-move pruning on top of PVS/LMR, guarded against zugzwang · rated 1492 (+9)

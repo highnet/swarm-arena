@@ -352,6 +352,20 @@ impl Ordering {
 const LMR_MIN_DEPTH: u32 = 3;
 const LMR_MIN_INDEX: usize = 3;
 const LMR_LATE_INDEX: usize = 8;
+/// Null-move pruning applies from this remaining depth on; the null move is searched
+/// `NULL_R` plies shallower (`NULL_R_DEEP` from depth `NULL_DEEP_DEPTH` on).
+const NULL_MIN_DEPTH: u32 = 3;
+const NULL_R: u32 = 2;
+const NULL_R_DEEP: u32 = 3;
+const NULL_DEEP_DEPTH: u32 = 7;
+
+/// The zugzwang guard: null-move pruning needs the side to move to own a knight, bishop, rook
+/// or queen. With only king and pawns, passing can be better than every legal move.
+fn has_non_pawn_material(pos: &Chess) -> bool {
+    let b = pos.board();
+    let ours = b.by_color(pos.turn());
+    !(ours & !(b.pawns() | b.kings())).is_empty()
+}
 
 struct Search<'a> {
     seen: &'a HashSet<u64>,
@@ -362,6 +376,16 @@ struct Search<'a> {
     use_order: bool,
     /// Principal variation search (null windows after the first move) with late move reductions.
     use_pvs: bool,
+    /// Null-move pruning at null-window nodes.
+    use_null: bool,
+    /// Ply of the null move on the current path (-1: none); a null move never follows one.
+    null_ply: i32,
+    /// Path entries below this index lie before the last null move: they, and the game history,
+    /// do not count toward repetition draws inside a null-move search.
+    rep_floor: usize,
+    /// Null moves tried, and those that cut the node off.
+    null_tries: u64,
+    null_cuts: u64,
     /// Probes that found this position's entry, and those that cut the node off.
     tt_hits: u64,
     tt_cuts: u64,
@@ -409,6 +433,21 @@ impl Search<'_> {
         self.stopped
     }
 
+    /// Whether a node may try a null move: null window (non-PV), enough depth, not in check, the
+    /// previous ply not itself a null move, no mate-range bound, the zugzwang guard, and a
+    /// static eval already at or above beta. The root never comes here (`root` searches moves).
+    #[allow(clippy::too_many_arguments)]
+    fn null_move_ok(&self, pos: &Chess, depth: u32, ply: i32, alpha: i32, beta: i32, in_check: bool) -> bool {
+        self.use_null
+            && beta - alpha == 1
+            && depth >= NULL_MIN_DEPTH
+            && !in_check
+            && self.null_ply != ply - 1
+            && beta.abs() < MATE_BOUND
+            && has_non_pawn_material(pos)
+            && evaluate(pos) >= beta
+    }
+
     /// Negamax alpha-beta. Scores are from the side to move's point of view.
     fn negamax(&mut self, pos: &Chess, depth: u32, ply: i32, mut alpha: i32, beta: i32) -> i32 {
         self.nodes += 1;
@@ -416,7 +455,7 @@ impl Search<'_> {
             return 0;
         }
         let h = hash(pos);
-        if self.seen.contains(&h) || self.path.contains(&h) {
+        if (self.rep_floor == 0 && self.seen.contains(&h)) || self.path[self.rep_floor..].contains(&h) {
             return self.draw(pos.turn());
         }
         let mut moves = pos.legal_moves();
@@ -453,6 +492,32 @@ impl Search<'_> {
                 }
             }
         }
+        let in_check = pos.is_check();
+        // Null-move pruning: at a null-window node, if passing still fails high against a
+        // reduced search, a real move would too (outside zugzwang, which the material guard
+        // keeps out). Never twice in a row, never in check, never near mate scores.
+        if self.null_move_ok(pos, depth, ply, alpha, beta, in_check) {
+            if let Ok(null) = pos.clone().swap_turn() {
+                // swap_turn clears en passant, so the null position hashes on its own.
+                let r = if depth >= NULL_DEEP_DEPTH { NULL_R_DEEP } else { NULL_R };
+                self.null_tries += 1;
+                self.path.push(h);
+                let (floor, null_ply) = (self.rep_floor, self.null_ply);
+                self.rep_floor = self.path.len();
+                self.null_ply = ply;
+                let v = -self.negamax(&null, depth - 1 - r, ply + 1, -beta, -beta + 1);
+                self.rep_floor = floor;
+                self.null_ply = null_ply;
+                self.path.pop();
+                if self.stopped {
+                    return 0;
+                }
+                if v >= beta {
+                    self.null_cuts += 1;
+                    return beta;
+                }
+            }
+        }
         let alpha0 = alpha;
         if self.use_order {
             let side = pos.turn();
@@ -462,7 +527,6 @@ impl Search<'_> {
             moves.sort_unstable_by_key(|m| -order_key(m, tt_move));
         }
         self.path.push(h);
-        let in_check = pos.is_check();
         let mut best = -INF;
         let mut best_move = None;
         for (i, m) in moves.iter().enumerate() {
@@ -635,6 +699,8 @@ struct Outcome {
     tt_hits: u64,
     tt_cuts: u64,
     tb_hits: u64,
+    null_tries: u64,
+    null_cuts: u64,
 }
 
 /// Iterative deepening: depth 1, 2, 3, ... until the clock says stop. Always returns the best move
@@ -688,6 +754,7 @@ fn search_depth_feats(
 
 /// Iterative deepening up to `max_depth`, stopping at `hard` and not starting a depth after `soft`.
 /// Root moves in `exclude` are not searched (the book generator ranks replies this way).
+/// Null-move pruning rides with PVS (its null windows are where it applies).
 #[allow(clippy::too_many_arguments)]
 fn run(
     pos: &Chess,
@@ -701,6 +768,24 @@ fn run(
     use_pvs: bool,
     exclude: &[Move],
 ) -> Option<Outcome> {
+    run_feats(pos, seen, hard, soft, max_depth, tt, use_tt, use_order, use_pvs, use_pvs, exclude)
+}
+
+/// `run` with null-move pruning switched on or off on its own.
+#[allow(clippy::too_many_arguments)]
+fn run_feats(
+    pos: &Chess,
+    seen: &HashSet<u64>,
+    hard: Duration,
+    soft: Duration,
+    max_depth: u32,
+    tt: &mut Tt,
+    use_tt: bool,
+    use_order: bool,
+    use_pvs: bool,
+    use_null: bool,
+    exclude: &[Move],
+) -> Option<Outcome> {
     let start = Instant::now();
     let mut moves: Vec<Move> = pos.legal_moves().into_iter().filter(|m| !exclude.contains(m)).collect();
     tt.new_search(pos.turn());
@@ -708,7 +793,8 @@ fn run(
     let tt_move = if use_tt { tt.probe(hash(pos)).and_then(|e| decode(e.mv, &moves)) } else { None };
     moves.sort_by_key(|m| -order_key(m, tt_move));
     let first = *moves.first()?;
-    let mut out = Outcome { best: first, score: 0, depth: 0, nodes: 0, qnodes: 0, tt_hits: 0, tt_cuts: 0, tb_hits: 0 };
+    let mut out =
+        Outcome { best: first, score: 0, depth: 0, nodes: 0, qnodes: 0, tt_hits: 0, tt_cuts: 0, tb_hits: 0, null_tries: 0, null_cuts: 0 };
     if moves.len() == 1 {
         return Some(out);
     }
@@ -719,6 +805,11 @@ fn run(
         order: Ordering::new(),
         use_order,
         use_pvs,
+        use_null,
+        null_ply: -1,
+        rep_floor: 0,
+        null_tries: 0,
+        null_cuts: 0,
         tt_hits: 0,
         tt_cuts: 0,
         tb_hits: 0,
@@ -751,6 +842,8 @@ fn run(
     out.tt_hits = s.tt_hits;
     out.tt_cuts = s.tt_cuts;
     out.tb_hits = s.tb_hits;
+    out.null_tries = s.null_tries;
+    out.null_cuts = s.null_cuts;
     Some(out)
 }
 
@@ -1022,6 +1115,11 @@ mod tests {
             order: Ordering::new(),
             use_order: false,
             use_pvs: false,
+            use_null: false,
+            null_ply: -1,
+            rep_floor: 0,
+            null_tries: 0,
+            null_cuts: 0,
             tt_hits: 0,
             tt_cuts: 0,
             tb_hits: 0,
@@ -1328,6 +1426,126 @@ mod tests {
             let base = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true, false, false, &[]).unwrap();
             let full = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true, true, true, &[]).unwrap();
             println!("go 200 {name}: v0.4 depth {} nodes {} | full depth {} nodes {}", base.depth, base.nodes, full.depth, full.nodes);
+        }
+    }
+
+    const MATE_IN_3: [&str; 4] = [
+        "r5rk/5p1p/5R2/4B3/8/8/7P/7K w - - 0 1",
+        "3r1r1k/1p3p1p/p2p4/4n1NN/6bQ/1BPq4/P3p1PP/1R5K w - - 0 1",
+        "r1b1kb1r/pppp1ppp/5q2/4n3/3KP3/2N3PN/PPP4P/R1BQ1B1R b kq - 0 1",
+        "2r3k1/p4p2/3Rp2p/1p2P1pK/8/1P4P1/P3Q2P/1q6 b - - 0 1",
+    ];
+
+    fn null_search(pos: &Chess, depth: u32, use_null: bool) -> Outcome {
+        let day = Duration::from_secs(86_400);
+        run_feats(pos, &HashSet::new(), day, day, depth, &mut Tt::new(18), true, true, true, use_null, &[]).unwrap()
+    }
+
+    #[test]
+    fn null_move_still_finds_mate_in_three() {
+        for fen in MATE_IN_3 {
+            let pos = from_fen(fen);
+            let off = null_search(&pos, 7, false);
+            let on = null_search(&pos, 7, true);
+            assert_eq!(off.score, MATE - 5, "{fen}");
+            assert_eq!(on.score, MATE - 5, "{fen}");
+            assert_eq!(on.best, off.best, "{fen}");
+        }
+    }
+
+    #[test]
+    fn null_move_skipped_in_king_and_pawn_endings() {
+        // Five pieces (outside the tables), White only king and pawns: zugzwang territory.
+        let pos = from_fen("4k3/8/8/3p4/8/8/PPP5/4K3 w - - 0 1");
+        assert!(!has_non_pawn_material(&pos));
+        let out = null_search(&pos, 8, true);
+        // Black's king and pawn have no pieces either, so no node may pass.
+        assert_eq!(out.null_tries, 0);
+        // The search did reach the depth where null moves would apply.
+        assert_eq!(out.depth, 8);
+        let mid = from_fen(TT_FENS[0]);
+        assert!(has_non_pawn_material(&mid));
+        assert!(null_search(&mid, 5, true).null_tries > 0);
+    }
+
+    #[test]
+    fn null_move_skipped_when_in_check() {
+        let mut tt = Tt::new(10);
+        let seen = HashSet::new();
+        let mut s = Search {
+            seen: &seen,
+            tt: &mut tt,
+            use_tt: false,
+            order: Ordering::new(),
+            use_order: false,
+            use_pvs: true,
+            use_null: true,
+            null_ply: -1,
+            rep_floor: 0,
+            null_tries: 0,
+            null_cuts: 0,
+            tt_hits: 0,
+            tt_cuts: 0,
+            tb_hits: 0,
+            path: Vec::new(),
+            root_turn: Color::Black,
+            deadline: Instant::now() + Duration::from_secs(86_400),
+            nodes: 0,
+            qnodes: 0,
+            stopped: false,
+        };
+        // Black to move, a queen up, but in check from the bishop: every condition except the
+        // check holds (null window, depth, pieces, eval far above beta).
+        let checked = from_fen("4k3/8/8/1B6/8/8/q7/4K3 b - - 0 1");
+        assert!(checked.is_check() && has_non_pawn_material(&checked));
+        assert!(evaluate(&checked) > 0);
+        assert!(!s.null_move_ok(&checked, 6, 3, -1, 0, true));
+        // The same material out of check does pass.
+        let free = from_fen("4k3/8/8/2B5/8/8/q7/4K3 b - - 0 1");
+        assert!(!free.is_check());
+        assert!(s.null_move_ok(&free, 6, 3, -1, 0, false));
+        // Not right after a null move, not at a full-window (PV) node, not below depth 3.
+        s.null_ply = 2;
+        assert!(!s.null_move_ok(&free, 6, 3, -1, 0, false));
+        s.null_ply = -1;
+        assert!(!s.null_move_ok(&free, 6, 3, -1, 5, false));
+        assert!(!s.null_move_ok(&free, 2, 3, -1, 0, false));
+        // And a search from the checked position never passes at its in-check root child.
+        let v = s.negamax(&checked, 4, 1, -1, 0);
+        assert!(v > -MATE_BOUND && !s.stopped);
+    }
+
+    #[test]
+    #[ignore = "measurement: cargo test --release -p chess-engine null_report -- --ignored --nocapture"]
+    fn null_report() {
+        for depth in [5u32, 6, 7] {
+            let (mut off_n, mut on_n, mut same, mut tries, mut cuts) = (0u64, 0u64, 0, 0u64, 0u64);
+            for fen in TT_FENS {
+                let pos = from_fen(fen);
+                let off = null_search(&pos, depth, false);
+                let on = null_search(&pos, depth, true);
+                if (off.best, off.score) == (on.best, on.score) {
+                    same += 1;
+                } else {
+                    println!("  d{depth} differs {fen}: off {:?} {} on {:?} {}", off.best, off.score, on.best, on.score);
+                }
+                off_n += off.nodes;
+                on_n += on.nodes;
+                tries += on.null_tries;
+                cuts += on.null_cuts;
+            }
+            println!(
+                "depth {depth}: nodes off {off_n} on {on_n} ({:+.1}%), same {same}/8, null tries {tries} cuts {cuts}",
+                100.0 * (on_n as f64 / off_n as f64 - 1.0)
+            );
+        }
+        for (i, fen) in TT_FENS.iter().enumerate() {
+            let pos = from_fen(fen);
+            let hard = Duration::from_millis(120);
+            let soft = Duration::from_millis(60);
+            let off = run_feats(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true, true, true, false, &[]).unwrap();
+            let on = run_feats(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true, true, true, true, &[]).unwrap();
+            println!("go 200 fen{i}: off depth {} nodes {} | null depth {} nodes {}", off.depth, off.nodes, on.depth, on.nodes);
         }
     }
 
