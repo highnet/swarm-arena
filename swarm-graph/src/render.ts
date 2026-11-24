@@ -445,7 +445,7 @@ export const createSwarmGraph = (
     .attr('fill', 'none')
     .attr('stroke-linecap', 'round')
     .attr('pointer-events', 'none');
-  const gParticles = root.append('g').attr('pointer-events', 'none');
+  const gParticles = root.append('g').attr('class', 'sg-beams').attr('pointer-events', 'none');
   const gNodes = root.append('g');
   const gBursts = root.append('g').attr('pointer-events', 'none');
   const gFloaters = root.append('g').attr('pointer-events', 'none');
@@ -1396,7 +1396,12 @@ export const createSwarmGraph = (
         const hub = graph ? nodeById.get(graph.hubId) : undefined;
         if (hub) pop(hub, 0.8);
       } else if (flow.kind === 'milestone')
-        celebrate(last, color, 10, `${effect === 'rung' ? 'rung cleared' : 'milestone'}${times(n)}`);
+        celebrate(
+          last,
+          color,
+          10,
+          `${effect === 'rung' ? 'rung cleared' : 'milestone'}${times(n)}`,
+        );
       else if (flow.kind === 'rating' && flow.delta) {
         pop(last, flow.delta > 0 ? 1.4 : 0.6);
         celebrate(
