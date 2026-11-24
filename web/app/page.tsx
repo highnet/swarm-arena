@@ -3,6 +3,7 @@ import Link from 'next/link';
 import type { GameId, Snapshot } from '@arena/shared';
 import { EngineFeature } from '@/components/arena/EngineFeature';
 import { GameReplay } from '@/components/arena/GameReplay';
+import { HomeBackdrop } from '@/components/arena/HomeBackdrop';
 import { ReplayHold } from '@/components/arena/ReplayHold';
 import { RightNow } from '@/components/arena/RightNow';
 import { ProgressChart, type ProgressSeries } from '@/components/arena/ProgressChart';
@@ -100,7 +101,14 @@ const HomeContent = async () => {
       <SectionNav items={CHAPTERS} />
 
       {/* 1 · Overview: what this is, one primary action. */}
-      <Section id="overview" labelledBy="hero-title" fill="screen" space="roomy">
+      <Section
+        id="overview"
+        labelledBy="hero-title"
+        fill="screen"
+        space="roomy"
+        className="isolate"
+      >
+        <HomeBackdrop />
         <SectionHeading
           level="page"
           space="none"
