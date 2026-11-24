@@ -1,0 +1,1 @@
+- 2026-11-24 · **evaluation features** · Chess · buried: Rated 1520 ± 111, not above 1547. · Piece mobility and passed pawns in the chess evaluation, tapered by phase

@@ -336,3 +336,4 @@ differently. Never re-propose an idea from this list unchanged.
 - 2026-11-24 09:56 UTC · v0.7 passed the referee · Self-generated opening book: the engine's own long searches over the first plies, probed instantly · rated 1483 (+20)
 - 2026-11-24 11:19 UTC · v0.8 passed the referee · Null-move pruning on top of PVS/LMR, guarded against zugzwang · rated 1492 (+9)
 - 2026-11-24 12:41 UTC · v0.9 passed the referee · Static exchange evaluation (SEE): skip losing captures in quiescence and order captures by SEE · rated 1547 (+55)
+- 2026-11-24 14:04 UTC · buried · Piece mobility and passed pawns in the chess evaluation, tapered by phase · Rated 1520 ± 111, not above 1547.
