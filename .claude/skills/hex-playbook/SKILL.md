@@ -388,3 +388,4 @@ Never re-propose an idea from this list unchanged.
 - 2026-11-24 09:56 UTC · buried · Self-generated opening book: the engine's own long MCTS runs over the first moves, probed instantly · Rated 2664 ± 110, not above 2734.
 - 2026-11-24 12:41 UTC · buried · Experiment: a cell prior learned offline from the engine's own self-play, given to new nodes as virtual wins · Rated 2717 ± 108, not above 2734.
 - 2026-11-24 14:14 UTC · buried · Extend inferior-cell pruning: more dead-cell patterns and the mover's vulnerable cells left out of the tree · Rated 2681 ± 109, not above 2734.
+- 2026-11-24 15:24 UTC · buried · Win back RAVE's playout rate: cheaper AMAF update per playout, same selection · Rated 2717 ± 108, not above 2734.
