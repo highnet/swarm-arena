@@ -321,3 +321,4 @@ differently. Never re-propose an idea from this list unchanged.
 - 2026-11-23 18:29 UTC · v0.3 passed the referee · Resubmit #67: potential mobility + edge-anchored stable discs, measured on the fixed gate · rated 1265 (+92 vs v0.2 on the same rung)
 - 2026-11-23 19:34 UTC · buried · Exact endgame solver: search to the final disc count once few empties remain · Rated 541 ± 485, not above 1265.
 - 2026-11-23 20:14 UTC · v0.4 passed the referee · Resubmit #94's exact endgame solver on the varied-opening gate · rated 1317 (+52)
+- 2026-11-24 08:50 UTC · v0.5 passed the referee · Self-generated opening book: the engine's own long searches over the first moves, probed instantly · rated 1274 (+81 vs v0.4 on the same rung)
