@@ -3,7 +3,9 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import bcrypt from "bcryptjs";
 import { resolve } from "node:path";
 import {
+  newOpeningSeed,
   performanceElo,
+  pickOpenings,
   playMatch,
   GAMES,
   type GameId,
@@ -40,7 +42,7 @@ import {
 } from "./orchestrator";
 import { pinAgentId } from "./rallypoint";
 import { buildWasm } from "./wasm";
-import { buildSuite } from "./openings";
+import { buildSuite, loadSuite, suiteName } from "./openings";
 import { getStore } from "./store";
 import { adopt, applyPlan, brief } from "./strategist";
 
@@ -91,7 +93,11 @@ Operator:
   status                        engines, open tasks, last records
   set-password                  store a bcrypt hash of ARENA_PASSWORD; from then on every API write needs it
   calibrate <track> [--pairs N] rate each rung against the one below
-  versus <track> [--pairs N]    play the engine in this checkout against the version on main
+  versus <track> [--pairs N] [--seed S] [--no-openings]
+                                play the engine in this checkout against the version on main. Each
+                                pair starts from its own seeded opening, as the referee's do (a fresh
+                                seed unless --seed; quote it with the result). --no-openings starts
+                                every game from the initial position
   wasm <track>                  rebuild the browser build of the engine on this checkout
   openings build <track> [--count N] [--seed S] [--strength X] [--samples K] [--jobs J] [--out file]
                                 rebuild the track's balanced opening suite (shared/src/openings/<track>.txt):
@@ -426,14 +432,40 @@ Run \`git checkout --detach origin/main\` (or \`npm run arena -- prepare\`, whic
         MOVE_MS,
       );
       const main = await currentVersion(game, "main");
-      const res = await playMatch(GAMES[game], mine, main, flag("pairs", 5), {
+      const pairs = flag("pairs", 5);
+      // Seeded openings, drawn exactly as the referee draws them (runMatch): the balanced suite
+      // when it has enough entries, otherwise #103's random lines. --no-openings: initial position.
+      const openingSeed = process.argv.includes("--no-openings")
+        ? undefined
+        : opt("seed") !== undefined
+          ? flag("seed", 0)
+          : newOpeningSeed();
+      if (openingSeed !== undefined && !Number.isInteger(openingSeed))
+        throw new Error(`--seed must be an integer, got ${opt("seed")}`);
+      const suite = openingSeed === undefined ? undefined : loadSuite(game);
+      if (openingSeed === undefined) {
+        log("openings: none (--no-openings), every game from the initial position");
+      } else {
+        const picked = pickOpenings(GAMES[game], pairs, openingSeed, { suite });
+        log(
+          `openings: seed ${openingSeed}, ${picked.source === "suite" ? `balanced suite ${suiteName(game)}` : "random lines"}`,
+        );
+        picked.openings.forEach((o, k) =>
+          log(`pair ${k + 1}: ${o.join(" ") || "(initial position)"}`),
+        );
+      }
+      const res = await playMatch(GAMES[game], mine, main, pairs, {
         moveTimeMs: MOVE_MS + 300,
+        openingSeed,
+        openingSuite: suite,
         onGame: (g, i) =>
           log(
-            `game ${i + 1}: ${g.outcome} by ${g.termination} in ${g.moves.length} plies`,
+            `game ${i + 1} (pair ${Math.floor(i / 2) + 1}, local ${i % 2 === 0 ? "first" : "second"}): ${g.outcome} by ${g.termination} in ${g.moves.length} plies`,
           ),
       });
-      log(`local vs main: +${res.wins} -${res.losses} =${res.draws}`);
+      log(
+        `local vs main: +${res.wins} -${res.losses} =${res.draws}${openingSeed === undefined ? " (no openings)" : ` (seed ${openingSeed})`}`,
+      );
       await mine.close?.();
       await main.close?.();
       return;

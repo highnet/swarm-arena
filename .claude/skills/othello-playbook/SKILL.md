@@ -147,7 +147,8 @@ Move into "Architecture now" only once the referee passes it.
 - Use more of the budget: the 60% cap and the 1/3 "don't start" rule leave much of 200 ms unused.
 - Tune the eval weights (corner/mobility/X/C) by self-play. Local matches need opening variety
   (a few random plies or an opening list) before small weight differences can be read: without
-  one, repeats of the same setting differed by ±10 games out of 40.
+  one, repeats of the same setting differed by ±10 games out of 40. `arena versus` has seeded
+  openings since #104 (quote its seed); `arena play` still has none.
 - Evaluation: edge patterns (an edge-configuration table), interior stability, parity.
 - Endgame solver follow-ups (#94's plain solver at N = 14, resubmitted in #112): a small TT inside the
   solve (from ~10 empties up; transpositions are common late); scale N with the budget (each

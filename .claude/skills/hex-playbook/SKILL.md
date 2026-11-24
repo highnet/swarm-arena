@@ -135,6 +135,7 @@ order-dependent, so expect a smaller gain there; start its sweep at C = 0 too.
 
 ## Ideas worth trying
 
+
 - Win back RAVE's playout rate: structure-of-arrays AMAF counters (vectorisable update), or
   skip the AMAF update below a depth; then re-check K (K = 3000 tied K = 1000).
 - Silver's minimum-MSE β schedule instead of sqrt(K / (3n + K)) (not tried).
@@ -176,6 +177,25 @@ what it is, why it might work, and its verdict. Never fill this from another eng
 When an idea is buried, write what it was, the measured result and what to try differently.
 Never re-propose an idea from this list unchanged.
 
+- Self-generated opening book (#111, buried at 2664 ± 110 vs v0.5's 2734: the referee's 40
+  games vs v0.5 went **16–24**; locally 19–21 over 40 from the suite, seed 7). Design (reverted;
+  commit 4b8332c on branch `agent/111-hex-self-generated-opening-book-the-engine` has the
+  code and the 126 KB book): every position after one ply (61 up to the 180° rotation, cell
+  i ↔ 120 − i, `u128::reverse_bits() >> 7`) and after two plies (7 260), keyed by both
+  bitboards, canonical under the rotation; `choose` played the stored move after the
+  win/block checks. Built by `gen-book` (`src/bin`, offline): the engine's own search for
+  400 000 playouts per position (~8× a 200 ms move) with the tree cap raised from 2M to 16M
+  nodes (at 2M the tree stops growing after ~35k playouts), seed from the position, four
+  processes (`--shard I/4`; no threads in the crate, tooling included), ~1.6 s a position,
+  48 min. Hit rate in gate games: one book move per game as Black (its first move, ply 3),
+  none as White (the suite's 2-ply starts put White's first move at ply 3: 14 520 × 119 / 2
+  positions). Book moves crowd the short diagonal (e7 665, f6 577, d8 494, g5 433, h4 354).
+  Likely why no gain: one move in ~60, chosen by the same search with 8× the playouts, barely
+  differs from the 200 ms choice in strength, and the engine's MCTS value at ply 2 is still
+  ±several points (the 400k-playout win rates sit at 0.53–0.61, close together); a long search
+  of the same flawed playout policy does not fix its opening bias. Try instead (if at all):
+  a book only where long and short search disagree and the long one's margin is large, or
+  spend the offline compute on tuning (K, priors) rather than per-position moves.
 - RAVE with a UCB term (#50): C = 0.3 lost 1–7 to plain UCT, C = 0.1 3–5. AMAF already spreads
   statistics over all children; the exploration bonus just diverts real visits. Use C = 0.
 - Second-row edge-template pairing in the fill-in (#73, buried at 2607 ± 108, i.e. no gain over
@@ -236,3 +256,4 @@ Never re-propose an idea from this list unchanged.
 - 2026-11-23 17:44 UTC · buried · Edge-template pairing in the fill-in: a second-row stone's two edge cells go one to each colour · Rated 2607 ± 108, not above 2607.
 - 2026-11-23 18:54 UTC · buried · Experiment: ownership-guided fill-in, where the root's own playout ownership map biases the split of contested cells · Rated 2572 ± 108, not above 2607.
 - 2026-11-23 19:40 UTC · v0.5 passed the referee · Inferior-cell pruning: drop dead cells from the tree and settle captured cells in the fill-in · rated 2734 (+127)
+- 2026-11-24 09:56 UTC · buried · Self-generated opening book: the engine's own long MCTS runs over the first moves, probed instantly · Rated 2664 ± 110, not above 2734.
