@@ -662,6 +662,7 @@ const pullExtras = (pull) => ({
   isDraft: Boolean(pull.draft),
   state: pull.merged_at ? "MERGED" : String(pull.state ?? "").toUpperCase(),
   mergedAt: pull.merged_at ?? null,
+  closedAt: pull.closed_at ?? null,
   createdAt: pull.created_at,
   updatedAt: pull.updated_at,
   mergeCommit: pull.merge_commit_sha && pull.merged_at ? { oid: pull.merge_commit_sha } : null,
