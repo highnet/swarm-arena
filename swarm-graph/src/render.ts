@@ -465,6 +465,8 @@ export const createSwarmGraph = (
       labelRoot.attr('transform', e.transform.toString());
       view = e.transform;
       placeAnchors();
+      // The chips keep their screen size, so their room in graph units changes with the zoom.
+      layoutLabels();
     });
   svg.call(zoom).on('dblclick.zoom', null);
 
@@ -1193,6 +1195,8 @@ export const createSwarmGraph = (
         y1: (n.y ?? 0) + n.r,
       },
     }));
+    // The HTML chips beside a node (rating, agents) are obstacles too: a label never hides under one.
+    const chips = [...chipBoxes.values()];
     const placed: Box[] = [];
     const ordered = [...nodeById.values()]
       .filter((n) => labelOf(n) || subOf(n))
@@ -1243,6 +1247,7 @@ export const createSwarmGraph = (
         c.box.y1 <= height / 2 - 2;
       const clashes = (c: typeof below) =>
         placed.filter((b) => hit(b, c.box)).length +
+        chips.filter((b) => hit(b, c.box)).length +
         bodies.filter((o) => o.n !== n && hit(o.box, c.box)).length;
       const free = (c: typeof below) => inside(c) && clashes(c) === 0;
       const candidates = [below, above, right, left];
@@ -1301,7 +1306,10 @@ export const createSwarmGraph = (
   };
 
   const anchors = new Map<string, HTMLElement>();
+  /** Where each anchored chip sits, in graph units, for the label layout to keep clear of. */
+  const chipBoxes = new Map<string, { x0: number; y0: number; x1: number; y1: number }>();
   const placeAnchors = () => {
+    chipBoxes.clear();
     // Read every size first, then write every position: one layout per frame, not one per badge.
     const placed = [...anchors].map(([id, el]) => ({
       el,
@@ -1329,7 +1337,13 @@ export const createSwarmGraph = (
       el.dataset.side = side;
       el.style.visibility = 'visible';
       el.style.opacity = intro ? String(intro.labels) : '';
-      el.style.transform = `translate(${Math.round(Math.max(pad, Math.min(width - w - pad, x)))}px, ${Math.round(y)}px)`;
+      const left = Math.max(pad, Math.min(width - w - pad, x));
+      el.style.transform = `translate(${Math.round(left)}px, ${Math.round(y)}px)`;
+      if (w > 0 && h > 0) {
+        const gx = (sx: number) => (sx - width / 2 - view.x) / view.k;
+        const gy = (sy: number) => (sy - height / 2 - view.y) / view.k;
+        chipBoxes.set(n.id, { x0: gx(left), y0: gy(y), x1: gx(left + w), y1: gy(y + h) });
+      }
     }
   };
   const anchor = (nodeId: string, el: HTMLElement | null) => {
