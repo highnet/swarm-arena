@@ -4,12 +4,14 @@ import {
   performanceElo,
   playMatch,
   type GameId,
+  type GameRecord,
   type Match,
   type Mover,
   type Rung,
 } from "@arena/shared";
 import { now, post } from "./board";
-import { log, MOVE_MS, MOVE_SLACK_MS, RUN_ID } from "./config";
+import { LIVE_MS, log, MOVE_MS, MOVE_SLACK_MS, RUN_ID } from "./config";
+import { liveStream, type LiveGame } from "./live";
 import { getStore } from "./store";
 import { loadSuite, suiteName } from "./openings";
 
@@ -52,7 +54,8 @@ export const runMatch = async (spec: MatchSpec) => {
   const fromSuite =
     suite !== undefined &&
     spec.openingSeed !== undefined &&
-    drawFromSuite(GAMES[spec.track], suite, spec.pairs, spec.openingSeed) !== null;
+    drawFromSuite(GAMES[spec.track], suite, spec.pairs, spec.openingSeed) !==
+      null;
   const seedNote =
     spec.openingSeed === undefined
       ? ""
@@ -95,6 +98,55 @@ export const runMatch = async (spec: MatchSpec) => {
   }
   const forfeits: string[] = [];
   const tally = { w: 0, l: 0, d: 0 };
+  // Each game streams to live_games while it is played; nothing here awaits it (see live.ts).
+  const live = liveStream(
+    db,
+    {
+      run_id: RUN_ID,
+      match_id: id,
+      track_id: spec.track,
+      candidate_version: spec.candidateVersion,
+      opponent: spec.opponentLabel,
+    },
+    { log, intervalMs: LIVE_MS },
+  );
+  let current: LiveGame | null = null;
+  // playMatch does not await onGame: keep its writes so the live rows can be cleared after them.
+  const stored: Promise<void>[] = [];
+  const storeGame = async (
+    g: GameRecord,
+    i: number,
+    finished: LiveGame | null,
+  ) => {
+    const engineFirst = i % 2 === 0;
+    const s = engineFirst ? g.outcome : 1 - g.outcome;
+    tally[s === 1 ? "w" : s === 0 ? "l" : "d"]++;
+    log(
+      `  game ${i + 1}/${spec.pairs * 2}: ${s === 1 ? "win" : s === 0 ? "loss" : "draw"} (${g.termination}, ${g.moves.length} plies) · ${spec.candidateVersion} ${tally.w}–${tally.l}–${tally.d} vs ${spec.opponentLabel}`,
+    );
+    if (g.offender !== null && (g.offender === 0) === engineFirst) {
+      forfeits.push(
+        `${g.termination}${g.detail ? ` (${g.detail.slice(0, 40)})` : ""}`,
+      );
+    }
+    try {
+      await db.insert("games", {
+        id: `${id}-g${i + 1}`,
+        run_id: RUN_ID,
+        match_id: id,
+        track_id: spec.track,
+        ply_count: g.moves.length,
+        engine_first: engineFirst,
+        outcome: g.outcome,
+        termination: g.termination,
+        moves: g.moves,
+        finished_at: now(),
+      });
+    } finally {
+      // The finished game is in `games` now: its live row goes.
+      finished?.end();
+    }
+  };
   const result = await playMatch(
     GAMES[spec.track],
     spec.candidate,
@@ -106,39 +158,37 @@ export const runMatch = async (spec: MatchSpec) => {
       openingSuite: suite,
       replayOpponentFailures:
         spec.referenceOpponent === false ? 0 : REFERENCE_REPLAYS,
-      onVoid: (g, i, attempt) =>
+      onGameStart: (i, attempt, opening) => {
+        current?.end();
+        current = live.start(
+          `${id}-g${i + 1}${attempt ? `-r${attempt}` : ""}`,
+          i % 2 === 0,
+          opening,
+        );
+      },
+      onMove: (move, ply) => current?.move(move, ply),
+      onVoid: (g, i, attempt) => {
+        current?.end();
+        current = null;
         log(
           `  game ${i + 1}/${spec.pairs * 2}: voided, ${spec.opponentLabel} ${g.termination} at ${g.moves.length} plies (attempt ${attempt + 1}); restarted it, replaying the same opening`,
-        ),
-      onGame: async (g, i) => {
-        const engineFirst = i % 2 === 0;
-        const s = engineFirst ? g.outcome : 1 - g.outcome;
-        tally[s === 1 ? "w" : s === 0 ? "l" : "d"]++;
-        log(
-          `  game ${i + 1}/${spec.pairs * 2}: ${s === 1 ? "win" : s === 0 ? "loss" : "draw"} (${g.termination}, ${g.moves.length} plies) · ${spec.candidateVersion} ${tally.w}–${tally.l}–${tally.d} vs ${spec.opponentLabel}`,
         );
-        if (g.offender !== null && (g.offender === 0) === engineFirst) {
-          forfeits.push(
-            `${g.termination}${g.detail ? ` (${g.detail.slice(0, 40)})` : ""}`,
-          );
-        }
-        await db.insert("games", {
-          id: `${id}-g${i + 1}`,
-          run_id: RUN_ID,
-          match_id: id,
-          track_id: spec.track,
-          ply_count: g.moves.length,
-          engine_first: engineFirst,
-          outcome: g.outcome,
-          termination: g.termination,
-          moves: g.moves,
-          finished_at: now(),
-        });
+      },
+      onGame: (g, i) => {
+        const finished = current;
+        current = null;
+        stored.push(storeGame(g, i, finished));
       },
     },
-  );
+  ).finally(async () => {
+    current?.end();
+    await Promise.allSettled(stored);
+    // Bounded: a hung store cannot hold the match open.
+    await live.flush(2000);
+  });
   const voided = result.voided.map(
-    (v) => `game ${v.index + 1}: ${spec.opponentLabel} ${v.termination} at ${v.plies} plies`,
+    (v) =>
+      `game ${v.index + 1}: ${spec.opponentLabel} ${v.termination} at ${v.plies} plies`,
   );
   const games = result.wins + result.draws + result.losses;
   const est = performanceElo([

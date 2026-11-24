@@ -1,5 +1,15 @@
 import { cacheLife, cacheTag } from 'next/cache';
-import { TRACKS, type EloPoint, type GameRow, type Message, type Snapshot } from '@arena/shared';
+import {
+  LIVE_GAME_STALE_MS,
+  newestLiveGames,
+  TRACKS,
+  type EloPoint,
+  type GameId,
+  type GameRow,
+  type LiveGameRow,
+  type Message,
+  type Snapshot,
+} from '@arena/shared';
 import { getSupabase, supabaseConfigured } from './supabase';
 
 /** Before the first run: the four ladders at the start line, nothing played. */
@@ -176,4 +186,30 @@ export const getAllGames = async (): Promise<GameRow[]> => {
     if (!data || data.length < page) break;
   }
   return out;
+};
+
+/**
+ * The game each track's referee is playing right now: the newest live game per track that was
+ * updated within `LIVE_GAME_STALE_MS` (#144). Empty when nothing is being played. Expired with the
+ * snapshot whenever Realtime reports a change, so it keeps up with the moves.
+ */
+export const liveGames = async (): Promise<Partial<Record<GameId, LiveGameRow>>> => {
+  'use cache';
+  cacheTag(SNAPSHOT_TAG);
+  cacheLife({ stale: 5, revalidate: 5, expire: 60 });
+  if (!supabaseConfigured()) return {};
+  const s = await getSnapshot();
+  const since = new Date(Date.now() - LIVE_GAME_STALE_MS).toISOString();
+  const { data, error } = await getSupabase()
+    .from('live_games')
+    .select('*')
+    .eq('run_id', s.run.id)
+    .gte('updated_at', since)
+    .order('started_at', { ascending: false })
+    .limit(100);
+  if (error) {
+    console.error('live games failed', error.message);
+    return {};
+  }
+  return newestLiveGames((data ?? []) as LiveGameRow[], Date.now());
 };

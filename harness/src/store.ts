@@ -40,6 +40,10 @@ export type Store = {
   select: <T = Row>(table: string, filter?: Filter) => Promise<T[]>;
   insert: <T = Row>(table: string, row: Row) => Promise<T>;
   update: (table: string, filter: Filter, patch: Row) => Promise<number>;
+  /** Insert the row, or replace the one with the same primary key (`id`). Not retried. */
+  upsert: (table: string, row: Row) => Promise<void>;
+  /** Delete the rows matching filter, returning how many went. */
+  remove: (table: string, filter: Filter) => Promise<number>;
   /** Atomic compare-and-set: update rows matching filter, returning how many changed. */
   claim: (table: string, filter: Filter, patch: Row) => Promise<number>;
 };
@@ -99,6 +103,18 @@ const supabaseStore = (): Store => {
           `update ${table}`,
         ) as Row[]
       ).length,
+    upsert: async (table, row) => {
+      check(await db.from(table).upsert(row), `upsert ${table}`);
+    },
+    remove: async (table, filter) =>
+      (
+        check(
+          await withRetry(() =>
+            apply(db.from(table).delete(), filter).select("id"),
+          ),
+          `delete ${table}`,
+        ) as Row[]
+      ).length,
     claim: async (table, filter, patch) =>
       (
         check(
@@ -153,6 +169,21 @@ const fileStore = (path: string): Store => {
       return full as never;
     },
     update,
+    upsert: async (table, row) => {
+      const d = load();
+      const rows = (d[table] ??= []);
+      const at = rows.findIndex((r) => r.id === row.id);
+      if (at >= 0) rows[at] = { ...row };
+      else rows.push({ ...row });
+      save(d);
+    },
+    remove: async (table, filter) => {
+      const d = load();
+      const before = (d[table] ?? []).length;
+      d[table] = (d[table] ?? []).filter((r) => !matches(r, filter));
+      save(d);
+      return before - d[table].length;
+    },
     claim: update,
   };
 };

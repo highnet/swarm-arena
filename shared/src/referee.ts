@@ -128,6 +128,12 @@ export type MatchOptions = PlayOptions & {
   openingSuite?: OpeningSuite;
   onGame?: (g: GameRecord, index: number) => void;
   /**
+   * Called as each game (or replay of a voided game) starts, with the opening it starts from.
+   * `onMove` reports only the moves played after the opening, so a live view of the game needs
+   * both.
+   */
+  onGameStart?: (index: number, attempt: number, opening: string[]) => void;
+  /**
    * How many times one game may be voided and replayed because the opponent (a reference
    * engine) timed out or crashed. Such a forfeit measures the reference's process, not the
    * candidate, so it is not a result: the game is replayed from the same opening, colours
@@ -173,7 +179,9 @@ export const playMatch = async <S>(
     const seats: [Mover, Mover] = candidateFirst ? [candidate, opponent] : [opponent, candidate];
     let g: GameRecord;
     for (let attempt = 0; ; attempt++) {
-      g = await playGame(rules, seats, { ...options, opening: openings[Math.floor(i / 2)] });
+      const opening = openings[Math.floor(i / 2)];
+      options.onGameStart?.(i, attempt, opening);
+      g = await playGame(rules, seats, { ...options, opening });
       // Whoever timed out or crashed may still have a move in flight: restore it before it
       // plays again, or the late answer desynchronises every later game.
       if (isFailure(g) && g.offender !== null) await seats[g.offender].reset?.();

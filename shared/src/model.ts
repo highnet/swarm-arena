@@ -205,6 +205,43 @@ export type GameRow = {
   finished_at: string;
 };
 
+/** A game the referee is playing right now (`live_games`, #144). Deleted once it is in `games`. */
+export type LiveGameRow = {
+  id: string;
+  run_id: string;
+  match_id: string;
+  track_id: GameId;
+  candidate_version: string;
+  /** The reference engine and level, or the main version, as the match labels it. */
+  opponent: string;
+  /** Did the candidate engine move first? */
+  engine_first: boolean;
+  /** Every move on the board, the opening included. */
+  moves: string[];
+  ply: number;
+  started_at: string;
+  updated_at: string;
+};
+
+/** A live game not updated for this long is stale: its referee died or lost the store. */
+export const LIVE_GAME_STALE_MS = 3 * 60_000;
+
+/** The newest non-stale live game of each track, keyed by track. */
+export const newestLiveGames = (
+  rows: LiveGameRow[],
+  nowMs: number,
+  staleMs = LIVE_GAME_STALE_MS,
+): Partial<Record<GameId, LiveGameRow>> => {
+  const out: Partial<Record<GameId, LiveGameRow>> = {};
+  for (const r of rows) {
+    const updated = Date.parse(r.updated_at);
+    if (!(nowMs - updated <= staleMs)) continue;
+    const seen = out[r.track_id];
+    if (!seen || Date.parse(r.started_at) > Date.parse(seen.started_at)) out[r.track_id] = r;
+  }
+  return out;
+};
+
 export type EloPoint = {
   run_id: string;
   track_id: GameId;
