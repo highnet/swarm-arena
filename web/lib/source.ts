@@ -147,7 +147,8 @@ export type Concepts = {
 /** The cross-game concepts skill: its vocabulary, the beliefs written so far, the evidence log. */
 export const getConcepts = async (): Promise<Concepts> => {
   'use cache';
-  cacheLife('minutes');
+  // Ships with the deploy (#222): nothing changes it before the next one.
+  cacheLife('max');
   const raw = await readFile(join(REPO, '.claude', 'skills', 'concepts', 'SKILL.md'), 'utf8').catch(
     () => '',
   );
