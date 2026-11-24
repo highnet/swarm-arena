@@ -2,18 +2,25 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Crosshair, History, Square } from 'lucide-react';
+import { Crosshair, History, Sparkles, Square } from 'lucide-react';
 import type { Agent, GameRow, Track } from '@arena/shared';
 import {
   agentNodeId,
   buildSwarmGraph,
   createSwarmGraph,
+  defaultEffectOf,
+  planReplay,
+  stateAt,
+  summarizeReplay,
   type SwarmAgent,
+  type SwarmEffectKind,
   type SwarmEvent,
   type SwarmFlow,
   type SwarmGraphRenderer,
   type SwarmInput,
   type SwarmNode,
+  type SwarmReplayMode,
+  type SwarmReplayPlan,
   type SwarmReplayState,
   type SwarmStage,
 } from '@rallypoint/swarm-graph';
@@ -39,14 +46,64 @@ import {
   showsFlow,
   type SwarmPresetId,
 } from '@/lib/swarmPresets';
+import type { EffectsMode, SwarmEffectsLayer } from '@/lib/swarmEffects';
 import { useCatchUp } from '@/lib/useCatchUp';
 import { cn } from '@/lib/utils';
 import type { EngineBoardSource } from './EngineBoard';
 import { useFleetHover } from './FleetHover';
+import { ReplayScrubber } from './ReplayScrubber';
 import { agentHref } from './seats';
 import { SwarmNodeOverlay, type NodeRating } from './SwarmNodeOverlay';
 
 const TICKER = 5;
+
+/**
+ * When this page load first showed the graph. Coming back to the fleet page later in the same
+ * visit (a client-side route change) plays the short intro; a remount straight away (React's
+ * development double-mount) still gets the full one.
+ */
+let introShownAt: number | null = null;
+const introMode = () =>
+  introShownAt !== null && performance.now() - introShownAt > 1500 ? 'short' : 'full';
+
+const EFFECTS_KEY = 'swarm-graph-effects';
+const HAPTICS_KEY = 'swarm-graph-haptics';
+const EFFECT_MODES: { id: EffectsMode; label: string; title: string }[] = [
+  { id: 'off', label: 'Off', title: 'No particle layer: the graph alone' },
+  { id: 'calm', label: 'Calm', title: 'Particles only' },
+  { id: 'full', label: 'Full', title: 'Particles, bloom, light and ripples' },
+];
+/** Captions on screen at once during a replay; older ones dissolve. */
+const CAPTIONS = 3;
+const CAPTION_MS = 2800;
+
+const readStored = <T extends string>(key: string, allowed: readonly T[], fallback: T): T => {
+  try {
+    const v = window.localStorage.getItem(key);
+    return v && (allowed as readonly string[]).includes(v) ? (v as T) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+const store = (key: string, value: string) => {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Storage blocked: the choice lasts for this visit.
+  }
+};
+
+/** The arena's reading of an event's payoff: rungs cleared and ideas buried get their own. */
+const arenaEffectOf = (f: SwarmFlow): SwarmEffectKind | null =>
+  f.sub === 'rung' ? 'rung' : f.sub === 'task-dead' ? 'bury' : defaultEffectOf(f);
+
+/** A referee match opening and closing, for the heat shimmer over its sector. */
+const gateOf = (f: SwarmFlow) =>
+  f.sub === 'match-start' ? 'start' : f.sub === 'match' ? 'end' : null;
+
+/** What a replay dwells on: merges, rungs cleared and rating changes (not every match ending). */
+const replayMilestone = (f: SwarmFlow) =>
+  f.kind === 'merge' || f.sub === 'rung' || (f.kind === 'rating' && Boolean(f.delta));
 
 const FLOW_VERB: Record<SwarmFlow['kind'], string> = {
   plan: 'planned',
@@ -367,6 +424,19 @@ const SwarmGraph = ({
     liveCtx.current = context;
   }, [context]);
 
+  const [effectsMode, setEffectsMode] = useState<EffectsMode>('full');
+  /** null until known: whether this browser can draw the WebGL layer at all. */
+  const [webgl, setWebgl] = useState<boolean | null>(null);
+  /** The layer switched itself off: this device could not keep its frame rate up. */
+  const [tooSlow, setTooSlow] = useState(false);
+  const effects = useRef<SwarmEffectsLayer | null>(null);
+  const [haptics, setHaptics] = useState(false);
+  const hapticsOn = useRef(false);
+  useEffect(() => {
+    hapticsOn.current = haptics;
+  }, [haptics]);
+  const [captions, setCaptions] = useState<{ key: string; text: string; color?: string }[]>([]);
+  const captionTimers = useRef(new Set<ReturnType<typeof setTimeout>>());
   const [presetId, setPresetId] = useState<SwarmPresetId>(presetOf(view)?.id ?? DEFAULT_PRESET);
   const preset = presetOf(presetId) ?? PRESETS[0];
   const [reducedMotion, setReducedMotion] = useState(false);
@@ -376,6 +446,8 @@ const SwarmGraph = ({
     const id = requestAnimationFrame(() => {
       setPresetId(readPreset(new URLSearchParams(window.location.search).get('view')));
       setReducedMotion(window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+      setEffectsMode(readStored(EFFECTS_KEY, ['off', 'calm', 'full'] as const, 'full'));
+      setHaptics(readStored(HAPTICS_KEY, ['on', 'off'] as const, 'off') === 'on');
     });
     return () => cancelAnimationFrame(id);
   }, []);
@@ -534,7 +606,8 @@ const SwarmGraph = ({
   const [ticker, setTicker] = useState<Tick[]>([]);
   const groups = useRef(new Map<string, GroupTally>());
   const [replay, setReplay] = useState<SwarmReplayState | null>(null);
-  const [replaying, setReplaying] = useState(false);
+  const [replayPlan, setReplayPlan] = useState<SwarmReplayPlan | null>(null);
+  const replaying = replayPlan !== null;
 
   // Callbacks read the latest props through a ref so the renderer is created once.
   const { hovered, setHovered } = useFleetHover();
@@ -564,6 +637,7 @@ const SwarmGraph = ({
     const r = createSwarmGraph(el, {
       title: 'Agents and the sectors of the codebase they are working in',
       reducedMotion: reduced,
+      intro: introMode(),
       onHover: (node, point) => {
         setHover(node && point ? { node, ...point, width: el.clientWidth } : null);
         // Mirror the graph's hover onto the fleet's cards.
@@ -589,7 +663,28 @@ const SwarmGraph = ({
         } else if (node.kind === 'sector' && node.sectorId && engs.has(node.sectorId))
           nav.push(`/engines/${node.sectorId}`);
       },
+      effectOf: arenaEffectOf,
+      onEffect: (e) => effects.current?.effect(e),
       onFlow: (flow, source) => {
+        effects.current?.flow(flow);
+        if (source === 'replay' && replayMilestone(flow)) {
+          // Milestones get a one-line caption that dissolves, and (if asked) a haptic tick.
+          const key = `${flow.id}-${Date.now()}`;
+          const text =
+            arenaEffectOf(flow) === 'rung'
+              ? flow.title
+              : (links.current.preset.word?.(flow) ?? flow.title);
+          setCaptions((c) => [
+            ...c.slice(-(CAPTIONS - 1)),
+            { key, text, color: flow.sector ?? undefined },
+          ]);
+          const t = setTimeout(() => {
+            captionTimers.current.delete(t);
+            setCaptions((c) => c.filter((x) => x.key !== key));
+          }, CAPTION_MS);
+          captionTimers.current.add(t);
+          if (hapticsOn.current && 'vibrate' in navigator) navigator.vibrate(12);
+        }
         const p = links.current.preset;
         const title = p.word?.(flow) ?? flow.title;
         const key = flow.group ? `group:${flow.group.id}` : `${source}-${flow.id}-${Date.now()}`;
@@ -611,7 +706,7 @@ const SwarmGraph = ({
       },
       onReplay: (state) => {
         setReplay(state);
-        if (!state) setReplaying(false);
+        if (!state) setReplayPlan(null);
       },
     });
     renderer.current = r;
@@ -619,11 +714,66 @@ const SwarmGraph = ({
     el.parentElement
       ?.querySelectorAll<HTMLElement>('[data-slot="swarm-node-overlay"]')
       .forEach((o) => o.dataset.nodeId && r.anchor(o.dataset.nodeId, o));
+    const timers = captionTimers.current;
     return () => {
+      timers.forEach(clearTimeout);
+      timers.clear();
       r.destroy();
       renderer.current = null;
     };
   }, []);
+
+  // The three.js layer: loaded on demand, only here, only with motion and WebGL.
+  const effectsBlocked = reducedMotion || webgl === false || tooSlow;
+  const effectsOn = effectsMode !== 'off' && !effectsBlocked;
+  const effectsKind: 'calm' | 'full' = effectsMode === 'calm' ? 'calm' : 'full';
+  const initialKind = useRef(effectsKind);
+  useEffect(() => {
+    initialKind.current = effectsKind;
+    effects.current?.setMode(effectsKind);
+  }, [effectsKind]);
+  useEffect(() => {
+    const el = host.current;
+    const r = renderer.current;
+    if (!effectsOn || !el || !r) return;
+    let layer: SwarmEffectsLayer | null = null;
+    let cancelled = false;
+    import('@/lib/swarmEffects')
+      .then(({ createSwarmEffects }) => {
+        if (cancelled) return;
+        layer = createSwarmEffects(el, r, {
+          mode: initialKind.current,
+          gateOf,
+          onGiveUp: () => setTooSlow(true),
+        });
+        if (!layer) {
+          setWebgl(false);
+          return;
+        }
+        setWebgl(true);
+        effects.current = layer;
+        // For frame-time measurement from a test or the console.
+        (window as unknown as { __swarmEffects?: SwarmEffectsLayer }).__swarmEffects = layer;
+      })
+      .catch(() => !cancelled && setWebgl(false));
+    return () => {
+      cancelled = true;
+      layer?.destroy();
+      if (effects.current === layer) effects.current = null;
+      const w = window as unknown as { __swarmEffects?: SwarmEffectsLayer };
+      if (w.__swarmEffects === layer) delete w.__swarmEffects;
+    };
+  }, [effectsOn]);
+  const chooseEffects = (m: EffectsMode) => {
+    setEffectsMode(m);
+    store(EFFECTS_KEY, m);
+  };
+  const toggleHaptics = () => {
+    setHaptics((h) => {
+      store(HAPTICS_KEY, h ? 'off' : 'on');
+      return !h;
+    });
+  };
 
   // A preset change shows other events but is not news: take it without sparking the history.
   const lastPreset = useRef(preset.id);
@@ -632,6 +782,7 @@ const SwarmGraph = ({
     const quiet = takeQuiet() || lastPreset.current !== preset.id;
     lastPreset.current = preset.id;
     renderer.current?.update(presented, { quiet });
+    if (renderer.current && presented.nodes.length > 0) introShownAt ??= performance.now();
   }, [presented, preset.id, takeQuiet]);
 
   // A card under the pointer, or an agent chip, lights up its agent's node.
@@ -649,16 +800,57 @@ const SwarmGraph = ({
       .reverse()
       .map((id) => colorById.get(id))
       .find(Boolean) ?? undefined;
-  const startReplay = () => {
+  /** The last 24 actively worked hours (or the whole run), from the state when it began. */
+  const startReplay = (mode: SwarmReplayMode = 'window') => {
+    const plan = planReplay(shownGraph.flows, shownGraph.hubId, {
+      mode,
+      durationMs: 60_000,
+      isMilestone: replayMilestone,
+    });
+    if (!plan.flows.length) return;
     setTicker([]);
     groups.current.clear();
-    setReplaying(true);
-    renderer.current?.replay(Math.min(45_000, Math.max(15_000, shownGraph.flows.length * 250)));
+    // The renderer reports the old replay stopping first; the new plan must land after that.
+    renderer.current?.replay(plan);
+    setReplayPlan(plan);
   };
   const stopReplay = () => {
     renderer.current?.stopReplay();
-    setReplaying(false);
+    setReplayPlan(null);
+    setReplay(null);
+    setCaptions([]);
   };
+  const replayPlaying = Boolean(replay?.playing);
+  useEffect(() => {
+    effects.current?.setReplaying(replayPlaying);
+  }, [replayPlaying, webgl]);
+  const replaySummary = useMemo(
+    () => (replayPlan ? summarizeReplay(replayPlan) : null),
+    [replayPlan],
+  );
+  /** Each engine's rating change still to come in the window, from the playhead to the end. */
+  const replayEnd = useMemo(
+    () =>
+      replayPlan
+        ? stateAt(replayPlan.seed, replayPlan.flows, replayPlan.flows.length, replayPlan.hubId)
+        : null,
+    [replayPlan],
+  );
+  const sectorColors = useMemo(
+    () =>
+      new Map(
+        graph.nodes.filter((n) => n.kind === 'sector').map((n) => [n.sectorId ?? '', n.color]),
+      ),
+    [graph],
+  );
+  const sectorLabels = useMemo(
+    () =>
+      new Map(
+        graph.nodes.filter((n) => n.kind === 'sector').map((n) => [n.sectorId ?? '', n.label]),
+      ),
+    [graph],
+  );
+  const replayClock = useCallback(() => renderer.current?.replayClock() ?? null, []);
 
   // Node overlays: rating, live agents and latest game, in every preset.
   const items = useMemo(() => new Map(merged.workItems.map((w) => [w.id, w])), [merged]);
@@ -675,11 +867,31 @@ const SwarmGraph = ({
     merged.agents
       .filter((a) => a.status === 'working' && a.sector === sectorId)
       .sort((a, b) => b.lastSeen.localeCompare(a.lastSeen));
-  const ratingOf = (e: EngineNode): NodeRating => {
+  const liveRatingOf = (e: EngineNode): NodeRating => {
     const l = live.ratings[e.id];
     return l && l.at > basisInput.asOf
       ? { elo: l.elo, version: l.version, delta: l.delta, key: l.key }
       : { elo: e.elo, version: e.version, delta: null, key: 0 };
+  };
+  /** During a replay a rating stands where it stood at the playhead and counts up from there. */
+  const ratingOf = (e: EngineNode): NodeRating => {
+    const now = liveRatingOf(e);
+    if (!replay || !replayPlan || !replayEnd || now.elo === null) return now;
+    const ahead = (replayEnd.rating[e.id] ?? 0) - (replay.snapshot.rating[e.id] ?? 0);
+    let last = -1;
+    for (let i = replay.index - 1; i >= 0; i--) {
+      const f = replayPlan.flows[i];
+      if (f.kind === 'rating' && f.sector === e.id && f.delta) {
+        last = i;
+        break;
+      }
+    }
+    return {
+      elo: now.elo - ahead,
+      version: now.version,
+      delta: last >= 0 ? replayPlan.flows[last].delta : null,
+      key: last + 1,
+    };
   };
   const boardOf = (e: EngineNode): EngineBoardSource | null => {
     const l = live.games[e.id];
@@ -706,6 +918,35 @@ const SwarmGraph = ({
           </Typography>
         </div>
         <div className="flex items-center gap-1.5">
+          <div
+            className="flex items-center rounded-md border border-line p-0.5"
+            role="group"
+            aria-label="Effects"
+            title={
+              reducedMotion
+                ? 'Effects are off: your system asks for reduced motion'
+                : webgl === false
+                  ? 'Effects need WebGL, which this browser does not offer'
+                  : tooSlow
+                    ? 'Effects switched themselves off: this device could not keep the frame rate up'
+                    : 'Particle and light effects'
+            }
+          >
+            <Sparkles className="mx-1 size-3.5 text-fg-3" aria-hidden="true" />
+            {EFFECT_MODES.map((m) => (
+              <Button
+                key={m.id}
+                variant="segment"
+                size="xs"
+                title={m.title}
+                aria-pressed={(effectsBlocked ? 'off' : effectsMode) === m.id}
+                disabled={effectsBlocked && m.id !== 'off'}
+                onClick={() => chooseEffects(m.id)}
+              >
+                {m.label}
+              </Button>
+            ))}
+          </div>
           {replaying ? (
             <Button size="sm" onClick={stopReplay}>
               <Square className="size-3.5" aria-hidden="true" />
@@ -714,11 +955,12 @@ const SwarmGraph = ({
           ) : (
             <Button
               size="sm"
-              onClick={startReplay}
+              onClick={() => startReplay('window')}
               disabled={shownGraph.flows.length === 0 || catchUp !== null}
+              title="Play back the last 24 actively worked hours; choose the whole run on the timeline"
             >
               <History className="size-3.5" aria-hidden="true" />
-              Replay run
+              Replay last 24 h
             </Button>
           )}
           <Button
@@ -738,7 +980,29 @@ const SwarmGraph = ({
       <PipelineBar stages={graph.totals.stages} />
 
       <div className="relative">
-        <div ref={host} className="h-120 w-full sm:h-150" />
+        <div ref={host} className="relative isolate h-120 w-full sm:h-150" />
+
+        {captions.length > 0 && (
+          <ol
+            data-slot="replay-captions"
+            className="pointer-events-none absolute inset-x-0 top-3 z-10 flex flex-col items-center gap-1"
+            aria-live="polite"
+          >
+            {captions.map((c) => (
+              <li
+                key={c.key}
+                className="flex max-w-[min(28rem,calc(100%-2rem))] items-center gap-2 truncate rounded-md border border-line bg-panel-raised/85 px-2.5 py-1 text-xs text-fg shadow-md backdrop-blur-sm animate-caption motion-reduce:animate-none"
+              >
+                <span
+                  className="size-2 shrink-0 rounded-full"
+                  style={{ background: (c.color && sectorColors.get(c.color)) || 'var(--fg-2)' }}
+                  aria-hidden="true"
+                />
+                <span className="truncate">{c.text}</span>
+              </li>
+            ))}
+          </ol>
+        )}
 
         {sectors.map((n) => {
           const engine = engineById.get(n.sectorId ?? '') ?? null;
@@ -776,27 +1040,6 @@ const SwarmGraph = ({
               <Button variant="ghost" size="xs" onClick={skip}>
                 Skip
               </Button>
-            </div>
-          </div>
-        )}
-
-        {replay && (
-          <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
-            <div className="rounded-md border border-line bg-panel-raised px-3 py-1.5 text-xs text-fg-2 shadow-lg">
-              Replaying ·{' '}
-              <span className="font-mono tabular text-fg">
-                {formatDay(replay.at)} {formatTime(replay.at)}
-              </span>
-              <span className="text-fg-3">
-                {' '}
-                · {replay.index}/{replay.total}
-              </span>
-              <div className="mt-1 h-0.5 w-full overflow-hidden rounded bg-line">
-                <div
-                  className="h-full bg-fg-2 transition-[width] duration-200"
-                  style={{ width: `${(replay.index / replay.total) * 100}%` }}
-                />
-              </div>
             </div>
           </div>
         )}
@@ -854,6 +1097,27 @@ const SwarmGraph = ({
           </div>
         )}
       </div>
+
+      {replayPlan && replay && replaySummary && (
+        <ReplayScrubber
+          plan={replayPlan}
+          state={replay}
+          summary={replaySummary}
+          colors={sectorColors}
+          labels={sectorLabels}
+          reducedMotion={reducedMotion}
+          clock={replayClock}
+          onSeek={(i) => renderer.current?.seek(i)}
+          onSeekTime={(ms) => renderer.current?.seekTime(ms)}
+          onPlaying={(p) => renderer.current?.setPlaying(p)}
+          onSpeed={(v) => renderer.current?.setSpeed(v)}
+          onMode={(m) => m !== replayPlan.mode && startReplay(m)}
+          onScrubbing={(on) => effects.current?.setScrubbing(on)}
+          haptics={haptics}
+          onHaptics={toggleHaptics}
+          onClose={stopReplay}
+        />
+      )}
 
       <ul className="relative flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line px-4 py-2.5 text-xs text-fg-3">
         {sectors.map((s) => (
