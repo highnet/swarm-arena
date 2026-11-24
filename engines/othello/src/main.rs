@@ -231,6 +231,30 @@ thread_local! {
     static TT: std::cell::RefCell<Tt> = std::cell::RefCell::new(Tt::new(TT_BITS));
 }
 
+/// Search options (task #190). `PLAIN` is v0.6's search (the reference for tests, reports and
+/// the book generator); `ENGINE` is what `go` plays.
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct Opts {
+    /// Order non-corner moves by the history table (corners first, square class breaks ties).
+    history: bool,
+    /// Principal variation search: null window after the first child, re-search on fail-high.
+    pvs: bool,
+}
+
+impl Opts {
+    const PLAIN: Opts = Opts { history: false, pvs: false };
+    const ENGINE: Opts = Opts { history: true, pvs: true };
+}
+
+/// History table: per side (0 = the root's mover, 1 = the other side) and square, the sum of
+/// depth^2 over the beta cutoffs that move caused. Halved at each root search.
+type History = [[u64; 64]; 2];
+
+thread_local! {
+    /// The game's history table, kept (and aged) between `go` calls and cleared by `game`.
+    static HISTORY: std::cell::RefCell<History> = const { std::cell::RefCell::new([[0; 64]; 2]) };
+}
+
 struct Search<'a> {
     start: Instant,
     deadline: Duration,
@@ -238,11 +262,26 @@ struct Search<'a> {
     stopped: bool,
     /// The transposition table; `None` searches without one (tests, reports, the book generator).
     tt: Option<&'a mut Tt>,
+    opts: Opts,
+    hist: History,
 }
 
 impl<'a> Search<'a> {
     fn new(deadline: Duration, tt: Option<&'a mut Tt>) -> Self {
-        Search { start: Instant::now(), deadline, nodes: 0, stopped: false, tt }
+        Search::with_opts(deadline, tt, Opts::PLAIN, [[0; 64]; 2])
+    }
+
+    fn with_opts(deadline: Duration, tt: Option<&'a mut Tt>, opts: Opts, hist: History) -> Self {
+        Search { start: Instant::now(), deadline, nodes: 0, stopped: false, tt, opts, hist }
+    }
+
+    /// Move order at a node whose side to move is `side`.
+    fn order(&self, avail: u64, first: Option<usize>, side: usize) -> Vec<usize> {
+        if self.opts.history {
+            ordered_by_history(avail, first, &self.hist[side])
+        } else {
+            ordered(avail, first)
+        }
     }
 
     fn out_of_time(&mut self) -> bool {
@@ -258,8 +297,14 @@ impl<'a> Search<'a> {
         self.tt.as_ref()?.probe(tt_key(me, opp))?.best()
     }
 
-    /// Negamax alpha-beta. A side with no placement passes; two passes end the game.
-    fn negamax(&mut self, g: &Game, depth: u32, mut alpha: i32, beta: i32) -> i32 {
+    /// Negamax alpha-beta from a root child (the side to move is the root's opponent).
+    fn negamax(&mut self, g: &Game, depth: u32, alpha: i32, beta: i32) -> i32 {
+        self.node(g, depth, alpha, beta, 1)
+    }
+
+    /// Negamax alpha-beta; `side` indexes the history table. A side with no placement passes;
+    /// two passes end the game.
+    fn node(&mut self, g: &Game, depth: u32, mut alpha: i32, beta: i32, side: usize) -> i32 {
         self.nodes += 1;
         if self.out_of_time() {
             return 0;
@@ -274,7 +319,7 @@ impl<'a> Search<'a> {
             if depth == 0 {
                 return evaluate(g);
             }
-            return -self.negamax(&p, depth - 1, -beta, -alpha);
+            return -self.node(&p, depth - 1, -beta, -alpha, side ^ 1);
         }
         if depth == 0 {
             return evaluate(g);
@@ -298,9 +343,19 @@ impl<'a> Search<'a> {
         let alpha0 = alpha;
         let mut best = -INF;
         let mut best_move = None;
-        for i in ordered(avail, first) {
+        for i in self.order(avail, first, side) {
             let Some(next) = g.make_move(i) else { continue };
-            let v = -self.negamax(&next, depth - 1, -beta, -alpha);
+            let v = if self.opts.pvs && best_move.is_some() {
+                // Null window: prove this move is no better than alpha; re-search if it is.
+                let v = -self.node(&next, depth - 1, -alpha - 1, -alpha, side ^ 1);
+                if v > alpha && v < beta && !self.stopped {
+                    -self.node(&next, depth - 1, -beta, -alpha, side ^ 1)
+                } else {
+                    v
+                }
+            } else {
+                -self.node(&next, depth - 1, -beta, -alpha, side ^ 1)
+            };
             if self.stopped {
                 return 0;
             }
@@ -310,6 +365,10 @@ impl<'a> Search<'a> {
                 if v > alpha {
                     alpha = v;
                     if alpha >= beta {
+                        if self.opts.history {
+                            let h = &mut self.hist[side][i];
+                            *h = h.saturating_add(depth as u64 * depth as u64);
+                        }
                         break;
                     }
                 }
@@ -357,6 +416,33 @@ fn ordered(avail: u64, first: Option<usize>) -> Vec<usize> {
     out
 }
 
+/// History order (task #190): the stored move, then corners, then every other move by history
+/// score, highest first; ties keep v0.6's square-class order (plain, C, X) and then index.
+fn ordered_by_history(avail: u64, first: Option<usize>, hist: &[u64; 64]) -> Vec<usize> {
+    let mut out = Vec::with_capacity(avail.count_ones() as usize);
+    let first = first.filter(|&f| avail >> f & 1 == 1);
+    if let Some(f) = first {
+        out.push(f);
+    }
+    let mut m = avail & CORNERS;
+    while m != 0 {
+        let i = m.trailing_zeros() as usize;
+        m &= m - 1;
+        if Some(i) != first {
+            out.push(i);
+        }
+    }
+    let start = out.len();
+    // `ordered` already lists non-corners in class order; a stable sort by history keeps it.
+    for i in ordered(avail & !CORNERS, None) {
+        if Some(i) != first {
+            out.push(i);
+        }
+    }
+    out[start..].sort_by_key(|&i| std::cmp::Reverse(hist[i]));
+    out
+}
+
 /// Iterative-deepening alpha-beta. Stops on a clock check at ~60% of the budget and plays
 /// the best move of the last completed depth. Returns (move, depth completed).
 fn search(g: &Game, budget_ms: u64) -> (usize, u32) {
@@ -367,9 +453,12 @@ fn search(g: &Game, budget_ms: u64) -> (usize, u32) {
 /// with the game's transposition table.
 fn search_limited(g: &Game, max_depth: u32, deadline: Duration) -> (usize, u32) {
     let r = TT.with(|t| {
-        let mut t = t.borrow_mut();
-        t.new_search();
-        search_with(g, max_depth, deadline, Some(&mut t))
+        HISTORY.with(|h| {
+            let mut t = t.borrow_mut();
+            t.new_search();
+            let mut h = h.borrow_mut();
+            search_opts(g, max_depth, deadline, Some(&mut t), Opts::ENGINE, &mut h)
+        })
     });
     (r.0, r.1)
 }
@@ -384,10 +473,27 @@ fn search_counted(g: &Game, max_depth: u32, deadline: Duration) -> (usize, u32, 
 /// Iterative deepening with an optional table: (move, depth completed, nodes, score of the
 /// last completed depth). The root tries the stored move first on the first iteration and the
 /// previous iteration's best after that.
+#[cfg(test)]
 fn search_with(g: &Game, max_depth: u32, deadline: Duration, tt: Option<&mut Tt>) -> (usize, u32, u64, i32) {
+    search_opts(g, max_depth, deadline, tt, Opts::PLAIN, &mut [[0; 64]; 2])
+}
+
+/// `search_with` under `opts`. `hist` is aged (halved) at the start, used and updated by the
+/// search, and handed back for the next root search.
+fn search_opts(
+    g: &Game,
+    max_depth: u32,
+    deadline: Duration,
+    tt: Option<&mut Tt>,
+    opts: Opts,
+    hist: &mut History,
+) -> (usize, u32, u64, i32) {
+    for h in hist.iter_mut().flatten() {
+        *h /= 2;
+    }
     let avail = g.available_moves();
-    let mut s = Search::new(deadline, tt);
-    let order = ordered(avail, s.tt_move(g));
+    let mut s = Search::with_opts(deadline, tt, opts, *hist);
+    let order = s.order(avail, s.tt_move(g), 0);
     let mut best = order[0];
     if order.len() == 1 {
         return (best, 0, 0, 0);
@@ -399,9 +505,18 @@ fn search_with(g: &Game, max_depth: u32, deadline: Duration, tt: Option<&mut Tt>
     for depth in 1..=empties.min(max_depth) {
         let mut alpha = -INF;
         let mut iter_best = None;
-        for i in ordered(avail, Some(best)) {
+        for i in s.order(avail, Some(best), 0) {
             let Some(next) = g.make_move(i) else { continue };
-            let v = -s.negamax(&next, depth - 1, -INF, -alpha);
+            let v = if opts.pvs && iter_best.is_some() {
+                let v = -s.negamax(&next, depth - 1, -alpha - 1, -alpha);
+                if v > alpha && !s.stopped {
+                    -s.negamax(&next, depth - 1, -INF, -alpha)
+                } else {
+                    v
+                }
+            } else {
+                -s.negamax(&next, depth - 1, -INF, -alpha)
+            };
             if s.stopped {
                 break;
             }
@@ -424,6 +539,7 @@ fn search_with(g: &Game, max_depth: u32, deadline: Duration, tt: Option<&mut Tt>
             break;
         }
     }
+    *hist = s.hist;
     (best, done, s.nodes, score)
 }
 
@@ -660,6 +776,7 @@ fn handle(line: &str, moves: &mut Vec<String>) -> (Option<String>, bool) {
     match parts.next() {
         Some("game") => {
             TT.with(|t| t.borrow_mut().clear());
+            HISTORY.with(|h| *h.borrow_mut() = [[0; 64]; 2]);
             (Some("ready".into()), false)
         }
         Some("position") => {
@@ -1018,6 +1135,125 @@ mod tests {
         }
         assert!(checked >= 100);
         assert!(tt_nodes < plain_nodes, "tt {tt_nodes} nodes vs plain {plain_nodes}");
+    }
+
+    const VARIANTS: [Opts; 3] = [
+        Opts { history: true, pvs: false },
+        Opts { history: false, pvs: true },
+        Opts::ENGINE,
+    ];
+
+    #[test]
+    fn history_and_pvs_match_plain_search_at_fixed_depth() {
+        // Task #190: on seeded positions at depths 3..=6, history ordering, PVS and both give
+        // plain alpha-beta's root score, without and with a fresh table, and the chosen move
+        // scores that value under plain search. One history table is carried (and aged) across
+        // the positions, as across a game's moves.
+        let mut checked = 0;
+        for opts in VARIANTS {
+            let mut hist = [[0; 64]; 2];
+            for (_, g) in report_positions() {
+                for depth in 3..=6 {
+                    let (_, _, _, v0) = search_with(&g, depth, Duration::from_secs(600), None);
+                    for use_tt in [false, true] {
+                        let mut t = Tt::new(TT_BITS);
+                        t.new_search();
+                        let tt = use_tt.then_some(&mut t);
+                        let (m, d, _, v) = search_opts(&g, depth, Duration::from_secs(600), tt, opts, &mut hist);
+                        assert_eq!(d, depth);
+                        assert_eq!(v, v0, "{opts:?} tt {use_tt}: root score differs at depth {depth}:\n{g:?}");
+                        let next = g.make_move(m).unwrap();
+                        let mut s = Search::new(Duration::from_secs(600), None);
+                        assert_eq!(-s.negamax(&next, depth - 1, -INF, INF), v0, "{opts:?}: move is not best at depth {depth}");
+                        checked += 1;
+                    }
+                }
+            }
+        }
+        assert!(checked >= 600);
+    }
+
+    #[test]
+    fn history_order_puts_the_stored_move_and_corners_first() {
+        let mut hist = [0u64; 64];
+        let (a1, h8, b2, c3, d3, b1) = (0, 63, 9, 18, 19, 1);
+        let avail: u64 = [a1, h8, b2, c3, d3, b1].iter().map(|&i| 1u64 << i).sum();
+        // No history: v0.6's class order (corners, plain, C, X).
+        assert_eq!(ordered_by_history(avail, None, &hist), ordered(avail, None));
+        hist[b2] = 50;
+        hist[d3] = 10;
+        assert_eq!(ordered_by_history(avail, Some(c3), &hist), vec![c3, a1, h8, b2, d3, b1]);
+        hist[a1] = 0;
+        hist[h8] = 1000;
+        assert_eq!(ordered_by_history(avail, None, &hist)[..2], [a1, h8], "corners stay in index order");
+        assert_eq!(ordered_by_history(avail, Some(5), &hist).len(), 6, "an illegal stored move is dropped");
+    }
+
+    #[test]
+    fn history_is_aged_each_search_and_cleared_on_game() {
+        let mut moves = Vec::new();
+        handle("game othello", &mut moves);
+        handle("position f5 d6 c3 d3 c4 f4 f6 f3 e6 e7", &mut moves);
+        handle("go 50", &mut moves);
+        let total = || HISTORY.with(|h| h.borrow().iter().flatten().sum::<u64>());
+        assert!(total() > 0, "cutoffs fill the table");
+        let mut h = HISTORY.with(|h| *h.borrow());
+        h[0][0] = 1000;
+        search_opts(&replay(&moves).unwrap(), 1, Duration::from_secs(5), None, Opts::ENGINE, &mut h);
+        assert_eq!(h[0][0], 500, "halved at the next root search (depth 1 adds no cutoff at a1)");
+        handle("game othello", &mut moves);
+        assert_eq!(total(), 0);
+    }
+
+    #[test]
+    #[ignore = "report: cargo test --release -p othello-engine ordering_report -- --ignored --nocapture"]
+    fn ordering_report() {
+        // Task #190. Per empties band, with a fresh table per position (as v0.6's `depth_report`):
+        // nodes to fixed depths 7 and 9 (deterministic) and depth reached at go 200 (a 120 ms
+        // deadline, wall clock) for v0.6's order and each variant. History is carried across the
+        // band's positions like across a game's moves.
+        let all = [Opts::PLAIN, VARIANTS[0], VARIANTS[1], VARIANTS[2]];
+        let name = |o: Opts| match (o.history, o.pvs) {
+            (false, false) => "v0.6",
+            (true, false) => "history",
+            (false, true) => "pvs",
+            (true, true) => "both",
+        };
+        for band in [50u32, 40, 30, 20] {
+            let ps: Vec<_> = report_positions().into_iter().filter(|p| p.0 == band).collect();
+            let mut line = format!("<={band}:");
+            for opts in all {
+                let mut per = Vec::new();
+                for depth in [7u32, 9] {
+                    let mut hist = [[0; 64]; 2];
+                    let t0 = Instant::now();
+                    let mut n = 0;
+                    let mut same = 0;
+                    for (_, g) in &ps {
+                        let mut t = Tt::new(TT_BITS);
+                        t.new_search();
+                        let r = search_opts(g, depth, Duration::from_secs(600), Some(&mut t), opts, &mut hist);
+                        let mut t0b = Tt::new(TT_BITS);
+                        t0b.new_search();
+                        let r0 = search_with(g, depth, Duration::from_secs(600), Some(&mut t0b));
+                        same += (r.0 == r0.0) as u32;
+                        n += r.2;
+                    }
+                    per.push(format!("d{depth} {n} nodes {:.0} ms same-move {same}/{}", t0.elapsed().as_secs_f64() * 1000.0, ps.len()));
+                }
+                let mut hist = [[0; 64]; 2];
+                let depths: Vec<u32> = ps
+                    .iter()
+                    .map(|(_, g)| {
+                        let mut t = Tt::new(TT_BITS);
+                        t.new_search();
+                        search_opts(g, u32::MAX, Duration::from_millis(120), Some(&mut t), opts, &mut hist).1
+                    })
+                    .collect();
+                line += &format!("\n  {:8} {} | go-200 depth {:?}", name(opts), per.join(", "), depths);
+            }
+            println!("{line}");
+        }
     }
 
     #[test]
