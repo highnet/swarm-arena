@@ -1,0 +1,1 @@
+- 2026-11-24 · **time management** · Chess · buried: Rated 1539 ± 109, not above 1547. · Spend the clock: predict the next iteration's cost instead of stopping at 30%/60% of go
