@@ -1,0 +1,1 @@
+- 2026-11-24 · **learned evaluation** · Hex 11×11 · v0.6 rated 2823 (+89) · Experiment: a cell prior learned offline from the engine's own self-play, given to new nodes as virtual wins
