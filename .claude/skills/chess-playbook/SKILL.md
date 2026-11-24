@@ -213,6 +213,29 @@ Moves into "Architecture now" only if the referee passes it.
   (120/60 ms, wall clock): Italian d7 → d8, fen3 d5 → d6, the rest the same depth.
 - Local `arena versus chess` vs main (v0.8): +21 −14 =5 over 40 games, 200 ms (seed 271507162).
 
+## Candidate (not shipped): mobility and passed pawns in `evaluate` (#179)
+
+Moves into "Architecture now" only if the referee passes it.
+
+- `activity(pos)` (`main.rs`) returns white-minus-black (mg, eg) terms that `evaluate` adds before
+  the 24-point taper. Mobility: for each knight, bishop, rook and queen, the squares it attacks
+  (shakmaty `attacks::*` with the full occupancy) minus own pieces and squares attacked by enemy
+  pawns (`pawn_attack_set`, whole-set shifts), minus a centred baseline: weights (mg/eg) per
+  square N 4/4, B 5/5, R 2/4, Q 1/2, baselines 4/6/7/13. Passed pawns: no enemy pawn ahead on its
+  own or an adjacent file, and not the rear pawn of a doubled pair; bonus by relative rank
+  `PASSER_MG` [0,0,4,8,16,28,45] / `PASSER_EG` [0,6,10,18,32,55,85] (2nd..7th) plus a free stop
+  square bonus (`PASSER_FREE_*`, about a quarter of that). These sit on top of the existing pawn
+  placement term (6 cp/rank mg, 12 eg), so a 7th-rank passer is worth ~+157 cp in a pawn ending.
+- Tests: symmetric positions score 0 (activity and evaluate), mirroring (`Setup::into_mirrored`)
+  negates activity and the white-relative eval over the TT and mate FENs, a 7th-rank passer
+  beats a 4th-rank one, an adjacent enemy pawn ahead kills the bonus, a blocked stop square
+  scores less, doubled pawns count once; the mg activity term stays under 100 cp in the opening
+  and middlegame FENs (largest seen: +33 on the QGD FEN). `eval_report` (ignored) prints the cost.
+- Cost (`eval_report`, native release, 8 TT FENs): fixed d5 nodes 131.3k → 138.3k (+5%), d6
+  449k → 489k (+9%), d6 time 167 → 235–248 ms; `go 200` (120/60 ms) node rate 3181 → ~2640 knps
+  (−17%); depths start d8 → d7–8, Italian d8 → d7, QGD d7 → d6, Kiwipete d6 = d6, rook ending
+  d11 → d12. Iterating role bitboards with `attacks::*` instead of `role_at` saved ~nothing.
+
 ## Ideas worth trying
 
 - Opening book follow-ups (#108): predict replies with the opponent's real distribution (record
@@ -247,8 +270,9 @@ Moves into "Architecture now" only if the referee passes it.
   retrograde (un-move) generator, or build them lazily in `game` within a time budget.
 - Use the KPK bitbase in evaluation beyond 3 pieces: e.g. score a pawn ending as won when the
   king-and-pawn race alone is a table win, to steer trades into won KPK endings.
-- Evaluation: material, piece-square tables with a middlegame/endgame taper, mobility, passed pawns,
-  king safety. Tune weights by playing, not by hand-waving.
+- Evaluation: mobility and passed pawns are the candidate in #179 (above). Next: king safety
+  (attackers on the king zone, pawn shield), pawn structure (isolated/doubled/backward), rook on
+  open file, and tuning all weights by self-play or a Texel-style fit on the engine's own games.
 
 ## Novel experiments
 
