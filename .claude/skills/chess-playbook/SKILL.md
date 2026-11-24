@@ -185,7 +185,8 @@ Moves into "Architecture now" only if the referee passes it.
   beta, so the saving only shows from d7. `go 200` (120/60 ms, wall clock, ±1 ply): start d7 → d8,
   Italian d6 → d7, Kiwipete d6 → d5, fen3 d6 → d5, fen4 d10 → d11. Mate sanity: four mate-in-3
   positions (`MATE_IN_3`) give the same mate-in-5-plies score and move with and without it at d7.
-- Local `arena versus chess` vs main (v0.7): VERSUS_RESULT.
+- Local `arena versus chess` vs main (v0.7): +23 −11 =6 over 40 games, 200 ms, balanced
+  suite openings (seed 1513850399).
 
 ## Ideas worth trying
 
