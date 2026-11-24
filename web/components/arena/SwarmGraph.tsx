@@ -435,6 +435,12 @@ type SwarmGraphProps = {
   repoUrl: string;
   /** The preset named in the URL (`?view=`), if any. */
   view?: string | null;
+  /**
+   * Whether the frame carries its own title and description. An editorial page names the graph
+   * with its section heading (and says what it shows in the intro), so it passes `false` and the
+   * frame keeps only its controls, and an `aria-label` names the graph for assistive technology.
+   */
+  titled?: boolean;
   className?: string;
 };
 
@@ -504,6 +510,7 @@ const SwarmGraph = ({
   engineIds,
   repoUrl,
   view,
+  titled = true,
   className,
 }: SwarmGraphProps) => {
   const router = useRouter();
@@ -1087,21 +1094,29 @@ const SwarmGraph = ({
   return (
     <section
       data-slot="swarm-graph"
+      aria-label={titled ? undefined : 'Swarm graph'}
       className={cn('relative overflow-hidden rounded-lg border border-line bg-panel', className)}
     >
       <div className="swarm-graph-ground pointer-events-none absolute inset-0" aria-hidden="true" />
 
-      <div className="relative flex flex-wrap items-start justify-between gap-3 border-b border-line px-4 py-3">
-        <div className="min-w-0">
-          <Typography variant="sectionTitle">Swarm graph</Typography>
-          <Typography variant="meta">
-            Rallypoint, live: issues are claimed into <span className="font-mono">agent/</span>{' '}
-            branches forked from{' '}
-            <span className="font-mono text-fg-2">{input.integrationBranch}</span>, worked in
-            worktrees, opened as pull requests, reviewed, and merged back into the sector they
-            change.
-          </Typography>
-        </div>
+      <div
+        className={cn(
+          'relative flex flex-wrap items-start gap-3 border-b border-line px-4 py-3',
+          titled ? 'justify-between' : 'justify-end',
+        )}
+      >
+        {titled && (
+          <div className="min-w-0">
+            <Typography variant="sectionTitle">Swarm graph</Typography>
+            <Typography variant="meta">
+              Rallypoint, live: issues are claimed into <span className="font-mono">agent/</span>{' '}
+              branches forked from{' '}
+              <span className="font-mono text-fg-2">{input.integrationBranch}</span>, worked in
+              worktrees, opened as pull requests, reviewed, and merged back into the sector they
+              change.
+            </Typography>
+          </div>
+        )}
         <div className="flex items-center gap-1.5">
           <div
             className="flex items-center rounded-md border border-line p-0.5"
