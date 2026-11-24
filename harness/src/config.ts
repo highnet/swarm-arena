@@ -13,6 +13,8 @@ export const ARENA_HOME = resolve(
 );
 export const RUN_ID = process.env.ARENA_RUN ?? "run-001";
 export const MOVE_MS = Number(process.env.ARENA_MOVE_MS ?? 200);
+/** How often a game in progress is written to live_games, at most (#144). */
+export const LIVE_MS = Number(process.env.ARENA_LIVE_MS ?? 1000);
 /** How far past `go <ms>` a reply may arrive before it forfeits (process and pipe overhead). */
 export const MOVE_SLACK_MS = Number(process.env.ARENA_MOVE_SLACK_MS ?? 300);
 export const GATE_PAIRS = Number(process.env.ARENA_GATE_PAIRS ?? 20);

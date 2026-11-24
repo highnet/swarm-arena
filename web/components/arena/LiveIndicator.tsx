@@ -27,6 +27,7 @@ const RUN_TABLES = [
   'messages',
   'matches',
   'games',
+  'live_games',
   'elo_points',
   'tracks',
   'rungs',
