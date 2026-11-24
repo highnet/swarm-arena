@@ -3,28 +3,38 @@ import { connection } from 'next/server';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowUpRight, GitPullRequest, ListChecks, Moon, Radio } from 'lucide-react';
+import { GitPullRequest, Moon, Radio } from 'lucide-react';
 import { agentName } from '@arena/shared';
 import { AgentAvatar } from '@/components/arena/AgentAvatar';
 import { Elapsed } from '@/components/arena/Elapsed';
 import { EngineLogo } from '@/components/arena/EngineLogo';
-import { KINDS, TONE_CLASS } from '@/components/arena/recordKinds';
+import { RecordTimeline } from '@/components/arena/RecordTimeline';
 import { agentHref, isLive, isStale, roleLabel } from '@/components/arena/seats';
-import { Badge } from '@/components/ui/Badge';
-import { Panel } from '@/components/ui/Panel';
-import { Typography } from '@/components/ui/Typography';
 import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { NextSteps } from '@/components/arena/NextSteps';
+import { Disclosure } from '@/components/ui/Disclosure';
+import { Section } from '@/components/ui/Section';
+import { SectionHeading } from '@/components/ui/SectionHeading';
+import { SectionNav, type SectionNavItem } from '@/components/ui/SectionNav';
+import { TextLink } from '@/components/ui/TextLink';
 import { getSnapshot } from '@/lib/data';
 import { formatDay, formatTime } from '@/lib/format';
-import { recordHref } from '@/lib/routes';
+import { taskHref } from '@/lib/routes';
 import { REPO_URL } from '@/lib/github';
 import { pageMeta } from '@/lib/site';
-import { cn } from '@/lib/utils';
 import { snapshotAsOf } from '@/lib/working';
 
 /** How many of the seat's latest steps the page lists. */
 const STEP_LIMIT = 100;
+/** Steps shown before the rest fold into a disclosure. */
+const STEPS_SHOWN = 12;
+
+const CHAPTERS: SectionNavItem[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'now', label: 'Doing' },
+  { id: 'steps', label: 'Steps' },
+  { id: 'further', label: 'Further' },
+];
 
 type AgentPageProps = {
   params: Promise<{ id: string }>;
@@ -55,147 +65,175 @@ const AgentContent = async ({ params }: AgentPageProps) => {
     .filter((r) => r.agent_id === a.id && r.kind !== 'task_opened')
     .sort((x, y) => y.at.localeCompare(x.at) || y.id - x.id)
     .slice(0, STEP_LIMIT);
+  const shown = steps.slice(0, STEPS_SHOWN);
+  const earlier = steps.slice(STEPS_SHOWN);
 
   return (
-    <main className="mx-auto w-full max-w-5xl px-4 pb-16 pt-6 sm:px-6">
-      <header className="mt-3 flex items-start gap-4">
-        <div className="relative">
-          <AgentAvatar id={a.id} size={56} />
-          {live && (
-            <span
-              className="absolute -bottom-0.5 -right-0.5 size-3.5 animate-pulse-dot rounded-full bg-good ring-2 ring-bg"
-              aria-hidden="true"
-            />
-          )}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <Typography variant="pageTitle">{agentName(a.id)}</Typography>
-            <Badge tone="neutral">{roleLabel(a)}</Badge>
-          </div>
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-fg-3">
-            <span className="font-mono">{a.seat}</span>
-            {track && (
-              <Link
-                href={`/engines/${track.id}`}
-                className="inline-flex items-center gap-1 hover:text-fg"
-              >
-                <EngineLogo
-                  game={track.id}
-                  slot={track.color_slot}
-                  size="sm"
-                  className="size-4 rounded"
-                />
-                {track.name}
-              </Link>
-            )}
-            <span>
-              {a.sessions} session{a.sessions === 1 ? '' : 's'}
-            </span>
-            {live ? (
-              <span className="inline-flex items-center gap-1 text-good-text">
-                <Radio className="size-3.5" aria-hidden="true" />
-                {a.started_at ? <Elapsed since={a.started_at} asOf={asOf} /> : 'working'}
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1">
-                <Moon className="size-3.5" aria-hidden="true" />
-                {stale ? 'not heard from' : 'idle'}
-              </span>
-            )}
-            <span>
-              seen {formatDay(a.last_seen)} {formatTime(a.last_seen)} UTC
-            </span>
-          </div>
-        </div>
-      </header>
+    <main className="flex w-full flex-col">
+      <SectionNav items={CHAPTERS} />
 
-      {(a.activity || a.task_id || a.pr) && (
-        <div className="mt-6 rounded-lg border border-line bg-panel px-4 py-3">
-          {a.activity && (
-            <p className={cn('text-[15px] text-pretty', live ? 'text-fg' : 'text-fg-2')}>
-              {live ? a.activity : `Last: ${a.activity}`}
-            </p>
-          )}
-          {(a.task_id || a.pr) && (
-            <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs">
-              {a.task_id && (
-                <Link href={`/tasks/${a.task_id}`} className="text-fg-2 hover:text-fg">
-                  {titles.get(a.task_id) ?? 'Task'}
-                </Link>
+      {/* 1 · Overview: who this seat is. */}
+      <Section id="overview" labelledBy="agent-title">
+        <div className="grid items-start gap-8 sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-10">
+          <div className="relative w-fit">
+            <AgentAvatar id={a.id} size={88} />
+            {live && (
+              <span
+                className="absolute bottom-1 right-1 size-4 rounded-full bg-good ring-2 ring-bg"
+                aria-hidden="true"
+              />
+            )}
+          </div>
+          <SectionHeading
+            level="page"
+            space="none"
+            id="agent-title"
+            title={agentName(a.id)}
+            intro={
+              <>
+                {roleLabel(a)} seat <span className="font-mono">{a.seat}</span>
+                {track && (
+                  <>
+                    , on the{' '}
+                    <Link
+                      href={`/engines/${track.id}`}
+                      className="text-fg underline decoration-line-strong underline-offset-4 hover:decoration-fg"
+                    >
+                      {track.name}
+                    </Link>{' '}
+                    engine
+                  </>
+                )}
+                . <span className="font-mono tabular">{a.sessions}</span> session
+                {a.sessions === 1 ? '' : 's'} so far.
+              </>
+            }
+          />
+        </div>
+        <dl className="mt-14 grid grid-cols-2 gap-x-8 gap-y-8 border-t border-line pt-8 sm:grid-cols-3">
+          <div>
+            <dt className="text-[13px] text-fg-3">Now</dt>
+            <dd className="mt-2 text-lg text-fg">
+              {live ? (
+                <span className="inline-flex items-center gap-1.5 text-good-text">
+                  <Radio className="size-4" aria-hidden="true" />
+                  Working
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 text-fg-2">
+                  <Moon className="size-4" aria-hidden="true" />
+                  {stale ? 'Not heard from' : 'Idle'}
+                </span>
               )}
-              {a.pr && (
-                <a
-                  href={`${REPO_URL}/pull/${a.pr}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 text-fg-2 hover:text-fg"
-                >
-                  <GitPullRequest className="size-3.5" aria-hidden="true" />#{a.pr}
-                  <ArrowUpRight className="size-3" aria-hidden="true" />
-                </a>
-              )}
+            </dd>
+          </div>
+          {live && a.started_at && (
+            <div>
+              <dt className="text-[13px] text-fg-3">This session</dt>
+              <dd className="mt-2 font-mono text-lg tabular text-fg">
+                <Elapsed since={a.started_at} asOf={asOf} />
+              </dd>
             </div>
           )}
-        </div>
-      )}
+          <div>
+            <dt className="text-[13px] text-fg-3">Last seen</dt>
+            <dd className="mt-2 font-mono text-lg tabular text-fg">
+              {formatDay(a.last_seen)} {formatTime(a.last_seen)}{' '}
+              <span className="text-[13px] text-fg-3">UTC</span>
+            </dd>
+          </div>
+          {track && (
+            <div>
+              <dt className="text-[13px] text-fg-3">Engine</dt>
+              <dd className="mt-2 text-lg">
+                <Link
+                  href={`/engines/${track.id}`}
+                  className="inline-flex items-center gap-2 text-fg underline-offset-4 hover:underline"
+                >
+                  <EngineLogo
+                    game={track.id}
+                    slot={track.color_slot}
+                    size="sm"
+                    className="size-5 rounded"
+                  />
+                  {track.name}
+                </Link>
+              </dd>
+            </div>
+          )}
+        </dl>
+      </Section>
 
-      <Panel icon={ListChecks} title="Steps" className="mt-6">
-        {steps.length === 0 ? (
-          <Typography variant="small" className="px-4 py-6">
-            Nothing logged yet.
-          </Typography>
+      {/* 2 · What it is doing, or did last. */}
+      <Section id="now" labelledBy="now-title" tone="band" space="compact">
+        <SectionHeading
+          id="now-title"
+          title={live ? 'What it is doing' : 'What it did last'}
+          space="tight"
+        />
+        {a.activity || a.task_id || a.pr ? (
+          <>
+            {a.activity && (
+              <p className="max-w-3xl text-2xl leading-9 text-fg text-pretty">{a.activity}</p>
+            )}
+            {(a.task_id || a.pr) && (
+              <div className="mt-6 flex flex-wrap gap-x-8 gap-y-3">
+                {a.task_id && (
+                  <TextLink href={taskHref(a.task_id)}>
+                    {titles.get(a.task_id) ?? 'Its task'}
+                  </TextLink>
+                )}
+                {a.pr && (
+                  <a
+                    href={`${REPO_URL}/pull/${a.pr}`}
+                    className="inline-flex items-center gap-1.5 text-[15px] text-fg-2 underline-offset-4 hover:text-fg hover:underline"
+                  >
+                    <GitPullRequest className="size-4" aria-hidden="true" />
+                    Pull request <span className="font-mono tabular">#{a.pr}</span>
+                  </a>
+                )}
+              </div>
+            )}
+          </>
         ) : (
-          <ol className="divide-y divide-line">
-            {steps.map((r) => {
-              const meta = KINDS[r.kind];
-              const Icon = meta.icon;
-              return (
-                <li key={r.id} className="grid grid-cols-[1.25rem_1fr] gap-x-3 px-4 py-2.5">
-                  <Icon className={cn('mt-0.5 size-4', TONE_CLASS[meta.tone])} aria-hidden="true" />
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-baseline gap-x-2 text-xs">
-                      <span className={cn('font-medium', TONE_CLASS[meta.tone])}>{meta.label}</span>
-                      <time dateTime={r.at} className="font-mono tabular text-fg-3">
-                        {formatDay(r.at)} {formatTime(r.at)}
-                      </time>
-                    </div>
-                    <Link href={recordHref(r)} className="mt-0.5 block hover:underline">
-                      <Typography variant="small" color="primary" as="span" className="text-pretty">
-                        {r.title}
-                      </Typography>
-                    </Link>
-                    {r.detail && (
-                      <Typography variant="meta" as="p" className="mt-0.5 max-w-prose text-pretty">
-                        {r.detail}
-                      </Typography>
-                    )}
-                    {(r.task_id || r.match_id) && (
-                      <div className="mt-0.5 flex flex-wrap gap-3 text-xs">
-                        {r.task_id && (
-                          <Link href={`/tasks/${r.task_id}`} className="text-fg-2 hover:text-fg">
-                            {titles.get(r.task_id) ?? 'Task'}
-                          </Link>
-                        )}
-                        {r.match_id && (
-                          <Link
-                            href={`/matches/${r.match_id}`}
-                            className="inline-flex items-center gap-0.5 text-fg-2 hover:text-fg"
-                          >
-                            Games
-                            <ArrowUpRight className="size-3" aria-hidden="true" />
-                          </Link>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </li>
-              );
-            })}
-          </ol>
+          <p className="max-w-xl text-[15px] leading-7 text-fg-2">Nothing to report yet.</p>
         )}
-      </Panel>
-      <NextSteps links={['fleet', 'sessions', 'messages', 'rallypoint']} />
+      </Section>
+
+      {/* 3 · Steps: everything it has logged, newest first. */}
+      <Section id="steps" labelledBy="steps-title">
+        <SectionHeading
+          id="steps-title"
+          title="Steps"
+          intro={
+            steps.length === 0
+              ? 'Nothing logged yet.'
+              : 'Everything this seat has logged on the board, newest first: claims, reviews, verdicts and merges, each linked to its record.'
+          }
+        />
+        {shown.length > 0 && <RecordTimeline records={shown} taskTitles={titles} />}
+        {earlier.length > 0 && (
+          <Disclosure
+            summary={
+              <>
+                <span className="font-mono tabular">{earlier.length}</span>&nbsp;earlier steps
+              </>
+            }
+            className="mt-8"
+          >
+            <RecordTimeline records={earlier} taskTitles={titles} />
+          </Disclosure>
+        )}
+      </Section>
+
+      {/* 4 · Further reading. */}
+      <Section id="further" labelledBy="next-steps-title" tone="band" space="compact">
+        <NextSteps
+          variant="list"
+          title="Further"
+          links={['fleet', 'sessions', 'messages', 'rallypoint']}
+        />
+      </Section>
     </main>
   );
 };

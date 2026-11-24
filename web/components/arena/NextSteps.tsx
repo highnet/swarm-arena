@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { ArrowRight, Cpu, Gamepad2, Swords, type LucideIcon } from 'lucide-react';
 import type { GameId } from '@arena/shared';
+import { SectionHeading } from '@/components/ui/SectionHeading';
 import { Typography } from '@/components/ui/Typography';
 import { PAGES, type PageKey } from '@/lib/pages';
 import { SHORT_NAME } from '@/lib/tracks';
@@ -39,12 +40,43 @@ type NextStepsProps = {
   /** Site pages by key, or a link of the page's own (an engine, a match, a version). */
   links: (PageKey | NextStep)[];
   title?: string;
+  /**
+   * `cards`: the dashboard pages' row of link cards. `list`: the editorial pages' quiet list of
+   * text links under a sub-chapter heading (web/DESIGN.md: no grid of same-shaped cards), for
+   * the last section of a page built from `Section`s.
+   */
+  variant?: 'cards' | 'list';
   className?: string;
 };
 
 /** The end of a page: where to go next, so no page is a dead end. */
-const NextSteps = ({ links, title = 'Keep exploring', className }: NextStepsProps) => {
+const NextSteps = ({
+  links,
+  title = 'Keep exploring',
+  variant = 'cards',
+  className,
+}: NextStepsProps) => {
   const steps = links.map((l) => (typeof l === 'string' ? PAGES[l] : l));
+  if (variant === 'list')
+    return (
+      <nav data-slot="next-steps" aria-labelledby="next-steps-title" className={className}>
+        <SectionHeading id="next-steps-title" level="sub" space="none" title={title} />
+        <ul className="mt-6 grid gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-3">
+          {steps.map(({ href, label, blurb }) => (
+            <li key={href}>
+              <Link href={href} className="group block">
+                <span className="text-[15px] text-fg underline-offset-4 group-hover:underline">
+                  {label}
+                </span>
+                <span className="mt-1 block text-[13px] leading-5 text-fg-3 text-pretty">
+                  {blurb}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </nav>
+    );
   return (
     <nav
       data-slot="next-steps"

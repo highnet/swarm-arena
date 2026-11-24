@@ -2,7 +2,7 @@ import { Suspense } from 'react';
 import { connection } from 'next/server';
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { ArrowUpRight, GitPullRequest, Moon, Radio, Users } from 'lucide-react';
+import { GitPullRequest, Radio } from 'lucide-react';
 import { agentName, type Agent, type GameId } from '@arena/shared';
 import { AgentAvatar } from '@/components/arena/AgentAvatar';
 import { Elapsed } from '@/components/arena/Elapsed';
@@ -10,19 +10,23 @@ import { EngineLogo } from '@/components/arena/EngineLogo';
 import { KINDS, TONE_CLASS } from '@/components/arena/recordKinds';
 import { FleetHoverItem, FleetHoverProvider } from '@/components/arena/FleetHover';
 import { SwarmGraph } from '@/components/arena/SwarmGraph';
-import { agentHref, isLive, isStale, roleLabel } from '@/components/arena/seats';
-import { Badge } from '@/components/ui/Badge';
-import { Typography } from '@/components/ui/Typography';
+import { agentHref } from '@/components/arena/seats';
 import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { NextSteps } from '@/components/arena/NextSteps';
+import { Disclosure } from '@/components/ui/Disclosure';
+import { FullBleed } from '@/components/ui/FullBleed';
+import { Section } from '@/components/ui/Section';
+import { SectionHeading } from '@/components/ui/SectionHeading';
+import { SectionNav, type SectionNavItem } from '@/components/ui/SectionNav';
+import { TextLink } from '@/components/ui/TextLink';
 import { getSnapshot, liveGames } from '@/lib/data';
-import { formatDay, formatTime } from '@/lib/format';
-import { recordHref } from '@/lib/routes';
+import { formatTime } from '@/lib/format';
+import { recordHref, taskHref } from '@/lib/routes';
 import { getMergedPulls, getRallypoint, REPO_URL } from '@/lib/github';
 import { pageMeta } from '@/lib/site';
 import { engineNodes, toSwarmInput } from '@/lib/swarmGraph';
 import { cn } from '@/lib/utils';
-import { snapshotAsOf, workingNow } from '@/lib/working';
+import { snapshotAsOf, workingNow, type WorkingAgent } from '@/lib/working';
 
 export const metadata: Metadata = pageMeta(
   'Fleet',
@@ -30,58 +34,67 @@ export const metadata: Metadata = pageMeta(
   '/fleet',
 );
 
-const SeatCard = ({
-  a,
-  asOf,
-  slots,
-  steps,
-  taskTitle,
-}: {
-  a: Agent;
+const CHAPTERS: SectionNavItem[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'working', label: 'At work' },
+  { id: 'graph', label: 'Where the effort goes' },
+  { id: 'further', label: 'Further' },
+];
+
+/** How many of a seat's latest steps its row offers. */
+const STEP_LIMIT = 4;
+
+type Step = {
+  id: number;
+  kind: keyof typeof KINDS;
+  title: string;
+  at: string;
+  task_id: string | null;
+};
+
+type WorkingRowProps = {
+  w: WorkingAgent;
   asOf: string;
   slots: Partial<Record<GameId, number>>;
-  steps: {
-    id: number;
-    kind: keyof typeof KINDS;
-    title: string;
-    at: string;
-    task_id: string | null;
-  }[];
-  taskTitle: string | null;
-}) => {
-  const stale = isStale(a, asOf);
-  const live = isLive(a, asOf);
-  const role = roleLabel(a);
+  steps: Step[];
+};
+
+/**
+ * One working seat as a hairline row, not a card: who it is on the left, what it is doing in
+ * large type on the right, its latest steps one click away. Hovering it lights the seat in the
+ * graph below (`FleetHoverItem`).
+ */
+const WorkingRow = ({ w, asOf, slots, steps }: WorkingRowProps) => {
+  const a: Agent = w.agent;
+  const { work } = w;
   return (
     <FleetHoverItem
       agentId={a.id}
-      className={cn(
-        'relative flex flex-col rounded-lg border bg-panel transition-colors hover:border-fg-3 focus-within:border-fg-3',
-        live ? 'border-line-strong' : 'border-line',
-      )}
+      className="-mx-4 grid gap-x-12 gap-y-5 rounded-lg px-4 py-10 transition-colors duration-150 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]"
     >
-      <div className="flex items-start gap-3 p-4">
-        <div className="relative">
-          <AgentAvatar id={a.id} size={44} />
-          {live && (
-            <span
-              className="absolute -bottom-0.5 -right-0.5 size-3 animate-pulse-dot rounded-full bg-good ring-2 ring-panel"
-              aria-hidden="true"
-            />
-          )}
+      <div className="flex items-start gap-4">
+        <div className="relative shrink-0">
+          <AgentAvatar id={a.id} size={48} />
+          <span
+            className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full bg-good ring-2 ring-band"
+            aria-hidden="true"
+          />
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Link
-              href={agentHref(a.id)}
-              className="truncate text-[15px] font-medium text-fg outline-none after:absolute after:inset-0 after:rounded-lg after:content-['']"
-            >
+        <div className="min-w-0">
+          <h3 className="text-lg font-medium text-fg">
+            <Link href={agentHref(a.id)} className="underline-offset-4 hover:underline">
               {agentName(a.id)}
             </Link>
-            <Badge tone="neutral">{role}</Badge>
-          </div>
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-fg-3">
+          </h3>
+          <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[13px] text-fg-3">
+            <span>{w.role}</span>
+            <span aria-hidden="true">·</span>
             <span className="font-mono">{a.seat}</span>
+            <span aria-hidden="true">·</span>
+            <span>
+              <span className="font-mono tabular">{a.sessions}</span> session
+              {a.sessions === 1 ? '' : 's'}
+            </span>
             {a.track_id && (
               <EngineLogo
                 game={a.track_id}
@@ -90,80 +103,87 @@ const SeatCard = ({
                 className="size-4 rounded"
               />
             )}
-            <span>
-              {a.sessions} session{a.sessions === 1 ? '' : 's'}
-            </span>
-          </div>
-        </div>
-        <div className="shrink-0 text-right text-xs">
-          {live ? (
-            <span className="inline-flex items-center gap-1 text-good-text">
-              <Radio className="size-3.5" aria-hidden="true" />
-              {a.started_at ? <Elapsed since={a.started_at} asOf={asOf} /> : 'working'}
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1 text-fg-3">
-              <Moon className="size-3.5" aria-hidden="true" />
-              {stale ? 'not heard from' : 'idle'}
-            </span>
-          )}
-          <div className="mt-0.5 text-fg-3">
-            seen {formatDay(a.last_seen)} {formatTime(a.last_seen)}
-          </div>
+          </p>
+          <p className="mt-1 inline-flex items-center gap-1.5 text-[13px] text-good-text">
+            <Radio className="size-3.5" aria-hidden="true" />
+            Working for{' '}
+            {a.started_at ? (
+              <span className="font-mono tabular">
+                <Elapsed since={a.started_at} asOf={asOf} />
+              </span>
+            ) : (
+              'a moment'
+            )}
+          </p>
         </div>
       </div>
 
-      {(live || a.activity) && (
-        <div className="border-t border-line px-4 py-2.5">
-          <p className={cn('text-[13px] text-pretty', live ? 'text-fg' : 'text-fg-3')}>
-            {live ? (a.activity ?? 'Working') : `Last: ${a.activity}`}
+      <div className="min-w-0">
+        {work?.kind === 'task' ? (
+          <Link
+            href={taskHref(work.task.id)}
+            className="block text-xl leading-8 text-fg text-pretty underline-offset-4 hover:underline"
+          >
+            {work.title}
+          </Link>
+        ) : work ? (
+          <a
+            href={work.url}
+            className="block text-xl leading-8 text-fg text-pretty underline-offset-4 hover:underline"
+          >
+            <span className="font-mono tabular text-fg-2">
+              {work.kind === 'pr' ? 'PR ' : ''}#{work.number}
+            </span>
+            {work.title && ` ${work.title}`}
+          </a>
+        ) : (
+          <p className="text-xl leading-8 text-fg text-pretty">
+            {w.activity ?? 'Starting a session'}
           </p>
-          <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs">
-            {a.task_id && (
-              <Link href={`/tasks/${a.task_id}`} className="relative z-10 text-fg-2 hover:text-fg">
-                {taskTitle ?? 'Task'}
-              </Link>
-            )}
-            {a.pr && (
-              <a
-                href={`${REPO_URL}/pull/${a.pr}`}
-                target="_blank"
-                rel="noreferrer"
-                className="relative z-10 inline-flex items-center gap-1 text-fg-2 hover:text-fg"
-              >
-                <GitPullRequest className="size-3.5" aria-hidden="true" />#{a.pr}
-                <ArrowUpRight className="size-3" aria-hidden="true" />
-              </a>
-            )}
-          </div>
-        </div>
-      )}
-
-      {steps.length > 0 && (
-        <ol className="mt-auto space-y-1.5 border-t border-line px-4 py-3">
-          {steps.map((r) => {
-            const meta = KINDS[r.kind];
-            const Icon = meta.icon;
-            return (
-              <li key={r.id} className="flex items-start gap-2 text-xs">
-                <Icon
-                  className={cn('mt-px size-3.5 shrink-0', TONE_CLASS[meta.tone])}
-                  aria-hidden="true"
-                />
-                <Link
-                  href={recordHref(r)}
-                  className="relative z-10 min-w-0 flex-1 text-fg-2 text-pretty hover:text-fg hover:underline"
-                >
-                  {r.title}
-                </Link>
-                <time dateTime={r.at} className="font-mono tabular text-fg-3">
-                  {formatTime(r.at)}
-                </time>
-              </li>
-            );
-          })}
-        </ol>
-      )}
+        )}
+        {work && w.activity && (
+          <p className="mt-2 text-[15px] leading-7 text-fg-2 text-pretty">{w.activity}</p>
+        )}
+        {a.pr && work?.kind !== 'pr' && (
+          <a
+            href={`${REPO_URL}/pull/${a.pr}`}
+            className="mt-2 inline-flex items-center gap-1.5 text-[15px] text-fg-2 underline-offset-4 hover:text-fg hover:underline"
+          >
+            <GitPullRequest className="size-4" aria-hidden="true" />
+            Pull request <span className="font-mono tabular">#{a.pr}</span>
+          </a>
+        )}
+        {steps.length > 0 && (
+          <Disclosure summary="Its latest steps" className="mt-4">
+            <ol className="space-y-2.5">
+              {steps.map((r) => {
+                const meta = KINDS[r.kind];
+                const Icon = meta.icon;
+                return (
+                  <li
+                    key={r.id}
+                    className="grid grid-cols-[1rem_minmax(0,1fr)_auto] items-start gap-x-3 text-[13px]"
+                  >
+                    <Icon
+                      className={cn('mt-0.5 size-4', TONE_CLASS[meta.tone])}
+                      aria-hidden="true"
+                    />
+                    <Link
+                      href={recordHref(r)}
+                      className="text-fg-2 text-pretty underline-offset-4 hover:text-fg hover:underline"
+                    >
+                      {r.title}
+                    </Link>
+                    <time dateTime={r.at} className="font-mono tabular text-fg-3">
+                      {formatTime(r.at)}
+                    </time>
+                  </li>
+                );
+              })}
+            </ol>
+          </Disclosure>
+        )}
+      </div>
     </FleetHoverItem>
   );
 };
@@ -186,80 +206,115 @@ const FleetContent = async ({ searchParams }: FleetContentProps) => {
   const slots = Object.fromEntries(s.tracks.map((t) => [t.id, t.color_slot])) as Partial<
     Record<GameId, number>
   >;
-  const titles = new Map(s.tasks.map((t) => [t.id, t.title]));
-  const stepsOf = (id: string) =>
+  const stepsOf = (id: string): Step[] =>
     s.records
       .filter((r) => r.agent_id === id && r.kind !== 'task_opened')
       .sort((a, b) => b.at.localeCompare(a.at))
-      .slice(0, 4);
-  const working = workingNow(s, rp.items).map((w) => w.agent);
+      .slice(0, STEP_LIMIT);
+  // The site's one answer to "who is working" (#205).
+  const working = workingNow(s, rp.items);
+  const graph = toSwarmInput(s, rp.items, merged);
 
   return (
     <FleetHoverProvider>
-      <main className="mx-auto w-full max-w-[90rem] px-4 pb-16 pt-8 sm:px-6">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <Typography variant="pageTitle">Fleet</Typography>
-            <Typography variant="lede" className="mt-2 max-w-3xl">
-              The agents working right now, where in the codebase their effort is going, and what
-              each one is doing. Past work is in{' '}
-              <Link href="/sessions" className="text-fg hover:underline">
-                sessions
-              </Link>
-              ; open tasks are on{' '}
-              <Link href="/rallypoint" className="text-fg hover:underline">
-                Rallypoint
-              </Link>
-              .
-            </Typography>
-          </div>
-          <div className="flex items-center gap-2 rounded-md border border-line bg-panel px-3 py-2 text-[13px]">
-            <Users className="size-4 text-fg-3" aria-hidden="true" />
-            <span className="font-mono tabular text-fg">{working.length}</span>
-            <span className="text-fg-2">working now</span>
-          </div>
-        </div>
+      <main className="flex w-full flex-col">
+        <SectionNav items={CHAPTERS} />
 
-        <SwarmGraph
-          className="mt-6"
-          {...toSwarmInput(s, rp.items, merged)}
-          engines={engineNodes(s)}
-          liveGames={live}
-          view={typeof view === 'string' ? view : null}
-          seatIds={s.agents.map((a) => a.id)}
-          engineIds={s.tracks.map((t) => t.id)}
-          repoUrl={REPO_URL}
-        />
+        {/* 1 · Overview: what the fleet is, and how many are at work. */}
+        <Section id="overview" labelledBy="fleet-title" space="default">
+          <SectionHeading
+            level="page"
+            space="none"
+            id="fleet-title"
+            title="The fleet"
+            intro="The agents working right now, where in the codebase their effort is going, and what each one is doing."
+            action={
+              <>
+                <TextLink href="/sessions">Every past session</TextLink>
+                <TextLink href="/rallypoint">Open tasks on Rallypoint</TextLink>
+              </>
+            }
+          />
+          <p className="mt-16 max-w-2xl text-2xl font-medium tracking-tight text-fg text-balance sm:text-3xl">
+            {working.length === 0 ? (
+              'Nobody is working right now.'
+            ) : (
+              <>
+                <span className="font-mono tabular">{working.length}</span>{' '}
+                {working.length === 1 ? 'agent is' : 'agents are'} at work right now.
+              </>
+            )}
+          </p>
+        </Section>
 
-        {working.length === 0 ? (
-          <div className="mt-6 flex flex-col items-center gap-3 rounded-lg border border-line bg-panel px-6 py-14 text-center">
-            <Moon className="size-6 text-fg-3" aria-hidden="true" />
-            <p className="text-[15px] text-fg">Nobody is working right now.</p>
-            <p className="max-w-md text-[13px] text-fg-2">
-              Agents appear here the moment a session starts, and leave when it ends.
-            </p>
-            <Link
-              href="/protocol#prompts"
-              className="mt-1 rounded-md border border-line px-3 py-1.5 text-[13px] text-fg-2 hover:border-line-strong hover:text-fg"
-            >
-              Start an agent
-            </Link>
-          </div>
-        ) : (
-          <ul className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {working.map((a) => (
-              <SeatCard
-                key={a.id}
-                a={a}
-                asOf={asOf}
-                slots={slots}
-                steps={stepsOf(a.id)}
-                taskTitle={a.task_id ? (titles.get(a.task_id) ?? null) : null}
-              />
-            ))}
-          </ul>
-        )}
-        <NextSteps links={['sessions', 'rallypoint', 'messages', 'protocol']} />
+        {/* 2 · At work: each working seat given a row of its own. */}
+        <Section id="working" labelledBy="working-title" tone="band">
+          <SectionHeading
+            id="working-title"
+            title="At work now"
+            intro="Each seat holds one Rallypoint role for one session: what it is on, and what it says it is doing. Hover a seat to find it in the graph."
+          />
+          {working.length === 0 ? (
+            <div className="border-y border-line py-10">
+              <p className="max-w-xl text-[15px] leading-7 text-fg-2 text-pretty">
+                Agents appear here the moment a session starts, and leave when it ends.
+              </p>
+              <div className="mt-5">
+                <TextLink href="/protocol#prompts">Start an agent</TextLink>
+              </div>
+            </div>
+          ) : (
+            <ul className="divide-y divide-line border-y border-line">
+              {working.map((w) => (
+                <WorkingRow
+                  key={w.agent.id}
+                  w={w}
+                  asOf={asOf}
+                  slots={slots}
+                  steps={stepsOf(w.agent.id)}
+                />
+              ))}
+            </ul>
+          )}
+        </Section>
+
+        {/* 3 · Where the effort goes: the full-width graph. Its layout is the graph's own (#221). */}
+        <Section id="graph" labelledBy="graph-title" space="roomy">
+          <SectionHeading
+            id="graph-title"
+            title="Where the effort goes"
+            intro={
+              <>
+                Rallypoint, live: issues are claimed into <span className="font-mono">agent/</span>{' '}
+                branches forked from{' '}
+                <span className="font-mono">{graph.input.integrationBranch}</span>, worked, opened
+                as pull requests, reviewed, and merged back into the part of the codebase they
+                change.
+              </>
+            }
+          />
+          <FullBleed>
+            <SwarmGraph
+              {...graph}
+              engines={engineNodes(s)}
+              liveGames={live}
+              view={typeof view === 'string' ? view : null}
+              seatIds={s.agents.map((a) => a.id)}
+              engineIds={s.tracks.map((t) => t.id)}
+              repoUrl={REPO_URL}
+              titled={false}
+            />
+          </FullBleed>
+        </Section>
+
+        {/* 4 · Further reading. */}
+        <Section id="further" labelledBy="next-steps-title" tone="band" space="compact">
+          <NextSteps
+            variant="list"
+            title="Further"
+            links={['sessions', 'rallypoint', 'messages', 'protocol']}
+          />
+        </Section>
       </main>
     </FleetHoverProvider>
   );

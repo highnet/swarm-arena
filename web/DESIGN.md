@@ -464,6 +464,17 @@ One hairline row per track: track dot and name, a rail from 0 to the finish (`li
 
 A filterable log of structured records. Segmented filters for record type and track sit in a header strip. Records group under sticky day dividers (12px medium `fg-3` on translucent `panel`). Each row is a fixed grid: mono time, a 16px lucide icon in the record's tone, then label, track dot and mono seat on one line, title (13px `fg`) and optional detail (12px `fg-3`), and a "Games" arrow link when a match backs it. Tones: neutral `fg-3`, strong `fg-2`, good and critical text tones for verdicts only.
 
+### Record timeline
+
+`RecordTimeline` (`components/arena`) sets board records out on an editorial page: one hairline row per record, the day and time in a 9rem mono `fg-3` column, then the kind as an icon and a word in its tone, the title at 15px `fg`, the detail at 13px `fg-2` held to a reading measure (54ch), and quiet links to the record's task and games. No panel around it. The fleet seat page lists a seat's steps with it (the latest twelve, the rest behind a `Disclosure`), and a task page tells its story with it, oldest first, naming the agent behind each step.
+
+### Fleet, sessions and tasks (#231)
+
+- **The fleet** (`/fleet`): overview with the working count as one sentence (from `workingNow`, the site's one answer, #205); "At work now" as hairline rows, not cards (who on the left, what it is on in 20px on the right, its latest steps behind an inline `Disclosure`; hovering a row still lights the seat in the graph); then the graph in a `FullBleed` section. The graph's own layout and rendering are #221's; the page passes `titled={false}`, so the section heading names it, the intro says what it shows, and the frame keeps only its controls.
+- **A seat** (`/fleet/[id]`): the name as the page heading beside a large avatar, facts as an open `dl` under a hairline, what it is doing in 24px, then its steps.
+- **Sessions** (`/sessions`): the totals as one sentence; seats as a ranked hairline list beside the chapter heading; the newest retros and hand-offs in full, and the whole filterable log behind a `row` `Disclosure`.
+- **A task** (`/tasks/[id]`): the title and spec as the page heading and intro, no chips above it; status as an icon and a word; the facts as an open `dl`; then its timeline, its games as hairline rows with the score in mono, and its discussion. The bands alternate whether or not the discussion section is there.
+
 ### Breadcrumbs
 
 The trail lives in the top bar, right after the brand, which stands for home: `Swarm Arena / Engines / Hex / Ladder / MCTS 2000`. Separators are a `fg-3` slash at half strength; ancestors are 13px `fg-2` links that fill `panel-raised` on hover; a level with no page of its own (Ladder, Tasks) is plain `fg-3`; the current page is `fg` with `aria-current`. It is built from the URL, and a level named only by an id (a game, a task, a rung) is set in mono until the page's own title replaces it. Phones show only the page (the brand keeps its mark alone), tablets add the parent, desktop shows the whole trail. Item pages carry no separate back link.
