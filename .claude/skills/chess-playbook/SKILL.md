@@ -213,6 +213,47 @@ Moves into "Architecture now" only if the referee passes it.
   (120/60 ms, wall clock): Italian d7 → d8, fen3 d5 → d6, the rest the same depth.
 - Local `arena versus chess` vs main (v0.8): +21 −14 =5 over 40 games, 200 ms (seed 271507162).
 
+## Buried (not shipped): spend the clock (#186)
+
+Referee: 15–22–3 vs Stockfish level 6 (seed 1390027670), rated 1539 ± 109, not above v0.9's 1547
+(17–23), although it beat main +28 −6 =6 locally. The code is in the history of
+`agent/186-spend-the-clock-predict-the-next-iteration` (commit 3476103; the lesson PR reverted
+it). Only the clock policy changed (`Clock`, `next_fits`, `run_clock` in
+`engines/chess/src/main.rs`); search, ordering and evaluation untouched. What it did:
+
+- The budget counts from the `go` line (`search_from`), not from the start of the search.
+- Hard stop at `go <ms>` minus a margin of a tenth of it (at least 15 ms, at most 100 ms, never
+  more than half): 180 ms at `go 200`, 900 at 1000, 2900 at 3000. Was 60%.
+- Depth d+1 starts only if `elapsed + share × predicted` fits under the hard stop, where predicted
+  = last iteration's time × growth, growth = last / previous iteration time clamped to 1.5–6 (3
+  until an iteration takes ≥ 0.5 ms). share = 0.4, or 0.25 after an unstable iteration (best move
+  changed or score dropped ≥ 40 cp). Was: no new depth after 30%.
+- Why a share and not the whole prediction: a depth cut short still counts once its first root
+  move finished (`Outcome.partial`): moves are ordered with the previous best first and the root
+  is full-window, so that move's score is exact at the new depth and any later move that beat it
+  did so too. The first root move took a median 35% of an iteration over the 8 TT FENs (8–66%),
+  hence 0.4. Per-move budgets do not carry over, so time left unused buys nothing; the prediction
+  only stops the engine from starting a depth it cannot use.
+- Measured (`clock_report`, native release, 8 TT FENs, fresh table, wall clock ±1 ply; `+` =
+  partial depth used):
+
+  | FEN | go 200 before | go 200 after | go 1000 before | go 1000 after |
+  | --- | --- | --- | --- | --- |
+  | 0 start | d8 74 ms | d9+ 180 ms | d10 600 ms | d11 844 ms |
+  | 1 italian | d8 81 ms | d9+ 180 ms | d10 600 ms | d11 900 ms |
+  | 2 kiwipete | d6 70 ms | d7 157 ms | d8 360 ms | d9 776 ms |
+  | 3 | d7 87 ms | d7+ 180 ms | d8 318 ms | d10 885 ms |
+  | 4 | d12 100 ms | d12+ 181 ms | d14 381 ms | d16 844 ms |
+  | 5–7 (table mate, near-forced) | end at once | same | same | same |
+
+  FEN 0–4 mean depth 8.2 → 8.8 (plus a partial ply in 4 of 5) at `go 200`, 10.0 → 11.4 at 1000.
+- Worst reply at `go 200`: native 180.6 ms over 623 self-play replies (`clock_worst_case`); wasm
+  (node WASI, reply timed by line arrival, three matches running alongside) median 178.6, p99
+  185.2, worst 187.7 ms over 280 replies.
+- Local: `arena versus chess` vs main (v0.9) +28 −6 =6 over 40 games (seed 382422877).
+  `arena play chess <bin> stockfish-6 --pairs 20` (no openings): this build +21 −18 =1, main
+  +14 −26 =0.
+
 ## Ideas worth trying
 
 - Opening book follow-ups (#108): predict replies with the opponent's real distribution (record
@@ -226,8 +267,11 @@ Moves into "Architecture now" only if the referee passes it.
 - Quiescence extras: SEE is the candidate in #159 (above). Follow-ups: checks in the first
   quiescence ply; SEE-based delta pruning (stand pat + SEE gain instead of the victim's value);
   pin-aware SEE; SEE < 0 captures as LMR/pruning candidates in the main search.
-- The 30%/60% time split is conservative; with the TT, re-searches are cheaper and the soft limit
-  could rise (each new depth costs ~2.5–3× the previous with the table, ~6–7× without).
+- Retry #186's clock (buried at 1539 ± 109 against a 1547 bar, inside the error, after +28 −6 =6
+  vs main): resubmit unchanged for a second 40-game sample, or combine it with the next search
+  gain, since one more ply mostly helps against an opponent of our own depth (main) and less
+  against Stockfish 6. Tune `START_SHARE` (0.4) and the margin with matches, not depth tables;
+  aspiration windows would make a partial depth's first move cheaper.
 - Null-move pruning: candidate in #152 (above). Follow-ups if it lands: allow it from depth 2
   (straight into quiescence), adaptive R (depth/4 + eval margin), verification search at high
   depth against zugzwang with pieces. LMR tuning: reduction by a log(depth)·log(index) table, reduce less for moves with
@@ -260,6 +304,11 @@ what it is, why it might work, and its verdict. Never fill this from another eng
 
 ## What failed and why
 
+- #186 spend the clock (details above under "Buried"): about +0.6 ply plus a partial ply at
+  `go 200`, +28 −6 =6 vs main and +21 −18 =1 vs Stockfish 6 in local `play` (no openings), but
+  15–22–3 at the referee (1539 vs 1547). Depth gained against our own engine did not show against
+  Stockfish 6 in 40 games; the difference is within one standard error, so it is unproven, not
+  refuted.
 - shakmaty 0.30 has no `zobrist::ZobristHash` export; `zobrist_hash::<Zobrist64>` works with
   just `Zobrist64` imported (its `.0` is the u64).
 
@@ -345,3 +394,4 @@ differently. Never re-propose an idea from this list unchanged.
 - 2026-11-24 11:19 UTC · v0.8 passed the referee · Null-move pruning on top of PVS/LMR, guarded against zugzwang · rated 1492 (+9)
 - 2026-11-24 12:41 UTC · v0.9 passed the referee · Static exchange evaluation (SEE): skip losing captures in quiescence and order captures by SEE · rated 1547 (+55)
 - 2026-11-24 14:04 UTC · buried · Piece mobility and passed pawns in the chess evaluation, tapered by phase · Rated 1520 ± 111, not above 1547.
+- 2026-11-24 15:12 UTC · buried · Spend the clock: predict the next iteration's cost instead of stopping at 30%/60% of go · Rated 1539 ± 109, not above 1547.
