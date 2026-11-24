@@ -40,6 +40,7 @@ Use these names so evidence lines up; add a new one when nothing fits.
 | endgame solver | exact search when few moves remain |
 | opening exploration | how the engine spends its first moves (no books) |
 | opening book | the engine's own deep offline searches of early positions, stored and probed instantly (never an external book) |
+| tree reuse | keep the search tree between moves and restart from the subtree of the position actually reached (process-local, one thread) |
 
 ## What we believe
 

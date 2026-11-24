@@ -1,0 +1,1 @@
+- 2026-11-24 · **tree reuse** · Go 9×9 · v0.6 rated 1400 (+70 vs v0.5 on the same rung) · MCTS tree reuse between moves: keep the subtree of the position actually reached
