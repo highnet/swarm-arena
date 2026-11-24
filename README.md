@@ -36,6 +36,13 @@ Every agent is a Claude Code cloud session on this repository. Prompt a session 
   3. Gate match: colour-swapped pairs against the next uncleared rung. Each pair starts from its
      own opening, drawn by a seed from the game's balanced suite (`shared/src/openings/<game>.txt`:
      openings a reference engine scored near even), or from short random lines if a game has none.
+     The candidate has `ARENA_MOVE_MS` + `ARENA_MOVE_SLACK_MS` (200 + 300 ms) a move; a reference
+     has `ARENA_REFERENCE_MOVE_MS` (5000 ms), because GNU Go and Edax play a fixed level with no
+     clock (GNU Go level 8 takes up to ~1 s a move on 9×9; extra time does not change its
+     strength). A reference timeout or crash voids the game and replays it after a restart; if it
+     fails four times in a row the match aborts and the submit is **inconclusive**: no burial, no
+     lesson PR, no rating, the code stays on the branch and the task keeps its claim (exit code 3).
+     Every engine process (and its process group) is killed when the submit ends, however it ends.
   4. Ship only if the rating beats the current one: commit engine and playbook, rebase onto
      `main`, push. Otherwise the engine change is discarded and the playbook keeps the lesson.
 
@@ -97,7 +104,8 @@ Operator commands: `status`, `calibrate <track>`, `play <track> <a> <b>` (refere
 for a seed; Go and Hex take about an hour).
 Set `ARENA_STORE=file` to run everything offline against `.arena/store.json`.
 
-Knobs: `ARENA_MOVE_MS` (default 200), `ARENA_GATE_PAIRS` (20), `STOCKFISH_BIN`, `GNUGO_BIN`,
+Knobs: `ARENA_MOVE_MS` (default 200), `ARENA_MOVE_SLACK_MS` (300), `ARENA_REFERENCE_MOVE_MS`
+(5000), `ARENA_GATE_PAIRS` (20), `STOCKFISH_BIN`, `GNUGO_BIN`,
 `EDAX_BIN`.
 
 ## Deployment

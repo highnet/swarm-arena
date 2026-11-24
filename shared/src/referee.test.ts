@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { GAMES, playMatch, randomPlayer, type Mover } from './index';
+import { GAMES, isReferenceFailure, playMatch, randomPlayer, ReferenceFailure, type Mover } from './index';
 
 const rules = GAMES.othello;
 const never = new Promise<string>(() => {});
@@ -65,4 +65,42 @@ test("the candidate's own timeouts count against it and are not replayed", async
   assert.equal(res.voided.length, 0);
   assert.equal(res.losses, 2);
   assert.ok(res.games.every((g) => g.termination === 'timeout'));
+});
+
+test('an aborted match throws a ReferenceFailure, so callers can tell it from a result', async () => {
+  const always = { id: 'dead-ref', choose: () => never } satisfies Mover;
+  const err = await playMatch(rules, randomPlayer(9), always, 1, {
+    moveTimeMs: 30,
+    replayOpponentFailures: 2,
+  }).catch((e: unknown) => e);
+  assert.ok(isReferenceFailure(err));
+  assert.ok(err instanceof ReferenceFailure);
+  assert.equal(err.opponent, 'dead-ref');
+  assert.equal(err.attempts, 3);
+  assert.ok(!isReferenceFailure(new Error('boom')));
+});
+
+test('the opponent gets its own move allowance; the candidate keeps the match clock', async () => {
+  const slow = (id: string, ms: number): Mover => {
+    const inner = randomPlayer(5);
+    return {
+      id,
+      choose: (r, s) =>
+        new Promise((done) => setTimeout(() => done(inner.choose(r, s)), ms)),
+    };
+  };
+  // A reference that takes 40 ms a move, against a 20 ms clock: it would forfeit every game.
+  const res = await playMatch(GAMES.othello, randomPlayer(9), slow('slow-ref', 40), 1, {
+    moveTimeMs: 20,
+    opponentMoveTimeMs: 500,
+    replayOpponentFailures: 2,
+  });
+  assert.equal(res.voided.length, 0);
+  assert.ok(res.games.every((g) => g.termination !== 'timeout'));
+  // The same allowance does not extend to a slow candidate.
+  const cand = await playMatch(GAMES.othello, slow('slow-cand', 40), randomPlayer(4), 1, {
+    moveTimeMs: 20,
+    opponentMoveTimeMs: 500,
+  });
+  assert.ok(cand.games.every((g) => g.termination === 'timeout'));
 });

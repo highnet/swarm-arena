@@ -39,10 +39,10 @@ import {
   run,
   RUN_ID,
 } from "./config";
-import { arenaEngine } from "./engine";
+import { arenaEngine, killAll } from "./engine";
 import { withVerdict } from "./verdict";
 import { gateShortfall, needsRungBaseline, type Rating } from "./gate";
-import { gateRung, runMatch } from "./match";
+import { gateRung, isMatchAborted, runMatch, type MatchAborted } from "./match";
 import { reference } from "./references";
 import { openingsNote } from "./openings";
 import { getStore } from "./store";
@@ -610,6 +610,33 @@ export const prepare = async () => {
 };
 
 /**
+ * A submit whose match the referee aborted because the reference kept failing (#164). That
+ * measured the reference's process, not the candidate, so it is no verdict: the engine code stays
+ * on the branch, no lesson pull request is opened, the task keeps its claim and status, and no
+ * rating is written. The worker resubmits once the reference is healthy.
+ */
+export const inconclusive = async (
+  task: Pick<Task, "id" | "track_id" | "title">,
+  aborted: MatchAborted,
+) => {
+  const why = `inconclusive: reference failure (${aborted.reason}). No verdict: the engine change stays on the branch and the task keeps its claim; resubmit with \`npm run arena -- submit ${task.id}\`.`;
+  await progress(
+    task,
+    "referee",
+    "Inconclusive: reference failure, not a burial.",
+    why,
+    aborted.matchId,
+  ).catch(() => undefined);
+  log(`inconclusive: ${task.title} (${aborted.reason})`);
+  return {
+    shipped: false as const,
+    inconclusive: true as const,
+    why,
+    matchId: aborted.matchId,
+  };
+};
+
+/**
  * Referee a finished task: build gate, legality smoke test, gate match against the next
  * uncleared rung, then open the pull request (main merged in) or bury with the measured reason.
  */
@@ -988,8 +1015,14 @@ Arena task: \`${task.id}\``,
       elo: result.elo,
     };
   } catch (e) {
+    // A reference that kept failing is not the candidate's fault: no burial (#164).
+    if (isMatchAborted(e)) return await inconclusive(task, e);
     return await bury(`Referee error: ${String(e).slice(0, 160)}`);
   } finally {
+    // An aborted match skips the engines' close(): nothing it started may outlive the submit, or
+    // a hanging reference keeps `arena submit` from exiting (#164).
+    const killed = killAll();
+    if (killed) log(`stopped ${killed} engine process${killed > 1 ? "es" : ""} left running`);
     // The seat stays working until its session's retro; only the clock moves here.
     await setAgent(seatId, {});
   }
