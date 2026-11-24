@@ -12,7 +12,16 @@ import {
   type Task,
 } from "@arena/shared";
 import { ensureRun, setAgent, records, rungs, tasks, tracks } from "./board";
-import { ARENA_HOME, ENGINES_DIR, log, MOVE_MS, run, RUN_ID } from "./config";
+import {
+  ARENA_HOME,
+  ENGINES_DIR,
+  LIVE_MS,
+  log,
+  MOVE_MS,
+  run,
+  RUN_ID,
+} from "./config";
+import { liveHooks, liveStream } from "./live";
 import { arenaEngine } from "./engine";
 import { reference } from "./references";
 import {
@@ -454,15 +463,38 @@ Run \`git checkout --detach origin/main\` (or \`npm run arena -- prepare\`, whic
           log(`pair ${k + 1}: ${o.join(" ") || "(initial position)"}`),
         );
       }
+      // Every game streams to live_games like a referee match, so the fleet graph shows it (#163).
+      const mainVersion =
+        (await tracks().catch(() => [])).find((t) => t.id === game)
+          ?.current_version ?? null;
+      const streamed = liveHooks(
+        liveStream(
+          getStore(),
+          {
+            run_id: RUN_ID,
+            match_id: null,
+            track_id: game,
+            candidate_version: "local",
+            opponent: mainVersion ? `main ${mainVersion}` : "main",
+          },
+          { log, intervalMs: LIVE_MS },
+        ),
+        `${RUN_ID}-${game}-versus-${Date.now().toString(36)}`,
+      );
       const res = await playMatch(GAMES[game], mine, main, pairs, {
         moveTimeMs: MOVE_MS + 300,
         openingSeed,
         openingSuite: suite,
-        onGame: (g, i) =>
+        onGameStart: streamed.onGameStart,
+        onMove: streamed.onMove,
+        onVoid: streamed.onVoid,
+        onGame: (g, i) => {
+          streamed.onGame();
           log(
             `game ${i + 1} (pair ${Math.floor(i / 2) + 1}, local ${i % 2 === 0 ? "first" : "second"}): ${g.outcome} by ${g.termination} in ${g.moves.length} plies`,
-          ),
-      });
+          );
+        },
+      }).finally(streamed.done);
       log(
         `local vs main: +${res.wins} -${res.losses} =${res.draws}${openingSeed === undefined ? " (no openings)" : ` (seed ${openingSeed})`}`,
       );

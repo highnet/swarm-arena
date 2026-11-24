@@ -14,7 +14,8 @@ export const LIVE_TABLE = "live_games";
 
 export type LiveGameInfo = {
   run_id: string;
-  match_id: string;
+  /** The referee's match; null for `arena versus`, which plays outside any match (#163). */
+  match_id: string | null;
   track_id: string;
   candidate_version: string;
   opponent: string;
@@ -148,4 +149,34 @@ export const liveStream = (
   };
 
   return { start, flush };
+};
+
+/**
+ * `playMatch` hooks that stream every game of a match with no `matches` row (`arena versus`, #163):
+ * each game's row is `<prefix>-g<n>` (`-r<k>` for a replay) and goes once the game ends.
+ */
+export const liveHooks = (live: LiveStream, prefix: string) => {
+  let current: LiveGame | null = null;
+  const close = () => {
+    current?.end();
+    current = null;
+  };
+  return {
+    onGameStart: (i: number, attempt: number, opening: string[]) => {
+      close();
+      current = live.start(
+        `${prefix}-g${i + 1}${attempt ? `-r${attempt}` : ""}`,
+        i % 2 === 0,
+        opening,
+      );
+    },
+    onMove: (move: string, ply: number) => current?.move(move, ply),
+    onVoid: close,
+    onGame: close,
+    /** End whatever is still streaming (the match threw) and wait for the store. */
+    done: async () => {
+      close();
+      await live.flush(2000);
+    },
+  };
 };
