@@ -11,7 +11,6 @@ import { NextSteps, engineSteps } from '@/components/arena/NextSteps';
 import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { ProgressChart } from '@/components/arena/ProgressChart';
 import { SourceViewer } from '@/components/arena/SourceViewer';
-import { Badge } from '@/components/ui/Badge';
 import { buttonVariants } from '@/components/ui/Button';
 import { Disclosure } from '@/components/ui/Disclosure';
 import { FullBleed } from '@/components/ui/FullBleed';
@@ -29,6 +28,7 @@ import { matchHref, rungHref, taskHref } from '@/lib/routes';
 import { pageMeta } from '@/lib/site';
 import { getEngineSource } from '@/lib/source';
 import { ENGINE_FACTS, SHORT_NAME, TRACK_ORDER } from '@/lib/tracks';
+import { cn } from '@/lib/utils';
 
 type EnginePageProps = {
   params: Promise<{ id: string }>;
@@ -63,39 +63,26 @@ export const generateMetadata = async ({ params }: EnginePageProps): Promise<Met
   );
 };
 
-const TASK_TONE = {
-  open: 'outline',
-  claimed: 'neutral',
-  review: 'neutral',
-  landed: 'good',
-  dead: 'critical',
-} as const;
-const TASK_ICON = {
-  open: CircleDashed,
-  claimed: CircleDot,
-  review: GitPullRequest,
-  landed: GitMerge,
-  dead: CircleSlash,
-} as const;
-const TASK_LABEL = {
-  open: 'open',
-  claimed: 'in progress',
-  review: 'in review',
-  landed: 'shipped',
-  dead: 'buried',
+/** Task status as an icon and a word; green and red only for shipped and buried. */
+const TASK_STATUS = {
+  open: { icon: CircleDashed, label: 'open', tone: 'text-fg-3' },
+  claimed: { icon: CircleDot, label: 'in progress', tone: 'text-fg-2' },
+  review: { icon: GitPullRequest, label: 'in review', tone: 'text-fg-2' },
+  landed: { icon: GitMerge, label: 'shipped', tone: 'text-good-text' },
+  dead: { icon: CircleSlash, label: 'buried', tone: 'text-critical-text' },
 } as const;
 
-type TaskBadgeProps = {
+type TaskStatusProps = {
   status: Task['status'];
 };
 
-const TaskBadge = ({ status }: TaskBadgeProps) => {
-  const Icon = TASK_ICON[status];
+const TaskStatus = ({ status }: TaskStatusProps) => {
+  const { icon: Icon, label, tone } = TASK_STATUS[status];
   return (
-    <Badge tone={TASK_TONE[status]}>
-      <Icon className="size-3" aria-hidden="true" />
-      {TASK_LABEL[status]}
-    </Badge>
+    <span className={cn('inline-flex shrink-0 items-center gap-1.5 text-[13px]', tone)}>
+      <Icon className="size-3.5" aria-hidden="true" />
+      {label}
+    </span>
   );
 };
 
@@ -118,7 +105,7 @@ const TaskRows = ({ tasks }: TaskRowsProps) => (
             {t.claimed_by ? agentName(t.claimed_by) : 'unclaimed'} · {formatDay(t.created_at)}
           </p>
         </div>
-        <TaskBadge status={t.status} />
+        <TaskStatus status={t.status} />
       </li>
     ))}
   </ol>
@@ -133,7 +120,7 @@ type MatchRowsProps = {
 };
 
 const MatchRows = ({ matches, caption }: MatchRowsProps) => (
-  <div className="overflow-x-auto">
+  <div className="relative overflow-x-auto">
     <table className="w-full min-w-[40rem] text-[15px]">
       <caption className="sr-only">{caption}</caption>
       <thead>
@@ -237,7 +224,7 @@ const EngineContent = async ({ params }: EnginePageProps) => {
                 {cleared} of {track.rungs.length} opponents beaten. Next:{' '}
                 <Link
                   href={rungHref(track.nextRung)}
-                  className="text-fg underline-offset-4 hover:underline"
+                  className="text-fg underline decoration-line-strong underline-offset-4 hover:decoration-fg"
                 >
                   {track.nextRung.label}
                 </Link>

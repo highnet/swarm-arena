@@ -92,7 +92,7 @@ const Engines = async () => {
           intro="The counts behind each engine. The ratings sit on separate ladders, so compare an engine with its own past, not with the others."
         />
         <FullBleed>
-          <div className="overflow-x-auto">
+          <div className="relative overflow-x-auto">
             <table className="w-full min-w-[40rem] text-[15px]">
               <caption className="sr-only">The four engines side by side</caption>
               <thead>

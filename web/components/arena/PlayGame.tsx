@@ -117,7 +117,8 @@ const PlayGame = ({ game, wasmUrl, engineLabel }: PlayGameProps) => {
 
   return (
     <div data-slot="play-game" className="grid gap-6 lg:grid-cols-[minmax(0,34rem)_minmax(0,1fr)]">
-      <div className="min-w-0">
+      {/* Clip sideways only: chessground sets its file labels a hair past the board's edge. */}
+      <div className="min-w-0 overflow-x-clip">
         {chess ? (
           <ChessPlayBoard
             fen={chess.fen}
@@ -145,7 +146,7 @@ const PlayGame = ({ game, wasmUrl, engineLabel }: PlayGameProps) => {
 
       <div className="flex min-w-0 flex-col gap-4">
         <div className="rounded-lg border border-line bg-panel p-4">
-          <Typography variant="label" as="h3">
+          <Typography variant="label" as="h2">
             Status
           </Typography>
           <p
@@ -177,7 +178,7 @@ const PlayGame = ({ game, wasmUrl, engineLabel }: PlayGameProps) => {
         </div>
 
         <div className="rounded-lg border border-line bg-panel p-4">
-          <Typography variant="label" as="h3">
+          <Typography variant="label" as="h2">
             New game
           </Typography>
           <div className="mt-2 flex flex-wrap gap-2">
@@ -222,7 +223,7 @@ const PlayGame = ({ game, wasmUrl, engineLabel }: PlayGameProps) => {
 
         {moves.length > 0 && (
           <div className="rounded-lg border border-line bg-panel p-4">
-            <Typography variant="label" as="h3">
+            <Typography variant="label" as="h2">
               Moves
             </Typography>
             <p className="mt-2 max-h-40 overflow-y-auto font-mono text-xs leading-6 text-fg-2">

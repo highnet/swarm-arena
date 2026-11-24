@@ -79,7 +79,7 @@ const RungContent = async (props: RungPageProps) => {
               Rung {at + 1} of {rungs.length} on the{' '}
               <Link
                 href={`/engines/${rung.track_id}`}
-                className="text-fg underline-offset-4 hover:underline"
+                className="text-fg underline decoration-line-strong underline-offset-4 hover:decoration-fg"
               >
                 {name} ladder
               </Link>

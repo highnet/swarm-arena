@@ -60,7 +60,7 @@ const FACTS = {
     item: 'min-w-0',
     label: 'text-[13px] text-fg-3',
     value:
-      'mt-2 truncate font-mono text-2xl font-medium tabular tracking-tight text-fg sm:text-3xl',
+      'mt-2 font-mono text-2xl font-medium tabular tracking-tight text-fg text-balance break-words sm:text-3xl',
     note: 'mt-1.5 text-[13px] leading-5 text-fg-2 text-pretty',
   },
 } as const;
@@ -144,7 +144,7 @@ const RecordList = ({
                 <Typography
                   variant="meta"
                   as="p"
-                  className={cn('mt-0.5 text-pretty', r.id !== current && 'line-clamp-3')}
+                  className={cn('mt-0.5 max-w-sm text-pretty', r.id !== current && 'line-clamp-3')}
                 >
                   {r.detail}
                 </Typography>
