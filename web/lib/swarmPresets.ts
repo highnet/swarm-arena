@@ -3,8 +3,10 @@ import type { SwarmFlow } from '@rallypoint/swarm-graph/model';
 /**
  * Who the swarm graph's event feed is for. One table: each preset names its visitor and the
  * event subs it shows (see `TABLE_SUBS` in `swarmEvents.ts` for every sub a table produces, and
- * GitHub's `pr-*` / `issue-claimed`). A preset filters events and their animations, never the
- * nodes, so switching never re-lays the graph out. Adding a sub means choosing its presets here.
+ * GitHub's `pr-*` / `issue-claimed`). A preset filters events and their animations; the nodes
+ * differ only in `Everything`, which keeps dead nodes longer (`LIFETIMES.everything`). A switch is
+ * a view change for the renderer: the nodes both presets show hold still while the others fade in
+ * or out, so it never shakes the layout (#192). Adding a sub means choosing its presets here.
  */
 
 export type SwarmPresetId = 'happening' | 'games' | 'ideas' | 'swarm' | 'all';

@@ -65,6 +65,10 @@ It follows the protocol. **Nothing reaches the integration branch except a merge
   new node grows out of its parent and glides to its place (about 1.3 s, staggered); see
   `lifecycle.ts`. Both are instant with `reducedMotion`. `node scripts/lifecycle-check.mjs` checks
   them in Chromium.
+- **View changes hold still.** `update(graph, { view: true })` says the same data is seen another
+  way (the site's preset switch, whose `Everything` keeps dead nodes longer): the nodes both views
+  show stay where they are while the others fade in or out, and go free once the layout settles.
+  With `reducedMotion` the switch is static. `node scripts/view-check.mjs` checks it in Chromium.
 
 ## Using it
 
