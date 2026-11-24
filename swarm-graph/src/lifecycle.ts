@@ -1,39 +1,49 @@
 /**
- * Nodes arriving on and leaving the live graph, as pure timing. The same easing family as the
- * radial intro (`intro.ts`), so the intro, arrivals and departures read as one system.
+ * Nodes arriving on, leaving and moving across the live graph, as pure timing. The same easing
+ * family as the radial intro (`intro.ts`), so the intro, arrivals, departures and moves read as
+ * one system. Nothing here is physics: the layout engine (`layout.ts`) decides where a node
+ * stands, and these tweens are the only way it gets there (#221). Every one, stagger included,
+ * is over within `TRANSITION_MS`.
  *
- * Arriving: a node starts at its parent (the sector or agent it belongs to), at 40% size and
- * transparent, and grows and glides out to its place with an ease-out; its label follows just
- * after the circle and its edges draw on from the parent end.
+ * Arriving: a node appears at its place, at 40% size and transparent, and grows and fades in
+ * with an ease-out; its label follows just after the circle and its edges draw on from the
+ * parent end.
  *
- * Leaving: over about 1.8 s with an ease-in-out, the node's opacity goes to 0 and its radius to
- * 60%; its label fades a little ahead of the circle, its edges thin and fade at the circle's rate.
- * Only then does it leave the simulation.
+ * Leaving: the node's opacity goes to 0 and its radius to 60% in place, with an ease-in-out; its
+ * label fades a little ahead of the circle, its edges thin and fade at the circle's rate. Only
+ * then does it leave the graph. Nothing else moves into the room it leaves.
+ *
+ * Moving (a node the layout re-placed, or a resize re-fitting the canvas): a straight line from
+ * where it stands to its new place with one ease-out cubic, so its distance to the target only
+ * ever shrinks: no overshoot, no settling.
  */
 
 import { easeOut } from './intro';
 
+/** The longest any arrival, departure or move takes, its stagger included. */
+export const TRANSITION_MS = 700;
+
 export const ARRIVAL = {
-  durationMs: 1300,
-  staggerMs: 120,
+  durationMs: 560,
+  staggerMs: 35,
   /** Stagger steps at most; a big burst shares the last one. */
-  maxSteps: 12,
+  maxSteps: 4,
   startScale: 0.4,
   /** The label starts once the circle is this far along. */
   labelLag: 0.25,
-  /** Simulation alpha for taking the new nodes in. */
-  alpha: 0.06,
 } as const;
 
 export const DEPARTURE = {
-  durationMs: 1800,
-  staggerMs: 150,
-  maxSteps: 12,
+  durationMs: 600,
+  staggerMs: 25,
+  maxSteps: 4,
   endScale: 0.6,
   /** The label is gone by this point of the circle's fade. */
   labelLead: 0.7,
-  /** Simulation alpha for easing the others into the freed space. */
-  alpha: 0.05,
+} as const;
+
+export const MOVE = {
+  durationMs: 500,
 } as const;
 
 const clamp = (p: number) => Math.max(0, Math.min(1, p));
@@ -53,8 +63,6 @@ export const progressAt = (t: number, delay: number, duration: number) =>
   duration <= 0 ? (t >= delay ? 1 : 0) : clamp((t - delay) / duration);
 
 export type Pose = {
-  /** 0 at the start point (the parent, or where the node stood), 1 at the end. */
-  travel: number;
   scale: number;
   opacity: number;
   label: number;
@@ -65,7 +73,6 @@ export type Pose = {
 export const arrivalPose = (p: number): Pose => {
   const e = easeOut(p);
   return {
-    travel: e,
     scale: ARRIVAL.startScale + (1 - ARRIVAL.startScale) * e,
     opacity: e,
     label: easeOut((clamp(p) - ARRIVAL.labelLag) / (1 - ARRIVAL.labelLag)),
@@ -76,7 +83,6 @@ export const arrivalPose = (p: number): Pose => {
 export const departurePose = (p: number): Pose => {
   const e = easeInOut(p);
   return {
-    travel: 0,
     scale: 1 - (1 - DEPARTURE.endScale) * e,
     opacity: 1 - e,
     label: 1 - easeInOut(clamp(p) / DEPARTURE.labelLead),
@@ -84,24 +90,15 @@ export const departurePose = (p: number): Pose => {
   };
 };
 
-/**
- * Where an arriving node glides to: just outside its parent, towards the place the layout pulls
- * it (`toward`), so the simulation takes over from about where it would settle.
- */
-export const arrivalTarget = (
-  parent: { x: number; y: number; r: number },
-  toward: { x: number; y: number },
-  r: number,
-  spin = 0,
+/** A move `p` of the way along (0 → 1): how far from start to target, never past it. */
+export const moveAt = (p: number): number => easeOut(p);
+
+/** Where a moving node stands: on the straight line from `from` to `to`. */
+export const movePoint = (
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  p: number,
 ): { x: number; y: number } => {
-  let dx = toward.x - parent.x;
-  let dy = toward.y - parent.y;
-  if (Math.hypot(dx, dy) < 1) {
-    // No pull away from the parent: head outward from the hub's side.
-    dx = parent.x || 1;
-    dy = parent.y;
-  }
-  const a = Math.atan2(dy, dx) + spin;
-  const d = parent.r + r + 26;
-  return { x: parent.x + Math.cos(a) * d, y: parent.y + Math.sin(a) * d };
+  const k = moveAt(p);
+  return { x: from.x + (to.x - from.x) * k, y: from.y + (to.y - from.y) * k };
 };
