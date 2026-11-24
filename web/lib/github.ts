@@ -97,7 +97,7 @@ export type RallypointState = {
  * and merge state. Cached for two minutes so the site stays well inside GitHub's unauthenticated
  * rate limit; set GITHUB_TOKEN to raise it.
  */
-/** Expired by `refreshLive` too, at most once a minute (GitHub rate limits). */
+/** Refreshes on its own schedule only (`cacheLife` below); visitors never expire it (#222). */
 export const GITHUB_TAG = 'github';
 
 export const getRallypoint = async (): Promise<RallypointState> => {

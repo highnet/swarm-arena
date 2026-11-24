@@ -29,7 +29,7 @@ const MatchContent = async ({ params }: MatchPageProps) => {
   const match = s.matches.find((m) => m.id === id);
   if (!match) notFound();
   const track = s.tracks.find((t) => t.id === match.track_id)!;
-  const games = (await getMatchGames(match.id)).sort((a, b) =>
+  const games = (await getMatchGames(match.id, Boolean(match.finished_at))).sort((a, b) =>
     a.finished_at.localeCompare(b.finished_at),
   );
   const total = match.wins + match.draws + match.losses;
