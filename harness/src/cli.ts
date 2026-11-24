@@ -66,7 +66,9 @@ Agent sessions (run inside a Claude Code session on this repo):
                                 --role skips the picker (a conductor dispatched this session to one
                                 target; it prints ROLE none if the target no longer needs it), --pr
                                 names the pull request, --issue the issue a worker takes (an arena
-                                issue is adopted; a harness or site issue gets a plain PR brief),
+                                issue is adopted; a harness or site issue gets a plain PR brief;
+                                when --agent-id already holds its claim, the claim is resumed:
+                                its branch is checked out with origin/main merged in),
                                 --agent-id pins the id the lease was written under,
                                 --only limits the picker (a builder or judge loop).
                                 Exits 75 when this checkout lacks harness commits from origin/main

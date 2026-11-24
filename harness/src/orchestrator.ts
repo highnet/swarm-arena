@@ -20,6 +20,11 @@ import {
   isReleasedMarker,
   BRANCH_PREFIX,
   CLAIM_REF_PREFIX,
+  claimBranch,
+  HOLDS,
+  holdsClaim,
+  issueComments,
+  type Issue,
   isRallypointPull,
   openPulls,
   REPO,
@@ -29,7 +34,7 @@ import {
   taskOf,
   type Pull,
 } from "./rallypoint";
-import { claimNext, land } from "./seat";
+import { claimNext, land, resumeCheckout, resumeTask } from "./seat";
 import { adopt, issueTrack } from "./strategist";
 
 /**
@@ -215,13 +220,45 @@ ${retros.map((m) => `- #${m.id} ${m.agent_id}: ${m.body}`).join("\n") || "- none
 ${await metrics()}`;
 };
 
-/** Hold labels that take an issue out of the claimable pool (AGENTIC_LOOP.md, Hard rules). */
-const HOLDS = [
-  "status:claimed",
-  "status:blocked",
-  "status:deferred",
-  "needs:human",
-];
+/**
+ * A dispatched worker whose agent id already holds the issue's claim resumes it (#177) instead of
+ * being turned away by its own `status:claimed`. Returns the brief, or null when it is not the
+ * holder (or the issue is held for any other reason), so the normal checks refuse it.
+ */
+const resumeWorker = async (issue: Issue, track?: string) => {
+  const agentId = sessionAgentId("worker");
+  const labels = issue.labels;
+  if (!labels.some((l) => l.name === "status:claimed")) return null;
+  const [comments, reserved] = await Promise.all([
+    issueComments(issue.number),
+    hasReservation(issue.number),
+  ]);
+  if (!holdsClaim({ labels, comments, agentId, reserved })) return null;
+  const { branch, remote } = await claimBranch(issue.number, issue.title);
+  if (issueTrack(labels)) {
+    const { task } = await adopt(issue.number);
+    if (track && task.track_id !== track)
+      return overtaken(
+        "worker",
+        `#${issue.number} is a ${task.track_id} task, not ${track}`,
+      );
+    return resumeTask(task, branch, remote);
+  }
+  const where = await resumeCheckout(branch, remote);
+  await fleet("worker", "worker", {
+    rp_role: "worker",
+    activity: `Resumed issue #${issue.number}`,
+  });
+  return `ROLE worker (Rallypoint) · not an arena task · RESUMED
+You are ${agentName("worker")}. Issue #${issue.number} ${issue.title} (${issue.html_url}).
+Your Rallypoint agent id: ${agentId}. It already holds the claim, so do not run claim.mjs again.
+You are ${where}.
+1. Read .rallypoint/roles/worker.md, the issue, and what the last attempt left on the branch.
+2. Finish the change the issue asks for, nothing more, and run its validation (npm test, npm run typecheck).
+3. node .rallypoint/scripts/preflight.mjs --body "<prepared body>" --base main
+4. Open a ready-for-review pull request from ${branch} with \`Closes #${issue.number}\` and the validation
+   results (gh api repos/${REPO}/pulls -X POST ...). An independent reviewer judges it.`;
+};
 
 /**
  * A worker dispatched to one issue. An arena issue without a `tasks` row is adopted and claimed
@@ -234,6 +271,8 @@ const issueWorker = async (number: number, track?: string) => {
     return overtaken("worker", `#${number} is a pull request`);
   if (issue.state !== "open")
     return overtaken("worker", `#${number} is closed`);
+  const resumed = await resumeWorker(issue, track);
+  if (resumed) return resumed;
   const held = issue.labels.map((l) => l.name).filter((l) => HOLDS.includes(l));
   if (held.length || issue.assignees?.length)
     return overtaken(

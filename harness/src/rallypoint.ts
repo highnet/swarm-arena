@@ -162,6 +162,79 @@ export type Issue = {
 export const getIssue = (issue: number) =>
   ghApi<Issue>("GET", `repos/${REPO}/issues/${issue}`);
 
+/**
+ * The agent id the issue's latest claim comment names, read as `provenance.mjs` reads it: the
+ * comment must start with claim.mjs's line, and the last claim wins (a re-claim supersedes).
+ */
+export const claimHolder = (comments: { body?: string | null }[]) =>
+  comments
+    .map(
+      (c) => /^Claimed by Rallypoint agent `([^`\n]+)`/.exec(c.body ?? "")?.[1],
+    )
+    .filter((id): id is string => Boolean(id))
+    .at(-1) ?? null;
+
+/** The labels that keep an issue out of the claim pool (`AGENTIC_LOOP.md`, Hard rules). */
+export const HOLDS = [
+  "status:claimed",
+  "status:blocked",
+  "status:deferred",
+  "needs:human",
+];
+
+/**
+ * Whether `agentId` holds this issue's claim and may resume it (#177): the only hold is
+ * `status:claimed`, the latest claim comment names `agentId`, and the reservation ref is live. A
+ * blocked, deferred or needs:human issue is never resumed, and nobody else's claim ever is.
+ */
+export const holdsClaim = ({
+  labels,
+  comments,
+  agentId,
+  reserved,
+}: {
+  labels: { name: string }[];
+  comments: { body?: string | null }[];
+  agentId: string;
+  reserved: boolean;
+}) => {
+  const held = labels.map((l) => l.name).filter((l) => HOLDS.includes(l));
+  return (
+    reserved &&
+    held.length === 1 &&
+    held[0] === "status:claimed" &&
+    claimHolder(comments) === agentId
+  );
+};
+
+/** An issue's comments (the first 100: a claim comment is one of the earliest). */
+export const issueComments = (issue: number) =>
+  ghApi<{ body: string | null }[]>(
+    "GET",
+    `repos/${REPO}/issues/${issue}/comments?per_page=100`,
+  );
+
+/**
+ * The branch a claim on this issue already uses: the published `agent/<issue>-…` branch if one
+ * exists (claim.mjs pushes it at claim time), else the name claim.mjs prescribes from the title.
+ * Returns whether it is on the remote.
+ */
+export const claimBranch = async (issue: number, title: string) => {
+  const lib = resolve(ARENA_ROOT, ".rallypoint/scripts/lib/claim.mjs");
+  const { branchSlug } = (await import(lib)) as {
+    branchSlug: (t: string) => string;
+  };
+  const prescribed = `${BRANCH_PREFIX}${issue}-${branchSlug(title)}`;
+  const refs = await ghApi<{ ref: string }[]>(
+    "GET",
+    `repos/${REPO}/git/matching-refs/heads/${BRANCH_PREFIX}${issue}-`,
+  ).catch(() => []);
+  const names = refs.map((r) => r.ref.replace(/^refs\/heads\//, ""));
+  if (names.includes(prescribed)) return { branch: prescribed, remote: true };
+  if (names[0]) return { branch: names[0], remote: true };
+  return { branch: prescribed, remote: false };
+};
+
 /** Reserve the task's issue for this session with Rallypoint's atomic claim. Returns the branch. */
 export const claimIssue = async (issue: number, agentId: string) => {
   const r = await rp("claim", [
