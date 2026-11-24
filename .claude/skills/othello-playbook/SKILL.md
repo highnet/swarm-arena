@@ -204,7 +204,7 @@ Move into "Architecture now" only once the referee passes it.
   3.04 / 5.07 / 19.2**; 5: 0.90 / 2.87 / 4.81 / 18.2; 4: 0.84 / 2.72 / 4.57 / 17.2. Lower is
   better in nodes all the way down; wall time is flat between 4 and 6, so 6 (= `SHALLOW`, where
   fastest-first ordering stops). The spec's "from about 10 up" guess left half the gain unused.
-- Solve-time table, 48 seeded positions per count (`SOLVE_REPORT_COUNT=48`, median / max ms,
+- Solve-time table, 48 seeded positions per count (`count` in `solve_report`, median / max ms,
   within 100 / within 140 ms = the go-200 solve window, nodes), no table → table:
 
   | empties | no table (v0.6) | with table |
@@ -223,6 +223,9 @@ Move into "Architecture now" only once the referee passes it.
   10-12 in its 120 ms, close to the end of the game with a disc-count terminal, so one more
   exact ply rarely changes the move. **Expect this to be neutral on the gate**; its value is
   the headroom (a win/loss/draw solve, or N scaled with the site's 0.5-3 s budgets).
+- First submit was buried unmeasured by the referee's static rule: `std::env::var` anywhere in
+  `src/` (here only knobs for the ignored `solve_report` test) counts as an engine reading its
+  environment. Knobs are now plain locals in the test; the engine is otherwise unchanged.
 - Tests: `solver_table_gives_the_same_results_as_no_table` (8-14 empties, ~60 seeds each, one
   table shared across all positions as across a game's moves: same root score, the chosen move
   scores it, and fail-low / fail-high / exact agree with the plain solver on four windows).
