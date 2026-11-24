@@ -1,0 +1,1 @@
+- 2026-11-24 · **playout policy** · Go 9×9 · buried: Rated higher on the ladder but lost to v0.6 head to head (6–14–0 W–L–D, opening seed 1590576097). · Playout policy: 3x3 shape patterns around the last move, after the tactical capture/escape step

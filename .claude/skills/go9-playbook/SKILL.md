@@ -368,3 +368,4 @@ differently. Never re-propose an idea from this list unchanged.
 - 2026-11-23 21:44 UTC · buried · Exact endgame without tablebases: Benson-settled regions plus an alpha-beta solve of the unsettled points · Rated 1569 ± 142 vs GNU Go level 5; v0.4 rated 1682 ± 179 on the same rung.
 - 2026-11-24 10:16 UTC · v0.5 passed the referee · Self-generated opening book: the engine's own long MCTS runs over the first moves, probed instantly · rated 1447 (+58 vs v0.4 on the same rung)
 - 2026-11-24 14:07 UTC · v0.6 passed the referee · MCTS tree reuse between moves: keep the subtree of the position actually reached · rated 1400 (+70 vs v0.5 on the same rung)
+- 2026-11-24 15:51 UTC · buried · Playout policy: 3x3 shape patterns around the last move, after the tactical capture/escape step · Rated higher on the ladder but lost to v0.6 head to head (6–14–0 W–L–D, opening seed 1590576097).

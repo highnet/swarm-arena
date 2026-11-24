@@ -21,13 +21,6 @@ const SELF_ATARI_REDRAWS: u32 = 4;
 const NEIGH: [[u8; 4]; NN] = build_neigh();
 /// Diagonal neighbours of each point; OFF marks the edge.
 const DIAG: [[u8; 4]; NN] = build_diag();
-/// The 8 surrounding points in `patterns::RING` order (N, NE, E, … NW); OFF marks the edge.
-const RING8: [[u8; 8]; NN] = build_ring8();
-/// Out of 1024: how often the playout tries a 3×3 shape move next to the last move (#189)
-/// before falling back to a random move.
-/// The neighbourhood keys of the empty board: only the off-board points are set.
-const EDGE_KEY: [u16; NN] = build_edge_key();
-pub const PATTERN_P: u32 = 512;
 
 const fn at(r: isize, c: isize) -> u8 {
     if r < 0 || c < 0 || r >= N as isize || c >= N as isize {
@@ -43,38 +36,6 @@ const fn build_neigh() -> [[u8; 4]; NN] {
     while i < NN {
         let (r, c) = ((i / N) as isize, (i % N) as isize);
         t[i] = [at(r - 1, c), at(r + 1, c), at(r, c - 1), at(r, c + 1)];
-        i += 1;
-    }
-    t
-}
-
-const fn build_ring8() -> [[u8; 8]; NN] {
-    let mut t = [[OFF; 8]; NN];
-    let mut i = 0;
-    while i < NN {
-        let (r, c) = ((i / N) as isize, (i % N) as isize);
-        let mut k = 0;
-        while k < 8 {
-            let (dr, dc) = crate::patterns::RING[k];
-            t[i][k] = at(r + dr as isize, c + dc as isize);
-            k += 1;
-        }
-        i += 1;
-    }
-    t
-}
-
-const fn build_edge_key() -> [u16; NN] {
-    let mut t = [0u16; NN];
-    let mut i = 0;
-    while i < NN {
-        let mut k = 0;
-        while k < 8 {
-            if RING8[i][k] == OFF {
-                t[i] |= 3 << (2 * k);
-            }
-            k += 1;
-        }
         i += 1;
     }
     t
@@ -119,9 +80,6 @@ pub struct Board {
     empty: [u8; NN],
     epos: [u8; NN],
     n_empty: u8,
-    /// The 3×3 neighbourhood key of every point (see `shape_key`), kept up to date by `put`
-    /// and `remove`.
-    nbkey: [u16; NN],
 }
 
 /// Small xorshift RNG.
@@ -158,7 +116,6 @@ impl Board {
             empty: std::array::from_fn(|i| i as u8),
             epos: std::array::from_fn(|i| i as u8),
             n_empty: NN as u8,
-            nbkey: EDGE_KEY,
         }
     }
 
@@ -184,11 +141,6 @@ impl Board {
         self.empty[i as usize] = last;
         self.epos[last as usize] = i;
         self.n_empty -= 1;
-        for (k, &q) in RING8[pi].iter().enumerate() {
-            if q != OFF {
-                self.nbkey[q as usize] |= (c as u16) << (2 * ((k + 4) & 7));
-            }
-        }
         self.head[pi] = p;
         self.next[pi] = p;
         self.size[pi] = 1;
@@ -236,11 +188,6 @@ impl Board {
         let mut s = h;
         loop {
             self.cell[s as usize] = EMPTY;
-            for (k, &q) in RING8[s as usize].iter().enumerate() {
-                if q != OFF {
-                    self.nbkey[q as usize] &= !(3u16 << (2 * ((k + 4) & 7)));
-                }
-            }
             self.empty[self.n_empty as usize] = s;
             self.epos[s as usize] = self.n_empty;
             self.n_empty += 1;
@@ -625,67 +572,14 @@ impl Board {
         fallback
     }
 
-    /// The 16-bit 3×3 neighbourhood key of `p` (see `patterns`): 2 bits per surrounding point,
-    /// 0 empty, 1 black, 2 white, 3 off the board.
-    #[inline]
-    pub fn shape_key(&self, p: u8) -> u16 {
-        self.nbkey[p as usize]
-    }
-
-    /// `shape_key` recomputed from the cells (the invariant check).
-    #[cfg(test)]
-    fn shape_key_slow(&self, p: u8) -> u16 {
-        let mut key = 0u16;
-        for (i, &q) in RING8[p as usize].iter().enumerate() {
-            let v = if q == OFF { 3 } else { self.cell[q as usize] as u16 };
-            key |= v << (2 * i);
-        }
-        key
-    }
-
-    /// A shape move next to the last move: an empty point among its 8 neighbours whose 3×3
-    /// neighbourhood is in the pattern table, legal, not an own eye, and not a self-atari that
-    /// joins an own chain. Uniform among the matches; None if there are none.
-    pub fn pattern_move(&self, rng: &mut Rng) -> Option<u8> {
-        let last = self.last;
-        if last == PASS {
-            return None;
-        }
-        let c = self.to_move;
-        let mut found = [0u8; 8];
-        let mut n = 0;
-        for &q in &RING8[last as usize] {
-            if q == OFF || self.cell[q as usize] != EMPTY {
-                continue;
-            }
-            if !crate::patterns::is_shape(self.shape_key(q)) {
-                continue;
-            }
-            // Every shape has an empty orthogonal neighbour, so a match is never an eye and is
-            // legal unless it is the ko point (`every_shape_point_has_an_empty_liberty`).
-            if q == self.ko || (self.joins_own(q, c) && self.is_self_atari(q, c)) {
-                continue;
-            }
-            found[n] = q;
-            n += 1;
-        }
-        if n == 0 { None } else { Some(found[rng.below(n)]) }
-    }
-
-    /// The playout policy: the tactical reply to the last move if there is one; else, with
-    /// probability PATTERN_P / 1024, a shape move next to it; else a random move that avoids
-    /// self-atari.
+    /// The playout policy: the tactical reply to the last move if there is one, else a random
+    /// move that avoids self-atari.
     #[inline]
     pub fn policy_move(&self, rng: &mut Rng, buf: &mut [u8; NN]) -> u8 {
-        if let Some(m) = self.tactical_move() {
-            return m;
+        match self.tactical_move() {
+            Some(m) => m,
+            None => self.random_move(rng, buf),
         }
-        if PATTERN_P >= 1024 || (rng.next() & 1023) < PATTERN_P as u64 {
-            if let Some(m) = self.pattern_move(rng) {
-                return m;
-            }
-        }
-        self.random_move(rng, buf)
     }
 
     /// Plays policy moves until two passes or `cap` moves, appending each (passes included)
@@ -725,9 +619,6 @@ impl Board {
                 assert_eq!(libs, self.libs[h]);
                 assert!(libs > 0, "chain without liberties left on the board");
             }
-        }
-        for p in 0..NN as u8 {
-            assert_eq!(self.nbkey[p as usize], self.shape_key_slow(p), "neighbourhood key of {p}");
         }
         let n = self.n_empty as usize;
         assert_eq!(n, self.cell.iter().filter(|&&c| c == EMPTY).count());
@@ -838,45 +729,6 @@ mod tests {
             seen |= b.random_move(&mut rng, &mut buf) == 0;
         }
         assert!(seen);
-    }
-
-    #[test]
-    fn pattern_moves_are_legal_shapes_next_to_the_last_move() {
-        let mut rng = Rng(0x1234_5678_9abc_def1);
-        let mut buf = [0u8; NN];
-        let mut hits = 0;
-        for _ in 0..200 {
-            let mut b = Board::empty(BLACK);
-            for _ in 0..200 {
-                if b.passes >= 2 {
-                    break;
-                }
-                if let Some(q) = b.pattern_move(&mut rng) {
-                    hits += 1;
-                    assert!(b.is_legal(q));
-                    assert!(!b.is_eye(q, b.to_move));
-                    assert!(crate::patterns::is_shape(b.shape_key(q)));
-                    assert!(RING8[b.last as usize].contains(&q));
-                }
-                let m = b.policy_move(&mut rng, &mut buf);
-                assert!(m == PASS || b.is_legal(m));
-                b.play(m);
-            }
-        }
-        assert!(hits > 1000, "only {hits} pattern moves");
-    }
-
-    #[test]
-    fn shape_key_reads_the_ring_and_the_edge() {
-        // Corner a9 (0): N, NE, NW, W, SW off; E = 1, SE = 10, S = 9.
-        let b = board(&[(1, BLACK), (9, WHITE)], BLACK, 9);
-        let k = b.shape_key(0);
-        let slot = |i: usize| (k >> (2 * i)) & 3;
-        assert_eq!([slot(0), slot(1), slot(2), slot(3), slot(4), slot(5), slot(6), slot(7)], [3, 3, 1, 0, 2, 3, 3, 3]);
-        // The hane: black d6 (30), white e6 (31) just played; e5 (40) is a hane point for black.
-        let b = board(&[(30, BLACK), (31, WHITE)], BLACK, 31);
-        assert!(crate::patterns::is_shape(b.shape_key(40)));
-        assert!(!crate::patterns::is_shape(b.shape_key(76)));
     }
 
     #[test]
