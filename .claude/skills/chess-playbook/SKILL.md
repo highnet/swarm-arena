@@ -153,7 +153,15 @@ Moves into "Architecture now" only if the referee passes it.
   59 KB embedded, ~1–5 s per position (≈2.5 s mean with 4 shards on 4 cores), ~64 min wall in
   all on 4 cores (it was resumed once: a 30-minute background limit killed the first run, so
   `resume.txt` exists). The gate's 200 ms reaches depth 6–7, so a book move is ~3–4 plies deeper.
-- Hit rate and match results: see the PR evidence and the handoff thread.
+- Local measurement (`measure`-style script: `playMatch` with the balanced suite, seed 4242,
+  20 pairs, 200 ms; `chess-engine book stats` on the games; at most 3 book moves per game):
+  vs main (v0.6) +18 −9 =13, book moves per game 2.62 (White 2.90, Black 2.35), median first
+  out-of-book ply 10. vs Stockfish level 6 +12 −26 =2 (v0.6's gate there: 11–26–3), 1.48 per
+  game (White 2.05, Black 0.90), median first out-of-book ply 7. Our depth-6 top-3 predicts
+  main's replies well and Stockfish's poorly, especially its first move as White out of the
+  suite position (we as Black often leave book at ply 5). Read the main result with care: the
+  book is tuned to the opponent main *is*, so it says more about the book being hit than about
+  strength; the Stockfish result is flat.
 
 ## Ideas worth trying
 
