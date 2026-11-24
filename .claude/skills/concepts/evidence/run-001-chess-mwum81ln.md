@@ -1,0 +1,1 @@
+- 2026-11-24 · **quiescence** · Chess · v0.9 rated 1547 (+55) · Static exchange evaluation (SEE): skip losing captures in quiescence and order captures by SEE
