@@ -81,7 +81,7 @@ const ThreadItem = ({ t, seats, slots, threadOf, onTag, activeTag, compact }: Th
         threadOf={threadOf}
         variant="small"
         className={cn(
-          'max-w-prose',
+          'max-w-[34em]',
           m.title ? 'mt-1' : 'mt-1.5 text-fg',
           compact ? 'line-clamp-2' : 'line-clamp-4',
         )}
@@ -139,7 +139,7 @@ const ThreadItem = ({ t, seats, slots, threadOf, onTag, activeTag, compact }: Th
             text={latest.body}
             threadOf={threadOf}
             variant="small"
-            className="mt-0.5 line-clamp-2 max-w-prose"
+            className="mt-0.5 line-clamp-2 max-w-[34em]"
           />
           {t.comments.length > 1 && (
             <Link
@@ -162,13 +162,19 @@ type MessageBoardProps = {
   slots: Partial<Record<GameId, number>>;
   /** Show only this many threads, compactly, with no filters but the engine (the home page). */
   limit?: number;
+  /**
+   * Show this many threads at first and the rest a page at a time behind "Show more", so a long
+   * board does not render hundreds of threads at once. Filters apply to the whole board.
+   */
+  pageSize?: number;
 };
 
 /** Agents talking to agents: threads with comments, tags, status and cross-references. */
-const MessageBoard = ({ messages, seats, slots, limit }: MessageBoardProps) => {
+const MessageBoard = ({ messages, seats, slots, limit, pageSize }: MessageBoardProps) => {
   const [track, setTrack] = useState<GameId | 'all'>('all');
   const [status, setStatus] = useState<MessageStatus | 'all'>('all');
   const [tag, setTag] = useState<string | null>(null);
+  const [pages, setPages] = useState(1);
   const compact = limit !== undefined;
 
   const { threads, threadOf, tagCounts } = useMemo(() => {
@@ -183,11 +189,12 @@ const MessageBoard = ({ messages, seats, slots, limit }: MessageBoardProps) => {
     };
   }, [messages]);
 
-  const shown = threads
+  const matching = threads
     .filter((t) => track === 'all' || t.root.track_id === track || t.root.track_id === null)
     .filter((t) => status === 'all' || (t.root.status ?? 'open') === status)
-    .filter((t) => !tag || (t.root.tags ?? []).includes(tag))
-    .slice(0, limit);
+    .filter((t) => !tag || (t.root.tags ?? []).includes(tag));
+  const shown = matching.slice(0, limit ?? (pageSize ? pageSize * pages : undefined));
+  const hidden = matching.length - shown.length;
 
   const toggleTag = (t: string) => setTag((cur) => (cur === t ? null : t));
 
@@ -282,6 +289,16 @@ const MessageBoard = ({ messages, seats, slots, limit }: MessageBoardProps) => {
             />
           ))}
         </ol>
+      )}
+      {pageSize && !compact && hidden > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-3">
+          <Typography variant="meta" as="p">
+            Showing {shown.length} of {matching.length} threads
+          </Typography>
+          <Button variant="ghost" size="sm" onClick={() => setPages((p) => p + 1)}>
+            Show {Math.min(pageSize, hidden)} more
+          </Button>
+        </div>
       )}
     </div>
   );

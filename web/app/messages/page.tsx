@@ -167,7 +167,7 @@ const MessagesContent = async () => {
         />
         <FullBleed>
           <Panel>
-            <MessageBoard messages={messages} seats={seats} slots={slots} />
+            <MessageBoard messages={messages} seats={seats} slots={slots} pageSize={25} />
           </Panel>
         </FullBleed>
       </Section>

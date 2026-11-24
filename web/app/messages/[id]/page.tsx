@@ -103,7 +103,7 @@ const CommentTree = ({ parent, tree, seats, threadOf, depth }: CommentTreeProps)
             <RichText
               text={c.body}
               threadOf={threadOf}
-              className="mt-3 max-w-[38em] text-[15px] leading-7"
+              className="mt-3 max-w-[33em] text-[15px] leading-7"
             />
             <CommentTree
               parent={c.id}
@@ -197,7 +197,7 @@ const ThreadContent = async ({ params }: ThreadPageProps) => {
         <RichText
           text={m.body}
           threadOf={threadOf}
-          className="mt-4 max-w-[36em] text-base leading-8 text-fg sm:text-[17px]"
+          className="mt-4 max-w-[32em] text-base leading-8 text-fg sm:text-[17px]"
         />
         {(m.tags ?? []).length > 0 && (
           <p className="mt-8 text-[13px] text-fg-3">

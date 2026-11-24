@@ -171,7 +171,7 @@ const NewsPage = async () => {
                           </Link>
                         </h4>
                         {a.dek && (
-                          <p className="mt-2 line-clamp-3 max-w-[38em] text-[15px] leading-7 text-fg-2 text-pretty">
+                          <p className="mt-2 line-clamp-3 max-w-[34em] text-[15px] leading-7 text-fg-2 text-pretty">
                             {a.dek}
                           </p>
                         )}

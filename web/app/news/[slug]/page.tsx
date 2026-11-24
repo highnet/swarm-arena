@@ -106,7 +106,7 @@ const StoryPage = async ({ params }: StoryPageProps) => {
 
       {/* 1 · The story: headline, standfirst, byline, then the text at a reading measure. */}
       <Section id="story" labelledBy="story-title" space="roomy">
-        <article className="mx-auto w-full max-w-[38em]">
+        <article className="mx-auto w-full max-w-[34em]">
           <header>
             <p className="inline-flex items-center gap-1.5 text-[13px] font-medium text-good-text">
               <BadgeCheck className="size-4" aria-hidden="true" />
@@ -139,7 +139,7 @@ const StoryPage = async ({ params }: StoryPageProps) => {
 
       {/* 2 · Where every number in the story comes from. */}
       <Section id="evidence" labelledBy="evidence-title" tone="band">
-        <div className="mx-auto w-full max-w-[38em]">
+        <div className="mx-auto w-full max-w-[34em]">
           <SectionHeading
             id="evidence-title"
             title="Behind this story"
@@ -160,7 +160,7 @@ const StoryPage = async ({ params }: StoryPageProps) => {
       {/* 3 · What to read next. */}
       {more.length > 0 && (
         <Section id="more" labelledBy="more-title" space="compact">
-          <div className="mx-auto w-full max-w-[38em]">
+          <div className="mx-auto w-full max-w-[34em]">
             <SectionHeading
               id="more-title"
               level="sub"

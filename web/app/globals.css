@@ -362,7 +362,7 @@ a {
   color: var(--fg);
 }
 
-/* News stories: long-form reading. 16px on phones, 17px from `sm`, at a 38em column (about 65-75
+/* News stories: long-form reading. 16px on phones, 17px from `sm`, at a 34em column (about 65-75
    characters a line in Geist), with subheads that open a new passage. */
 .article {
   font-size: 1rem;
