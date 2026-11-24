@@ -36,6 +36,22 @@ export type SwarmSector = {
   color?: string;
   /** Repository paths the sector covers, for display only. */
   paths?: string[];
+  /**
+   * The number drawn inside the sector: a stable count the host reads from its own records (merged
+   * pull requests, landed versions), not the effort of whatever events reached the model. Absent,
+   * the renderer shows no number.
+   */
+  count?: SwarmCount | null;
+};
+
+/** A labelled all-time count with its recent part, e.g. 48 merged · 3 today. */
+export type SwarmCount = {
+  value: number;
+  /** What the number counts, e.g. `merged`, `versions`. */
+  unit: string;
+  recent?: number | null;
+  /** The recent window, e.g. `today`. */
+  recentUnit?: string | null;
 };
 
 export type SwarmAgent = {
@@ -162,6 +178,48 @@ export type SwarmGraphOptions = {
   showIdleWithoutEffort?: boolean;
   /** Effort weight per event kind. */
   weights?: Partial<Record<SwarmEventKind, number>>;
+  /**
+   * Drop dead nodes: ended agents, merged items and abandoned branches past their lifetime (see
+   * `LIFETIMES`). Absent, nothing is pruned beyond `recentAgentMs` and `mergedPerSector`.
+   */
+  lifetimes?: SwarmLifetimes | null;
+  /** The clock pruning is measured against (a live view ticks it). Default `input.asOf`. */
+  now?: string | null;
+};
+
+/**
+ * How long a dead node stays on the graph. Sectors and the hub never leave. A node spends its
+ * last `fadingMs` in a `fading` state (drawn dimmer) before it goes.
+ */
+export type SwarmLifetimes = {
+  /** An ended or stale agent, from its last activity. */
+  agentMs: number;
+  /** A merged or closed work item, from when it closed. */
+  closedMs: number;
+  /** An open branch nobody has touched, from its last activity. */
+  branchMs: number;
+  fadingMs: number;
+};
+
+const MINUTE = 60_000;
+
+/** Every pruning threshold in one table: the live views, and the longer-memoried `Everything`. */
+export const LIFETIMES = {
+  live: { agentMs: 10 * MINUTE, closedMs: 60 * MINUTE, branchMs: 60 * MINUTE, fadingMs: 3 * MINUTE },
+  everything: {
+    agentMs: 6 * 60 * MINUTE,
+    closedMs: 6 * 60 * MINUTE,
+    branchMs: 6 * 60 * MINUTE,
+    fadingMs: 10 * MINUTE,
+  },
+} as const satisfies Record<string, SwarmLifetimes>;
+
+export type SwarmLife = 'alive' | 'fading' | 'gone';
+
+/** Where a dead node is in its wind-down, `deadMs` after it died (stopped, closed, went quiet). */
+export const lifeOf = (deadMs: number, lifetimeMs: number, fadingMs: number): SwarmLife => {
+  if (!(deadMs <= lifetimeMs)) return 'gone';
+  return deadMs > lifetimeMs - fadingMs ? 'fading' : 'alive';
 };
 
 export type SwarmNodeKind = 'hub' | 'sector' | 'work' | 'agent';
@@ -175,6 +233,8 @@ export type SwarmNode = {
   effort: number;
   /** Live agent, or a sector / work item a live agent is in. */
   active: boolean;
+  /** Dead and about to leave the graph: drawn dimmer (see `SwarmLifetimes.fadingMs`). */
+  fading?: boolean;
   /** For work nodes: how it is drawn. A node keeps its id as it moves through phases. */
   phase?: SwarmPhase;
   /** The original record, for tooltips and links. */
@@ -304,7 +364,9 @@ export const buildSwarmGraph = (input: SwarmInput, options: SwarmGraphOptions = 
   const recentMs = options.recentAgentMs ?? 6 * HOUR;
   const mergedPerSector = options.mergedPerSector ?? 3;
   const weights = { ...DEFAULT_WEIGHTS, ...options.weights };
-  const now = Date.parse(input.asOf);
+  const now = Date.parse(options.now ?? input.asOf);
+  const life = options.lifetimes ?? null;
+  const fading = new Set<string>();
   const hubId = hubNodeId(input.integrationBranch);
 
   const sectors = new Map(input.sectors.map((s) => [s.id, s]));
@@ -345,14 +407,22 @@ export const buildSwarmGraph = (input: SwarmInput, options: SwarmGraphOptions = 
 
   // Agents on the graph: live ones, idle ones seen recently that did something, and event-only
   // actors (a referee that never registers a seat) that acted recently.
+  // With lifetimes, an agent that is not working leaves `agentMs` after its last activity.
   const shown = new Map<string, SwarmAgent>();
+  const keepIdle = (id: string, seen: number) => {
+    if (now - seen > recentMs) return false;
+    if (!life) return true;
+    const state = lifeOf(now - seen, life.agentMs, life.fadingMs);
+    if (state === 'fading') fading.add(agentNodeId(id));
+    return state !== 'gone';
+  };
   for (const a of input.agents) {
     const seen = Math.max(Date.parse(a.lastSeen), Date.parse(lastEventAt.get(a.id) ?? '') || 0);
     const idleNoise = !a.workItem && !agentEffort.has(a.id) && !options.showIdleWithoutEffort;
-    if (a.status === 'working' || (now - seen <= recentMs && !idleNoise)) shown.set(a.id, a);
+    if (a.status === 'working' || (!idleNoise && keepIdle(a.id, seen))) shown.set(a.id, a);
   }
   for (const [id, at] of lastEventAt) {
-    if (agents.has(id) || now - Date.parse(at) > recentMs) continue;
+    if (agents.has(id) || !keepIdle(id, Date.parse(at))) continue;
     shown.set(id, { id, role: id, status: 'idle', sector: null, lastSeen: at });
   }
 
@@ -379,11 +449,36 @@ export const buildSwarmGraph = (input: SwarmInput, options: SwarmGraphOptions = 
   }
 
   // Work items: every open issue, branch and pull request, plus the newest merged per sector.
+  // With lifetimes, merged work leaves `closedMs` after it merged and a branch nobody is in leaves
+  // `branchMs` after its last activity (its stage change, an event on it, a seat holding it).
+  const itemActivity = new Map<string, number>();
+  const touch = (id: string | null | undefined, at: string) => {
+    const t = Date.parse(at);
+    if (id && t > (itemActivity.get(id) ?? -Infinity)) itemActivity.set(id, t);
+  };
+  for (const e of events) touch(e.workItem, e.at);
+  const heldLive = new Set<string>();
+  for (const a of input.agents) {
+    if (a.workItem) touch(a.workItem, a.lastSeen);
+    if (a.workItem && a.status === 'working') heldLive.add(a.workItem);
+  }
+  const survives = (w: SwarmWorkItem, phase: SwarmPhase) => {
+    if (!life || (phase !== 'landed' && phase !== 'branch')) return true;
+    if (phase === 'branch' && heldLive.has(w.id)) return true;
+    const at = Math.max(Date.parse(w.at ?? '') || -Infinity, itemActivity.get(w.id) ?? -Infinity);
+    const state = lifeOf(
+      now - (phase === 'landed' ? Date.parse(w.at ?? '') : at),
+      phase === 'landed' ? life.closedMs : life.branchMs,
+      life.fadingMs,
+    );
+    if (state === 'fading') fading.add(workNodeId(w.id));
+    return state !== 'gone';
+  };
   const kept: SwarmWorkItem[] = [];
   const mergedBySector = new Map<string, SwarmWorkItem[]>();
   for (const w of input.workItems) {
     const phase = phaseOf(w.stage);
-    if (!phase || !sectors.has(w.sector)) continue;
+    if (!phase || !sectors.has(w.sector) || !survives(w, phase)) continue;
     if (phase !== 'landed') kept.push(w);
     else mergedBySector.set(w.sector, [...(mergedBySector.get(w.sector) ?? []), w]);
   }
@@ -492,6 +587,7 @@ export const buildSwarmGraph = (input: SwarmInput, options: SwarmGraphOptions = 
       color: sectors.get(w.sector)?.color ?? null,
       effort: 0,
       active,
+      ...(fading.has(id) ? { fading: true } : {}),
       workItem: w,
       sectorId: w.sector,
     });
@@ -545,6 +641,7 @@ export const buildSwarmGraph = (input: SwarmInput, options: SwarmGraphOptions = 
       color: s ? (sectors.get(s)?.color ?? null) : null,
       effort: agentEffort.get(a.id) ?? 0,
       active: live,
+      ...(fading.has(id) ? { fading: true } : {}),
       agent: a,
       sectorId: s,
     });
