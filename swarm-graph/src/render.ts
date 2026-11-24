@@ -11,6 +11,17 @@
 import * as d3 from 'd3';
 import type { SwarmFlow, SwarmGraph, SwarmLink, SwarmNode, SwarmStage } from './model';
 import {
+  FULL_INTRO,
+  SHORT_INTRO,
+  easeOut,
+  introCamera,
+  introEdge,
+  introLabels,
+  introPose,
+  planIntro,
+  type IntroPlan,
+} from './intro';
+import {
   applyFlow,
   indexAtTime,
   planReplay,
@@ -62,6 +73,12 @@ export type SwarmGraphRendererOptions = {
   /** A new event reached the graph (live) or was played back (replay). */
   onFlow?: (flow: SwarmFlow, source: 'live' | 'replay') => void;
   onReplay?: (state: SwarmReplayState | null) => void;
+  /**
+   * How the first render appears: `full` unfolds the graph radially from the hub (about 1.4 s),
+   * `short` plays a quicker version (about 0.5 s, for coming back to the page), `none` shows the
+   * settled layout at once. Reduced motion always means `none`. Later updates never replay it.
+   */
+  intro?: 'full' | 'short' | 'none';
   /** Accessible name for the SVG. */
   title?: string;
 };
@@ -338,6 +355,8 @@ export const createSwarmGraph = (
     .zoom<SVGSVGElement, unknown>()
     .scaleExtent([0.4, 3])
     .on('zoom', (e) => {
+      // A viewer who pans or zooms during the intro takes the camera from it.
+      if (intro && e.sourceEvent) intro.camera = false;
       root.attr('transform', e.transform.toString());
       view = e.transform;
       placeAnchors();
@@ -373,6 +392,18 @@ export const createSwarmGraph = (
     shownAt: number;
   };
   let run: ReplayRun | null = null;
+  type IntroRun = {
+    plan: IntroPlan;
+    start: number;
+    /** Settled positions, computed off-screen before anything moves. */
+    target: Map<string, { x: number; y: number }>;
+    /** Scale of each node while it travels out. */
+    scale: Map<string, number>;
+    /** Whether the intro still drives the camera (false once the viewer has panned). */
+    camera: boolean;
+    labels: number;
+  };
+  let intro: IntroRun | null = null;
   const liveTimers = new Set<ReturnType<typeof setTimeout>>();
 
   const colorOf = (n: SwarmNode) => n.color ?? theme.neutral;
@@ -1155,6 +1186,7 @@ export const createSwarmGraph = (
       const y = Math.max(pad, Math.min(height - h - pad, cy - h / 2));
       el.dataset.side = side;
       el.style.visibility = 'visible';
+      el.style.opacity = intro ? String(intro.labels) : '';
       el.style.transform = `translate(${Math.round(Math.max(pad, Math.min(width - w - pad, x)))}px, ${Math.round(y)}px)`;
     }
   };
@@ -1179,9 +1211,13 @@ export const createSwarmGraph = (
       n.x = Math.max(-lim.x, Math.min(lim.x, n.x ?? 0));
       n.y = Math.max(-lim.y, Math.min(lim.y, n.y ?? 0));
     }
+    const scaleOf = intro?.scale;
     gNodes
       .selectAll<SVGGElement, SimNode>('g.sg-node')
-      .attr('transform', (n) => `translate(${n.x ?? 0},${n.y ?? 0})`);
+      .attr('transform', (n) => {
+        const k = scaleOf?.get(n.id);
+        return `translate(${n.x ?? 0},${n.y ?? 0})${k !== undefined && k < 1 ? ` scale(${k})` : ''}`;
+      });
     gLinks
       .selectAll<SVGPathElement, SimLink>('path')
       .attr('d', (l) => curvePath(l.source, l.target));
@@ -1316,6 +1352,7 @@ export const createSwarmGraph = (
   let dashOffset = 0;
   const timer = d3.timer(() => {
     const now = performance.now();
+    if (intro) stepIntro(now);
     ambient(now);
     advanceReplay(now);
 
@@ -1434,7 +1471,7 @@ export const createSwarmGraph = (
           .attr('opacity', t < 0.15 ? t / 0.15 : 1 - Math.max(0, (t - 0.55) / 0.45));
       });
 
-    if (motion) {
+    if (motion && !intro) {
       dashOffset = (dashOffset - 0.4) % 1000;
       gLinks
         .selectAll<SVGPathElement, SimLink>('path')
@@ -1443,9 +1480,112 @@ export const createSwarmGraph = (
     }
   });
 
+  // ---- intro -------------------------------------------------------------------------------
+
+  const linkPaths = () => gLinks.selectAll<SVGPathElement, SimLink>('path');
+  const labelTexts = () => gNodes.selectAll<SVGTextElement, SimNode>('text.sg-label, text.sg-sub');
+
+  const startIntro = (mode: 'full' | 'short') => {
+    const hubId = graph?.hubId;
+    const target = new Map<string, { x: number; y: number }>();
+    for (const n of nodeById.values()) target.set(n.id, { x: n.x ?? 0, y: n.y ?? 0 });
+    const plan = planIntro(
+      [...nodeById.values()].map((n) => ({
+        id: n.id,
+        role: n.id === hubId ? 'hub' : n.kind === 'sector' ? 'sector' : 'other',
+        sectorId: n.sectorId ? `sector:${n.sectorId}` : null,
+        x: n.x ?? 0,
+        y: n.y ?? 0,
+      })),
+      mode === 'short' ? SHORT_INTRO : FULL_INTRO,
+    );
+    // Only on a view nobody has moved yet: open zoomed in on the hub and pull back.
+    const camera = view.k === 1 && view.x === 0 && view.y === 0;
+    intro = { plan, start: performance.now(), target, scale: new Map(), camera, labels: 0 };
+    // Edges draw on from source to target: a unit-length dash slid along the path.
+    linkPaths()
+      .interrupt()
+      .attr('pathLength', 1)
+      .attr('stroke-dasharray', '1 1')
+      .attr('stroke-dashoffset', 1)
+      .attr('opacity', (l) => linkStyle(l).opacity);
+    stepIntro(intro.start);
+  };
+
+  const stepIntro = (now: number) => {
+    if (!intro) return;
+    const t = now - intro.start;
+    if (t >= intro.plan.totalMs) {
+      finishIntro();
+      return;
+    }
+    const { plan, target, scale } = intro;
+    for (const n of nodeById.values()) {
+      const to = target.get(n.id);
+      if (!to) continue;
+      const pose = introPose(to, plan.timing.get(n.id), t);
+      n.x = pose.x;
+      n.y = pose.y;
+      n.vx = 0;
+      n.vy = 0;
+      scale.set(n.id, pose.scale);
+    }
+    gNodes
+      .selectAll<SVGGElement, SimNode>('g.sg-node')
+      .style('opacity', (n) => {
+        const to = target.get(n.id);
+        return to ? introPose(to, plan.timing.get(n.id), t).opacity : 1;
+      });
+    linkPaths().attr(
+      'stroke-dashoffset',
+      (l) => 1 - introEdge(plan.timing.get(l.source.id), plan.timing.get(l.target.id), t),
+    );
+    intro.labels = introLabels(plan, t);
+    labelTexts().style('opacity', intro.labels);
+    const halo = easeOut(t / Math.max(1, plan.totalMs));
+    gBloom.style('opacity', halo);
+    gRings.style('opacity', halo);
+    if (intro.camera) svg.call(zoom.transform, d3.zoomIdentity.scale(introCamera(plan, t)));
+    draw();
+  };
+
+  /** Land the intro: settled positions, styles back, and the simulation takes over gently. */
+  const finishIntro = () => {
+    if (!intro) return;
+    const { target, camera } = intro;
+    intro = null;
+    for (const n of nodeById.values()) {
+      const to = target.get(n.id);
+      if (!to) continue;
+      n.x = to.x;
+      n.y = to.y;
+      n.vx = 0;
+      n.vy = 0;
+    }
+    gNodes.selectAll<SVGGElement, SimNode>('g.sg-node').style('opacity', null);
+    labelTexts().style('opacity', null);
+    gBloom.style('opacity', null);
+    gRings.style('opacity', null);
+    linkPaths()
+      .attr('pathLength', null)
+      .attr('stroke-dasharray', (l) => linkStyle(l).dash)
+      .attr('stroke-dashoffset', null);
+    if (camera) svg.call(zoom.transform, d3.zoomIdentity);
+    draw();
+    // Low alpha and heavy damping for the first second, so there is no second jolt.
+    simulation.velocityDecay(0.6).alpha(0.08).restart();
+    const t = setTimeout(() => {
+      liveTimers.delete(t);
+      simulation.velocityDecay(0.35);
+    }, 1000);
+    liveTimers.add(t);
+  };
+
   // ---- public API --------------------------------------------------------------------------
 
   const update = (next: SwarmGraph, updateOptions: SwarmUpdateOptions = {}) => {
+    // A live refresh mid-intro lands the intro at once rather than fighting the simulation.
+    finishIntro();
     const first = graph === null;
     const quiet = first || Boolean(updateOptions.quiet);
     graph = next;
@@ -1496,13 +1636,15 @@ export const createSwarmGraph = (
 
     simulation.nodes([...nodeById.values()]);
     linkForce.links(simLinks);
-    simulation.alpha(first ? 1 : 0.35).restart();
-    if (first && !motion) {
+    const introMode = motion ? (options.intro ?? 'full') : 'none';
+    if (first) {
+      // Settle the layout off-screen first, so every end position is known before anything moves.
       simulation.stop();
       for (let i = 0; i < 300; i++) simulation.tick();
-    }
+    } else simulation.alpha(0.35).restart();
 
     renderStatic();
+    if (first && introMode !== 'none' && nodeById.size > 0) startIntro(introMode);
     draw();
 
     // A work item moving to its next stage (branch → pull request → approved) gets its moment.
@@ -1612,6 +1754,7 @@ export const createSwarmGraph = (
 
   const replay = (planOrDuration: SwarmReplayPlan | number = 30_000) => {
     if (!graph) return;
+    finishIntro();
     stopReplay();
     const plan =
       typeof planOrDuration === 'number'
@@ -1703,6 +1846,7 @@ export const createSwarmGraph = (
     if (w === width && h === height) return;
     width = w;
     height = h;
+    finishIntro();
     setViewBox();
     placeRing();
     resize();
@@ -1711,6 +1855,7 @@ export const createSwarmGraph = (
   observer.observe(container);
 
   const destroy = () => {
+    intro = null;
     run = null;
     liveTimers.forEach(clearTimeout);
     timer.stop();
