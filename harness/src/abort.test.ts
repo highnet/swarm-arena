@@ -31,7 +31,11 @@ test("a reference that keeps timing out aborts the match as inconclusive: no ver
     status: "claimed",
   };
   await db.insert("tasks", task);
-  const dead: Mover = { id: "gnugo-8", choose: () => never, reset: async () => {} };
+  const dead: Mover = {
+    id: "gnugo-8",
+    choose: () => never,
+    reset: async () => {},
+  };
   const err = await runMatch({
     track: "go9",
     candidate: randomPlayer(3),
@@ -50,19 +54,75 @@ test("a reference that keeps timing out aborts the match as inconclusive: no ver
   assert.equal(match.elo, 0, "no rating written");
   assert.ok(match.finished_at, "the aborted match is closed, not left running");
   const records = await db.select<Row>("records", { task_id: task.id });
-  assert.ok(!records.some((r) => r.kind === "match_verdict"), "no match verdict");
+  assert.ok(
+    !records.some((r) => r.kind === "match_verdict"),
+    "no match verdict",
+  );
 
-  const out = await inconclusive(task as Pick<Task, "id" | "track_id" | "title">, err);
+  const out = await inconclusive(
+    task as Pick<Task, "id" | "track_id" | "title">,
+    err,
+  );
   assert.equal(out.inconclusive, true);
   assert.equal(out.shipped, false);
   assert.match(out.why, /^inconclusive: reference failure/);
   const after = await db.select<Row>("records", { task_id: task.id });
   for (const kind of ["patch_rejected", "idea_dead", "match_verdict"])
     assert.ok(!after.some((r) => r.kind === kind), `no ${kind} record`);
-  assert.ok(after.some((r) => r.kind === "progress" && /Inconclusive/.test(String(r.title))));
+  assert.ok(
+    after.some(
+      (r) => r.kind === "progress" && /Inconclusive/.test(String(r.title)),
+    ),
+  );
   const [stored] = await db.select<Row>("tasks", { id: task.id });
   assert.equal(stored.status, "claimed", "the task keeps its claim; no burial");
   assert.equal(stored.pr, undefined, "no lesson pull request");
+});
+
+test("a sequential head-to-head stops when the test decides, and an undecided cap is inconclusive, not a burial (#195)", async () => {
+  const task = {
+    id: "t-undecided",
+    run_id: "run-abort-test",
+    track_id: "othello",
+    title: "close call",
+    status: "claimed",
+  };
+  await db.insert("tasks", task);
+  const asked: number[] = [];
+  const m = await runMatch({
+    track: "othello",
+    candidate: randomPlayer(3),
+    candidateVersion: "v0.9",
+    opponent: randomPlayer(4),
+    opponentLabel: "Othello v0.8",
+    opponentElo: 1400,
+    pairs: 6,
+    referenceOpponent: false,
+    purpose: "gate",
+    taskId: task.id,
+    openingSeed: 11,
+    stop: (ps) => (asked.push(ps.length), ps.length === 2),
+  });
+  assert.deepEqual(asked, [1, 2]);
+  assert.equal(m.pairScores.length, 2);
+  assert.equal(m.result.wins + m.result.draws + m.result.losses, 4);
+
+  const out = await inconclusive(
+    task as Pick<Task, "id" | "track_id" | "title">,
+    { matchId: m.matchId, reason: "100 pairs, LLR 0.4" },
+    "undecided",
+  );
+  assert.equal(out.inconclusive, true);
+  assert.match(
+    out.why,
+    /^inconclusive: the sequential test against main reached its cap undecided/,
+  );
+  assert.match(out.why, /not a failed one/);
+  const after = await db.select<Row>("records", { task_id: task.id });
+  for (const kind of ["patch_rejected", "idea_dead"])
+    assert.ok(!after.some((r) => r.kind === kind), `no ${kind} record`);
+  const [stored] = await db.select<Row>("tasks", { id: task.id });
+  assert.equal(stored.status, "claimed", "the task keeps its claim; no burial");
 });
 
 /** A GTP stub that never answers genmove, ignores quit and SIGTERM, and starts a grandchild. */
@@ -87,7 +147,10 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 });
 `,
   );
-  return { script, pids: () => readFileSync(pids, "utf8").trim().split(/\s+/).map(Number) };
+  return {
+    script,
+    pids: () => readFileSync(pids, "utf8").trim().split(/\s+/).map(Number),
+  };
 };
 
 /** Running (a zombie waiting to be reaped counts as gone). */
@@ -106,7 +169,8 @@ const alive = (pid: number) => {
 /** SIGKILL is delivered asynchronously: allow it a moment. */
 const settled = async (pids: number[], ms = 2000) => {
   const end = Date.now() + ms;
-  while (pids.some(alive) && Date.now() < end) await new Promise((ok) => setTimeout(ok, 50));
+  while (pids.some(alive) && Date.now() < end)
+    await new Promise((ok) => setTimeout(ok, 50));
   return pids.filter(alive);
 };
 
@@ -133,11 +197,22 @@ test("after an aborted match killAll leaves no reference process (or its childre
   // The first process plus a restart after each of the four failed attempts, each with a child.
   assert.equal(pids.length, 10);
   // Every restart killed the old process's whole group, not only its own pid.
-  assert.deepEqual(await settled(pids.slice(0, 8)), [], "restarted-away processes are gone");
-  assert.ok(liveProcesses() >= 1, "the current reference still runs before cleanup");
+  assert.deepEqual(
+    await settled(pids.slice(0, 8)),
+    [],
+    "restarted-away processes are gone",
+  );
+  assert.ok(
+    liveProcesses() >= 1,
+    "the current reference still runs before cleanup",
+  );
   killAll();
   assert.equal(liveProcesses(), 0);
-  assert.deepEqual(await settled(pids), [], "no reference process or child is left");
+  assert.deepEqual(
+    await settled(pids),
+    [],
+    "no reference process or child is left",
+  );
 });
 
 test("a referee process with a hanging reference exits within seconds once its match aborts", async () => {
@@ -184,5 +259,9 @@ try {
   assert.match(out, /aborted/);
   // Four attempts at a 60 ms allowance plus tsx start-up; a leftover process would hang it.
   assert.ok(Date.now() - started < 10_000, `took ${Date.now() - started} ms`);
-  assert.deepEqual(await settled(stub.pids()), [], "no reference process or child is left");
+  assert.deepEqual(
+    await settled(stub.pids()),
+    [],
+    "no reference process or child is left",
+  );
 });

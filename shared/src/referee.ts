@@ -134,6 +134,12 @@ export type MatchOptions = PlayOptions & {
   openingSuite?: OpeningSuite;
   onGame?: (g: GameRecord, index: number) => void;
   /**
+   * Called after each completed pair (both games of one opening), with the number of pairs played.
+   * Returning true ends the match there: `pairs` is then a cap, as for the referee's sequential
+   * gate (#195). The result covers only the pairs played.
+   */
+  stopAfterPair?: (pairsPlayed: number) => boolean;
+  /**
    * Called as each game (or replay of a voided game) starts, with the opening it starts from.
    * `onMove` reports only the moves played after the opening, so a live view of the game needs
    * both.
@@ -237,17 +243,19 @@ export const playMatch = async <S>(
     else draws++;
     games.push(g);
     options.onGame?.(g, i);
+    if (i % 2 === 1 && i + 1 < pairs * 2 && options.stopAfterPair?.((i + 1) / 2)) break;
   }
+  const played = games.length / 2;
   return {
     games,
     score,
     wins,
     draws,
     losses,
-    openings,
+    openings: openings.slice(0, played),
     openingSeed: seed,
     openingSource: picked?.source ?? null,
-    openingEntries: picked?.entries ?? null,
+    openingEntries: picked?.entries?.slice(0, played) ?? null,
     voided,
   };
 };

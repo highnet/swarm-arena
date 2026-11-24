@@ -104,3 +104,27 @@ test('the opponent gets its own move allowance; the candidate keeps the match cl
   });
   assert.ok(cand.games.every((g) => g.termination === 'timeout'));
 });
+
+test('stopAfterPair ends a match after whole pairs only, and the result covers what was played', async () => {
+  const asked: number[] = [];
+  const res = await playMatch(rules, randomPlayer(9), randomPlayer(4), 10, {
+    openingSeed: 7,
+    stopAfterPair: (n) => {
+      asked.push(n);
+      return n === 3;
+    },
+  });
+  assert.deepEqual(asked, [1, 2, 3]);
+  assert.equal(res.games.length, 6);
+  assert.equal(res.wins + res.draws + res.losses, 6);
+  assert.equal(res.openings.length, 3);
+});
+
+test('stopAfterPair is not asked after the last pair: the cap ends the match', async () => {
+  const asked: number[] = [];
+  const res = await playMatch(rules, randomPlayer(9), randomPlayer(4), 2, {
+    stopAfterPair: (n) => (asked.push(n), false),
+  });
+  assert.deepEqual(asked, [1]);
+  assert.equal(res.games.length, 4);
+});

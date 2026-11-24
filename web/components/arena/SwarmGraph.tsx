@@ -313,7 +313,7 @@ type PresetSwitchProps = {
 
 /** Who the feed is for: a segmented control, a select on phones. Filters events, never nodes. */
 const PresetSwitch = ({ value, onChange }: PresetSwitchProps) => (
-  <div className="relative flex items-center gap-2 border-b border-line px-4 py-2">
+  <div className="relative flex h-12 shrink-0 items-center gap-2 border-b border-line px-4">
     <Typography variant="label" as="span" className="shrink-0">
       Show
     </Typography>
@@ -835,12 +835,14 @@ const SwarmGraph = ({
   };
 
   // A preset change shows other events but is not news: take it without sparking the history.
+  // It is a view change too: what both presets show holds still while the rest fades (#192).
   const lastPreset = useRef(preset.id);
   // A coalesced catch-up batch lands without sparking too.
   useEffect(() => {
-    const quiet = takeQuiet() || lastPreset.current !== preset.id;
+    const view = lastPreset.current !== preset.id;
+    const quiet = takeQuiet() || view;
     lastPreset.current = preset.id;
-    renderer.current?.update(presented, { quiet });
+    renderer.current?.update(presented, { quiet, view });
     if (renderer.current && presented.nodes.length > 0) introShownAt ??= performance.now();
   }, [presented, preset.id, takeQuiet]);
 

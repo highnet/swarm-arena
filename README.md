@@ -33,18 +33,28 @@ Every agent is a Claude Code cloud session on this repository. Prompt a session 
   session improves that engine's crate; `arena submit <task>` hands it to the referee:
   1. `cargo build --release` and `cargo test` must pass.
   2. Smoke test: 4 games against the random mover; any illegal move, crash or timeout buries it.
-  3. Gate match: colour-swapped pairs against the next uncleared rung. Each pair starts from its
-     own opening, drawn by a seed from the game's balanced suite (`shared/src/openings/<game>.txt`:
-     openings a reference engine scored near even), or from short random lines if a game has none.
+  3. Gate decision (#195): a head-to-head with the version on `main`, in colour-swapped pairs.
+     Each pair starts from its own opening, drawn by a seed from the game's balanced suite
+     (`shared/src/openings/<game>.txt`: openings a reference engine scored near even), or from
+     short random lines if a game has none. After every pair a sequential probability ratio test
+     on the pair scores (H0: main − 20 Elo, H1: main + 30, α = 0.1, β = 0.05, 8 to 100 pairs) asks
+     whether the evidence is clear: a decided gain passes, a decided loss buries, and reaching
+     the cap undecided is **inconclusive**. A stored rating is never the yardstick. In
+     simulation (`npx tsx harness/src/gate.sim.ts`) a true +30 change is buried about 6 % of the
+     time (the old 40-game rung rule: about 55 %), and a submit costs about 100–150 games.
+  4. Rating: 20 pairs against the next uncleared rung, for the curve and for clearing rungs. It
+     is reported, not compared. When the rung sits below main's stored rating, main is re-rated on
+     the same rung for the report too.
      The candidate has `ARENA_MOVE_MS` + `ARENA_MOVE_SLACK_MS` (200 + 300 ms) a move; a reference
      has `ARENA_REFERENCE_MOVE_MS` (5000 ms), because GNU Go and Edax play a fixed level with no
      clock (GNU Go level 8 takes up to ~1 s a move on 9×9; extra time does not change its
      strength). A reference timeout or crash voids the game and replays it after a restart; if it
-     fails four times in a row the match aborts and the submit is **inconclusive**: no burial, no
-     lesson PR, no rating, the code stays on the branch and the task keeps its claim (exit code 3).
+     fails four times in a row the match aborts and the submit is **inconclusive**.
+     An inconclusive submit (either kind) is no burial: no lesson PR, no rating, the code stays on
+     the branch and the task keeps its claim (exit code 3). The idea may be resubmitted.
      Every engine process (and its process group) is killed when the submit ends, however it ends.
-  4. Ship only if the rating beats the current one: commit engine and playbook, rebase onto
-     `main`, push. Otherwise the engine change is discarded and the playbook keeps the lesson.
+  5. Ship when the gate decided a gain: open a pull request with engine and playbook for review.
+     Otherwise the engine change is discarded and the playbook keeps the lesson.
 
 Ratings are anchored at 0 for a random mover; the rung values in `shared/src/tracks.ts` are
 provisional until `arena calibrate` measures them.
@@ -105,7 +115,7 @@ for a seed; Go and Hex take about an hour).
 Set `ARENA_STORE=file` to run everything offline against `.arena/store.json`.
 
 Knobs: `ARENA_MOVE_MS` (default 200), `ARENA_MOVE_SLACK_MS` (300), `ARENA_REFERENCE_MOVE_MS`
-(5000), `ARENA_GATE_PAIRS` (20), `STOCKFISH_BIN`, `GNUGO_BIN`,
+(5000), `ARENA_GATE_PAIRS` (20, the rung rating), `ARENA_GATE_MAX_PAIRS` (100, the head-to-head cap), `STOCKFISH_BIN`, `GNUGO_BIN`,
 `EDAX_BIN`.
 
 ## Deployment

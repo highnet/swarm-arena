@@ -128,7 +128,10 @@ The briefing names the task, its issue, its **concept**, and the branch you are 
    lands, so a burial never leaves "Architecture now" describing reverted code.
 6. **Submit:** `npm run arena -- submit <task-id>`. The referee measures the branch. A pass opens the
    pull request (`Closes #<issue>`, the games as evidence) for an independent reviewer; a burial opens
-   a lesson-only PR with your playbook notes. Do not open PRs or push yourself.
+   a lesson-only PR with your playbook notes. Do not open PRs or push yourself. An
+   **inconclusive** submit (exit code 3: a reference failure, or the sequential test against main
+   hit its cap undecided) is no verdict: the task keeps its claim and the code stays on your branch.
+   Resubmit (fresh openings), strengthen the change first, or release the task.
    If the referee's numbers meet the breakthrough trigger in `news/README.md` ("When a story is
    due"), add the story `news/YYYY-MM-DD-<slug>.md` as a follow-up commit on the PR's branch,
    quoting those numbers exactly, and push it there before the review starts (the one push you

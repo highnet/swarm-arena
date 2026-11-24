@@ -181,6 +181,54 @@ Move into "Architecture now" only once the referee passes it. A rebuild of #44's
 - Not tried: probing the table inside the exact solver (~10 empties up), the issue's optional
   part; measure it separately.
 
+## Buried: history heuristic + PVS in the midgame search (task #190, lesson PR #194)
+
+**Referee: rated 1295 ± 138 vs Edax level 6 (40 games, seed 102195233), not above v0.6's 1427**;
+local matches were flat too. Not in the engine. Code: commit 81450ae on branch
+`agent/190-pvs-and-history-heuristic-move-ordering-in` (may vanish with the branch; the design
+below is enough to rebuild it). Port of chess v0.5's ordering pair
+(minus LMR and killers) to v0.6's TT midgame negamax; the exact solver is unchanged.
+
+- `Opts { history, pvs }` on `Search`; `Opts::PLAIN` is v0.6 (tests, reports, the book generator
+  `fixed_depth`, so the book stays reproducible), `Opts::ENGINE` (both on) is what `go` plays.
+- **History**: `[[u64; 64]; 2]` indexed by side relative to the root (0 = the root's mover; a
+  pass flips it) and square; a beta cutoff adds depth². A `thread_local` kept across `go` calls,
+  halved at the start of every root search (`search_opts`), zeroed by `game`.
+  `ordered_by_history`: TT/previous-best move, corners (index order), then every other move by
+  history, highest first, with v0.6's class order (plain, C, X) as the stable-sort tiebreak.
+  The root uses it too. No killers (no capture/quiet split; not measured).
+- **PVS**: full window on the first child, null window (−α−1, −α) on the rest, full re-search on
+  a fail-high inside (α, β); at the root too (re-search on v > α). No LMR.
+- Clock rules (60% cap, 1/3 "don't start") unchanged.
+- Tests: `history_and_pvs_match_plain_search_at_fixed_depth` (32 seeded positions × depths 3-6
+  × {history, pvs, both} × {no TT, fresh TT}, one history table carried across: root score equals
+  plain alpha-beta's and the chosen move scores it), `history_order_puts_the_stored_move_and_corners_first`,
+  `history_is_aged_each_search_and_cleared_on_game`.
+- `ordering_report` (ignored test; fresh TT per position, history carried across a band's 8
+  positions; nodes deterministic, depth is wall clock at 120 ms). Nodes to depth 9, v0.6 →
+  history / pvs / both:
+
+  | empties | v0.6 | history | pvs | both | go-200 depth v0.6 → both |
+  | --- | --- | --- | --- | --- | --- |
+  | ≤50 | 1 599 955 | 1 583 520 (−1%) | 1 415 093 (−12%) | 1 388 422 (−13%) | 8-10 → 9-10 |
+  | ≤40 | 5 118 986 | 4 066 953 (−21%) | 4 352 274 (−15%) | 3 470 306 (−32%) | 8-10 → 8-10 |
+  | ≤30 | 1 818 560 | 1 651 672 (−9%) | 1 690 270 (−7%) | 1 597 730 (−12%) | 9-11 → 9-11 |
+  | ≤20 | 655 663 | 590 641 (−10%) | 617 143 (−6%) | 547 351 (−17%) | 10-13 → 10-13 |
+
+  Depth 7: both −25% / −24% / −11% / −14%. History alone plays v0.6's move at depth 9 on 32/32
+  positions (depth 7: 28/32, ties). Each extra ply costs ~3-5× here, so −10-30% nodes is a
+  fraction of a ply: depth at go 200 is unchanged within its ±1 noise.
+- Local `arena versus othello --pairs 40` vs main v0.6 (balanced suite, go 200; not referee
+  evidence): **both +37 −38 =5 (seed 190001), +36 −40 =4 (seed 190002)**; history alone
+  +33 −44 =3 (seed 190001); PVS alone +40 −35 =5 (seed 190001). Flat.
+- Why it is weak here (and was +28 in chess): v0.6's TT move plus the static class order
+  (corners first, X/C last) already orders Othello well, and with branching ~10 and no
+  capture/quiet split there is little left for history to find; the cutoffs PVS saves are
+  mostly at nodes the TT already orders. Chess gained from PVS + LMR together; LMR (the depth
+  win) is the part not ported, and in Othello it risks missing a corner tempo. If revisited,
+  measure LMR on late non-corner moves as its own variant, or spend the budget better (the
+  60% / one-third rules leave much of go 200 unused).
+
 ## Buried: transposition table inside the exact solver (task #160, lesson PR #188)
 
 **Referee: 12–27–1 vs Edax level 6, rated 1413 ± 116, not above v0.6's 1427** (inside the
@@ -238,7 +286,8 @@ for N scaled with the site's 0.5-3 s budgets, and measure those instead of N = 1
 ## Ideas worth trying
 
 - The #44 transposition table is rebuilt on v0.5 as task #153 (Candidate note above).
-- History heuristic or killer moves for move ordering; aspiration windows at the root.
+- History heuristic + PVS was task #190 (buried flat, note above); killers and LMR
+  untried; aspiration windows at the root.
 - Use more of the budget: the 60% cap and the 1/3 "don't start" rule leave much of 200 ms unused.
 - Tune the eval weights (corner/mobility/X/C) by self-play. Local matches need opening variety
   (a few random plies or an opening list) before small weight differences can be read: without
@@ -265,8 +314,12 @@ what it is, why it might work, and its verdict. Never fill this from another eng
 
 ## What failed and why
 
-When an idea is buried, write what it was, the measured result and what to try
-differently. Never re-propose an idea from this list unchanged.
+When an idea is buried, write what it was, the measured result and what to try differently.
+Never re-propose an idea from this list unchanged. A burial means the gate decided no gain. An
+idea the referee reported **inconclusive** (a reference failure, or a sequential test that hit its
+cap undecided) is not a failure and may be resubmitted unchanged; so may an idea buried before
+#195, when the gate was a 40-game rating against a stored number, if its lesson says the result was
+within the noise.
 
 - **Transposition table with stored best-move ordering (task #44, PR #45 lesson).** Code is on
   the history of branch `agent/44-transposition-table-with-stored-best-move-` (commit 361cce7).
@@ -420,3 +473,4 @@ differently. Never re-propose an idea from this list unchanged.
 - 2026-11-24 08:50 UTC · v0.5 passed the referee · Self-generated opening book: the engine's own long searches over the first moves, probed instantly · rated 1274 (+81 vs v0.4 on the same rung)
 - 2026-11-24 10:59 UTC · v0.6 passed the referee · Transposition table in the midgame search, ported from chess's shipped TT and judged against v0.5 · rated 1427 (+153)
 - 2026-11-24 14:38 UTC · buried · Transposition table inside the exact endgame solver, then raise SOLVE_EMPTIES if the saving buys a ply · Rated 1413 ± 116, not above 1427.
+- 2026-11-24 15:35 UTC · buried · PVS and history-heuristic move ordering in the Othello midgame search, ported from chess v0.5 · Rated 1295 ± 138, not above 1427.
