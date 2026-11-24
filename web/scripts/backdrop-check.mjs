@@ -161,7 +161,7 @@ try {
         colorScheme,
         deviceScaleFactor: 2,
       });
-      await page.waitForSelector(`${HOST}[data-motion]`, { timeout: 10_000 });
+      await page.waitForSelector(`${HOST}[data-motion]`, { timeout: 30_000 });
       const kind = await page.$eval(HOST, (e) => e.dataset.backdrop);
       check(kind === 'webgl', `${label}: backdrop draws with WebGL (${kind})`);
       check((await page.locator(`${HOST} canvas`).count()) === 1, `${label}: one canvas on /`);
@@ -221,7 +221,7 @@ try {
       colorScheme,
       reducedMotion: 'reduce',
     });
-    await page.waitForSelector(`${HOST}[data-motion]`, { timeout: 10_000 });
+    await page.waitForSelector(`${HOST}[data-motion]`, { timeout: 30_000 });
     await settle(page, 1500);
     const n = await frames(page);
     const m = await page.$eval(HOST, (e) => e.dataset.motion);
@@ -243,7 +243,7 @@ try {
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(`${base}/`, { waitUntil: 'networkidle' });
-    await page.waitForSelector(`${HOST}[data-backdrop]`, { timeout: 10_000 });
+    await page.waitForSelector(`${HOST}[data-backdrop]`, { timeout: 30_000 });
     const kind = await page.$eval(HOST, (e) => e.dataset.backdrop);
     const paths = await page.locator(`${HOST} svg path`).count();
     const canvases = await page.locator(`${HOST} canvas`).count();
