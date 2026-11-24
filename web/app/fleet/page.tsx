@@ -20,7 +20,7 @@ import { formatDay, formatTime } from '@/lib/format';
 import { recordHref } from '@/lib/routes';
 import { getRallypoint, REPO_URL } from '@/lib/github';
 import { pageMeta } from '@/lib/site';
-import { toSwarmInput } from '@/lib/swarmGraph';
+import { engineNodes, toSwarmInput } from '@/lib/swarmGraph';
 import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = pageMeta(
@@ -167,9 +167,14 @@ const SeatCard = ({
   );
 };
 
-const FleetContent = async () => {
+type FleetContentProps = {
+  searchParams: Promise<{ view?: string | string[] }>;
+};
+
+const FleetContent = async ({ searchParams }: FleetContentProps) => {
   // Live by nature: who is working right now is a request-time question.
   await connection();
+  const { view } = await searchParams;
   const [s, rp] = await Promise.all([getSnapshot(), getRallypoint()]);
   const asOf = s.asOf ?? new Date().toISOString();
   const slots = Object.fromEntries(s.tracks.map((t) => [t.id, t.color_slot])) as Partial<
@@ -216,7 +221,9 @@ const FleetContent = async () => {
 
         <SwarmGraph
           className="mt-6"
-          input={toSwarmInput(s, rp.items)}
+          {...toSwarmInput(s, rp.items)}
+          engines={engineNodes(s)}
+          view={typeof view === 'string' ? view : null}
           seatIds={s.agents.map((a) => a.id)}
           engineIds={s.tracks.map((t) => t.id)}
           repoUrl={REPO_URL}
@@ -256,9 +263,13 @@ const FleetContent = async () => {
   );
 };
 
-const Fleet = () => (
+type FleetProps = {
+  searchParams: Promise<{ view?: string | string[] }>;
+};
+
+const Fleet = ({ searchParams }: FleetProps) => (
   <Suspense fallback={<PageSkeleton />}>
-    <FleetContent />
+    <FleetContent searchParams={searchParams} />
   </Suspense>
 );
 

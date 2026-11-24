@@ -8,11 +8,11 @@ Rallypoint as is. Nothing in `src/` imports React, Next.js, Tailwind or `@arena/
 
 ## Layout
 
-| File                | What it is                                                                                        |
-| ------------------- | ------------------------------------------------------------------------------------------------- |
-| `src/model.ts`      | Pure, deterministic. `buildSwarmGraph(input)` turns agents, work items and events into a graph.   |
-| `src/render.ts`     | Plain D3 on an SVG. `createSwarmGraph(el, options)` returns `{ update, replay, reset, destroy }`. |
-| `src/model.test.ts` | `npm test -w swarm-graph`.                                                                        |
+| File                | What it is                                                                                                           |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `src/model.ts`      | Pure, deterministic. `buildSwarmGraph(input)` turns agents, work items and events into a graph.                      |
+| `src/render.ts`     | Plain D3 on an SVG. `createSwarmGraph(el, options)` returns `{ update, anchor, replay, highlight, reset, destroy }`. |
+| `src/model.test.ts` | `npm test -w swarm-graph`.                                                                                           |
 
 ## Vocabulary
 
@@ -64,6 +64,13 @@ const view = createSwarmGraph(document.getElementById('swarm')!, {
 view.update(buildSwarmGraph(input)); // call again on every realtime push or poll
 ```
 
+Events carry an optional host `sub` (what a filter keys on), a burst `group` (one match's games,
+say, so a feed can show them as one updating line), an `outcome` and a `delta`; all pass through
+to the flows. A host that filters which flows it draws passes `update(graph, { quiet: true })`
+when only the filter changed, so newly visible history does not spark as news. `anchor(nodeId,
+el)` pins an HTML element beside a node (outward, inside the canvas, following zoom and pan), for
+badges the SVG should not draw.
+
 Colours default to the host's CSS variables (`--fg`, `--line`, `--panel`, …) with fallbacks, and
 can be overridden through `options.theme`. Honour `prefers-reduced-motion` by passing
 `reducedMotion: true`.
@@ -71,7 +78,7 @@ can be overridden through `options.theme`. Honour `prefers-reduced-motion` by pa
 ## Moving it into Rallypoint
 
 The only arena-specific code is the adapter (`web/lib/swarmGraph.ts`, Supabase snapshot →
-`SwarmInput`) and the React mount (`web/components/arena/SwarmGraph.tsx`). To ship with
+`SwarmInput`, with the row mapping it shares with Realtime in `web/lib/swarmEvents.ts`) and the React mount (`web/components/arena/SwarmGraph.tsx`). To ship with
 Rallypoint, move this directory as is. Then write one adapter to `SwarmInput` from Rallypoint's
 own state: issues and their `status:*` labels, `rallypoint-claims/` and `rallypoint-sessions/`
 refs, pull requests and their `review:*` labels, and the reports `report.mjs` writes. The arena's

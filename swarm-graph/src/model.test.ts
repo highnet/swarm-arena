@@ -165,3 +165,26 @@ test('merged history is capped per sector; effort is summed per sector', () => {
   assert.equal(node(g, g.hubId)?.effort, 3);
   assert.equal(link(g, 'contrib:w:go')?.weight, 1);
 });
+
+test('a measured result flows into the sector and carries its burst and outcome', () => {
+  const i = input();
+  i.events.push({
+    id: 'g1',
+    at: '2026-11-23T11:50:00Z',
+    kind: 'result',
+    agent: null,
+    sector: 'go',
+    workItem: null,
+    title: 'Go beat the reference engine',
+    sub: 'game',
+    group: { id: 'match:1', title: 'Go v0.5 vs ref' },
+    outcome: 'win',
+  });
+  const g = buildSwarmGraph(i);
+  const f = g.flows.find((x) => x.id === 'g1')!;
+  assert.deepEqual(f.path, [g.hubId, sectorNodeId('go')]);
+  assert.equal(f.sub, 'game');
+  assert.equal(f.group?.id, 'match:1');
+  assert.equal(f.outcome, 'win');
+  assert.equal(f.sector, 'go');
+});
