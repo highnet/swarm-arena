@@ -181,9 +181,12 @@ Move into "Architecture now" only once the referee passes it. A rebuild of #44's
 - Not tried: probing the table inside the exact solver (~10 empties up), the issue's optional
   part; measure it separately.
 
-## Candidate (not shipped): history heuristic + PVS in the midgame search (task #190)
+## Buried: history heuristic + PVS in the midgame search (task #190, lesson PR #194)
 
-Move into "Architecture now" only once the referee passes it. Port of chess v0.5's ordering pair
+**Referee: rated 1295 ± 138 vs Edax level 6 (40 games, seed 102195233), not above v0.6's 1427**;
+local matches were flat too. Not in the engine. Code: commit 81450ae on branch
+`agent/190-pvs-and-history-heuristic-move-ordering-in` (may vanish with the branch; the design
+below is enough to rebuild it). Port of chess v0.5's ordering pair
 (minus LMR and killers) to v0.6's TT midgame negamax; the exact solver is unchanged.
 
 - `Opts { history, pvs }` on `Search`; `Opts::PLAIN` is v0.6 (tests, reports, the book generator
@@ -283,7 +286,7 @@ for N scaled with the site's 0.5-3 s budgets, and measure those instead of N = 1
 ## Ideas worth trying
 
 - The #44 transposition table is rebuilt on v0.5 as task #153 (Candidate note above).
-- History heuristic + PVS was task #190 (Candidate note above, flat locally); killers and LMR
+- History heuristic + PVS was task #190 (buried flat, note above); killers and LMR
   untried; aspiration windows at the root.
 - Use more of the budget: the 60% cap and the 1/3 "don't start" rule leave much of 200 ms unused.
 - Tune the eval weights (corner/mobility/X/C) by self-play. Local matches need opening variety
