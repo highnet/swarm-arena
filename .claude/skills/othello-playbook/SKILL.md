@@ -127,8 +127,16 @@ Move into "Architecture now" only once the referee passes it.
   0.35 s/position, 11 ~1.4 s alone (~2 s with 4 shards running), 12 ~4.6 s. Tree: 382 roots
   ~7 min, 2237 ~20 min, 4352 ~40 min; cover: 10185 new positions ~40 min. `book/entries.txt`
   is the readable source (me, opp hex, move index, score, depth); the script resumes from it.
+  Size: 17156 entries (6971 tree + 10185 cover-only), 325 964 bytes embedded.
+- **Rebuild after packing**: the book is `include_bytes!`, so a binary built before `pack` still
+  plays the old book (one local match was wasted that way; `generate.sh` now rebuilds last).
 - Hit rate: `othello-engine book stats [opening plies]` (default 6) reads `b|w move…` game lines
-  and reports the engine's in-book plies per game and its first out-of-book ply.
+  and reports the engine's in-book plies per game and its first out-of-book ply. Local, suite
+  openings, seed 109, 40 games each (not referee evidence): vs main +21 −17 =2, vs Edax 4
+  +19 −19 =2; **1.2 in-book plies per game** (every game's first move, then the tree sometimes);
+  first out-of-book ply 8-9 in 32 of 40 games, 10-11 in the rest. With the pre-cover book
+  (6971 entries) the same games gave 0.4 per game and 16-22 vs Edax 4. Deeper coverage after
+  ply 7 is the obvious next step but costs ~6x per extra ply (67 245 canonical positions at ply 8).
 
 ## Ideas worth trying
 

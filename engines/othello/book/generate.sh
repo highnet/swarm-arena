@@ -26,3 +26,5 @@ rm -f "$DIR/frontier.txt"
 sort -o "$ENTRIES" "$ENTRIES"
 "$BIN" book pack "$ENTRIES" > "$DIR/othello-book.bin"
 echo "book: $(wc -l < "$ENTRIES") entries, $(wc -c < "$DIR/othello-book.bin") bytes"
+# The engine embeds the book with include_bytes!: rebuild so target/release plays the new one.
+cargo build --release -p othello-engine
