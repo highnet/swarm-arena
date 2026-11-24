@@ -13,6 +13,12 @@ import { log, MOVE_MS, MOVE_SLACK_MS, RUN_ID } from "./config";
 import { getStore } from "./store";
 import { loadSuite, suiteName } from "./openings";
 
+/**
+ * How many times in a row one game may be replayed because the reference timed out or crashed.
+ * A reference forfeit is not a result (#131); past this the match aborts with an error.
+ */
+export const REFERENCE_REPLAYS = 3;
+
 export type MatchSpec = {
   track: GameId;
   candidate: Mover;
@@ -21,6 +27,12 @@ export type MatchSpec = {
   opponentLabel: string;
   opponentElo: number;
   pairs: number;
+  /**
+   * The opponent is a reference (built-in or external), not an arena engine: its timeouts and
+   * crashes void the game and replay it (REFERENCE_REPLAYS). Default true. Set false when the
+   * opponent is a version of our own engine, whose forfeits are results.
+   */
+  referenceOpponent?: boolean;
   purpose: Match["purpose"];
   taskId?: string | null;
   /**
@@ -92,6 +104,12 @@ export const runMatch = async (spec: MatchSpec) => {
       moveTimeMs: MOVE_MS + MOVE_SLACK_MS,
       openingSeed: spec.openingSeed,
       openingSuite: suite,
+      replayOpponentFailures:
+        spec.referenceOpponent === false ? 0 : REFERENCE_REPLAYS,
+      onVoid: (g, i, attempt) =>
+        log(
+          `  game ${i + 1}/${spec.pairs * 2}: voided, ${spec.opponentLabel} ${g.termination} at ${g.moves.length} plies (attempt ${attempt + 1}); restarted it, replaying the same opening`,
+        ),
       onGame: async (g, i) => {
         const engineFirst = i % 2 === 0;
         const s = engineFirst ? g.outcome : 1 - g.outcome;
@@ -119,6 +137,9 @@ export const runMatch = async (spec: MatchSpec) => {
       },
     },
   );
+  const voided = result.voided.map(
+    (v) => `game ${v.index + 1}: ${spec.opponentLabel} ${v.termination} at ${v.plies} plies`,
+  );
   const games = result.wins + result.draws + result.losses;
   const est = performanceElo([
     { opponentElo: spec.opponentElo, score: result.score, games },
@@ -142,7 +163,7 @@ export const runMatch = async (spec: MatchSpec) => {
     match_id: id,
     task_id: spec.taskId ?? null,
     title: `${GAMES[spec.track].name} ${spec.candidateVersion} vs ${spec.opponentLabel}: ${score}`,
-    detail: `Performance ${Math.round(est.elo)} ± ${Math.round(est.error)} over ${games} games${seedNote}.${forfeits.length ? ` ${forfeits.length} forfeits by the engine.` : ""}`,
+    detail: `Performance ${Math.round(est.elo)} ± ${Math.round(est.error)} over ${games} games${seedNote}.${forfeits.length ? ` ${forfeits.length} forfeits by the engine.` : ""}${voided.length ? ` ${voided.length} games voided and replayed: the reference timed out or crashed (${voided.join("; ")}).` : ""}`,
     data: {
       wins: result.wins,
       draws: result.draws,
@@ -150,13 +171,14 @@ export const runMatch = async (spec: MatchSpec) => {
       elo: Math.round(est.elo),
       error: Math.round(est.error),
       forfeits,
+      voided,
       opening_seed: result.openingSeed,
       opening_source: result.openingSource,
       // 1-based, in file order: entry n is the n-th opening line of the suite.
       opening_entries: result.openingEntries?.map((i) => i + 1) ?? null,
     },
   });
-  return { matchId: id, est, result, forfeits };
+  return { matchId: id, est, result, forfeits, voided };
 };
 
 /**

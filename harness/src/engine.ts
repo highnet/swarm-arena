@@ -69,6 +69,12 @@ export class LineProcess {
     }
   }
 
+  /** Kill the process now, failing any pending read. */
+  kill() {
+    this.lines.close();
+    this.child.kill("SIGKILL");
+  }
+
   async close() {
     if (!this.exited) {
       try {
@@ -85,6 +91,25 @@ export class LineProcess {
 const movesOf = (state: unknown) => (state as { moves: string[] }).moves;
 
 /**
+ * A process that can be replaced by a fresh one. After a move times out, its request is still in
+ * flight: the late reply (and the orphaned `choose`, which keeps reading) would be taken as the
+ * answer to the next request, so every later game desynchronises and times out too (#131).
+ * Restarting kills the old process, which ends the orphan with "engine exited".
+ */
+export const restartable = async (start: () => Promise<LineProcess>) => {
+  let p = await start();
+  return {
+    current: () => p,
+    restart: async () => {
+      const old = p;
+      old.kill();
+      p = await start();
+    },
+    close: () => p.close(),
+  };
+};
+
+/**
  * An arena engine binary. Protocol (engines/PROTOCOL.md):
  *   > game <id>         < ready
  *   > position <moves>  (space separated, may be empty)
@@ -97,18 +122,23 @@ export const arenaEngine = async (
   game: GameId,
   moveMs: number,
 ): Promise<Mover> => {
-  const p = new LineProcess(binary, []);
-  p.send(`game ${game}`);
-  await p.until((l) => l.trim() === "ready");
+  const proc = await restartable(async () => {
+    const p = new LineProcess(binary, []);
+    p.send(`game ${game}`);
+    await p.until((l) => l.trim() === "ready");
+    return p;
+  });
   return {
     id,
     choose: async <S>(_rules: GameRules<S>, state: S) => {
+      const p = proc.current();
       p.send(`position ${movesOf(state).join(" ")}`.trim());
       p.send(`go ${moveMs}`);
       const line = await p.until((l) => l.startsWith("bestmove"));
       return line.split(/\s+/)[1] ?? "";
     },
-    close: () => p.close(),
+    reset: proc.restart,
+    close: proc.close,
   };
 };
 
@@ -117,21 +147,26 @@ export const stockfish = async (
   level: number,
   moveMs: number,
 ): Promise<Mover> => {
-  const p = new LineProcess(findBin("stockfish", "STOCKFISH_BIN"), []);
-  p.send("uci");
-  await p.until((l) => l === "uciok");
-  p.send(`setoption name Skill Level value ${level}`);
-  p.send("isready");
-  await p.until((l) => l === "readyok");
+  const proc = await restartable(async () => {
+    const p = new LineProcess(findBin("stockfish", "STOCKFISH_BIN"), []);
+    p.send("uci");
+    await p.until((l) => l === "uciok");
+    p.send(`setoption name Skill Level value ${level}`);
+    p.send("isready");
+    await p.until((l) => l === "readyok");
+    return p;
+  });
   return {
     id: `stockfish-${level}`,
     choose: async <S>(_rules: GameRules<S>, state: S) => {
+      const p = proc.current();
       p.send(`position startpos moves ${movesOf(state).join(" ")}`.trim());
       p.send(`go movetime ${moveMs}`);
       const line = await p.until((l) => l.startsWith("bestmove"));
       return line.split(/\s+/)[1];
     },
-    close: () => p.close(),
+    reset: proc.restart,
+    close: proc.close,
   };
 };
 
@@ -154,28 +189,35 @@ export const gtpEngine = async ({
   cwd,
   setup,
 }: GtpOptions): Promise<Mover> => {
-  const p = new LineProcess(command, args, cwd);
-  const cmd = async (c: string) => {
+  const cmd = async (p: LineProcess, c: string) => {
     p.send(c);
     const reply = await p.until((l) => l.startsWith("=") || l.startsWith("?"));
     await p.next(); // blank line terminating a GTP response
     if (reply.startsWith("?")) throw new Error(`gtp ${id}: ${c}: ${reply}`);
     return reply.slice(1).trim();
   };
-  for (const c of setup) await cmd(c);
+  const proc = await restartable(async () => {
+    const p = new LineProcess(command, args, cwd);
+    for (const c of setup) await cmd(p, c);
+    return p;
+  });
   return {
     id,
     choose: async <S>(_rules: GameRules<S>, state: S) => {
-      await cmd("clear_board");
+      // Bind this move to one process: after a restart an orphaned call fails on the old one
+      // instead of talking to the new.
+      const p = proc.current();
+      await cmd(p, "clear_board");
       const moves = movesOf(state);
       for (const [i, m] of moves.entries())
-        await cmd(`play ${i % 2 === 0 ? "b" : "w"} ${m}`);
+        await cmd(p, `play ${i % 2 === 0 ? "b" : "w"} ${m}`);
       // "resign" is not a legal move, so the referee scores it as a loss for this engine.
       return (
-        await cmd(`genmove ${moves.length % 2 === 0 ? "b" : "w"}`)
+        await cmd(p, `genmove ${moves.length % 2 === 0 ? "b" : "w"}`)
       ).toLowerCase();
     },
-    close: () => p.close(),
+    reset: proc.restart,
+    close: proc.close,
   };
 };
 
