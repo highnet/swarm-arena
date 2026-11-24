@@ -275,7 +275,7 @@ const HomeContent = async () => {
           <ol className="divide-y divide-line border-y border-line lg:mt-3">
             {STEPS.map((step, i) => (
               <li key={step.title} className="grid grid-cols-[2.5rem_1fr] gap-x-4 py-7">
-                <span className="font-mono text-[15px] tabular text-fg-3">0{i + 1}</span>
+                <span className="text-[15px] tabular text-fg-3">0{i + 1}</span>
                 <div>
                   <h3 className="text-lg font-medium text-fg">{step.title}</h3>
                   <p className="mt-2 text-[15px] leading-7 text-fg-2 text-pretty">{step.body}</p>

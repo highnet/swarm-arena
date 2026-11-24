@@ -1,133 +1,133 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-23T08:25:46+00:00",
+  "generatedAt": "2026-11-24T17:05:36+00:00",
   "title": "Design System: Swarm Arena",
   "extensions": {
     "colorMeta": {
       "bg": {
         "role": "neutral",
-        "displayName": "Arena Night",
-        "canonical": "oklch(0.155 0.006 265)",
+        "displayName": "Sulpher Yellow / Black (Wada 52)",
+        "canonical": "light-dark(oklch(0.94 0.055 97.3), oklch(0.185 0.004 229))",
         "tonalRamp": [
-          "oklch(0.15 0.001 265)",
-          "oklch(0.26 0.002 265)",
-          "oklch(0.37 0.003 265)",
-          "oklch(0.48 0.005 265)",
-          "oklch(0.60 0.006 265)",
-          "oklch(0.72 0.005 265)",
-          "oklch(0.84 0.003 265)",
-          "oklch(0.95 0.002 265)"
+          "oklch(0.15 0.002 229)",
+          "oklch(0.26 0.002 229)",
+          "oklch(0.37 0.002 229)",
+          "oklch(0.48 0.002 229)",
+          "oklch(0.60 0.002 229)",
+          "oklch(0.72 0.002 229)",
+          "oklch(0.84 0.002 229)",
+          "oklch(0.95 0.002 229)"
         ]
       },
       "panel": {
         "role": "neutral",
-        "displayName": "Panel Slate",
-        "canonical": "oklch(0.185 0.006 265)",
+        "displayName": "Raised paper / night (Wada 52)",
+        "canonical": "light-dark(oklch(0.975 0.022 97.3), oklch(0.235 0.004 229))",
         "tonalRamp": [
-          "oklch(0.15 0.001 265)",
-          "oklch(0.26 0.002 265)",
-          "oklch(0.37 0.003 265)",
-          "oklch(0.48 0.005 265)",
-          "oklch(0.60 0.006 265)",
-          "oklch(0.72 0.005 265)",
-          "oklch(0.84 0.003 265)",
-          "oklch(0.95 0.002 265)"
+          "oklch(0.15 0.002 229)",
+          "oklch(0.26 0.002 229)",
+          "oklch(0.37 0.002 229)",
+          "oklch(0.48 0.002 229)",
+          "oklch(0.60 0.002 229)",
+          "oklch(0.72 0.002 229)",
+          "oklch(0.84 0.002 229)",
+          "oklch(0.95 0.002 229)"
         ]
       },
       "panel-raised": {
         "role": "neutral",
-        "displayName": "Raised Slate",
-        "canonical": "oklch(0.215 0.007 265)",
+        "displayName": "Hover tone (Wada 52)",
+        "canonical": "light-dark(oklch(0.905 0.055 97.3), oklch(0.275 0.004 229))",
         "tonalRamp": [
-          "oklch(0.15 0.001 265)",
-          "oklch(0.26 0.002 265)",
-          "oklch(0.37 0.004 265)",
-          "oklch(0.48 0.005 265)",
-          "oklch(0.60 0.007 265)",
-          "oklch(0.72 0.005 265)",
-          "oklch(0.84 0.004 265)",
-          "oklch(0.95 0.002 265)"
+          "oklch(0.15 0.002 229)",
+          "oklch(0.26 0.002 229)",
+          "oklch(0.37 0.002 229)",
+          "oklch(0.48 0.002 229)",
+          "oklch(0.60 0.002 229)",
+          "oklch(0.72 0.002 229)",
+          "oklch(0.84 0.002 229)",
+          "oklch(0.95 0.002 229)"
         ]
       },
       "line": {
         "role": "neutral",
-        "displayName": "Hairline",
-        "canonical": "oklch(0.265 0.007 265)",
+        "displayName": "Hairline (Wada 52)",
+        "canonical": "light-dark(oklch(0.86 0.05 97.3), oklch(0.32 0.004 229))",
         "tonalRamp": [
-          "oklch(0.15 0.001 265)",
-          "oklch(0.26 0.002 265)",
-          "oklch(0.37 0.004 265)",
-          "oklch(0.48 0.005 265)",
-          "oklch(0.60 0.007 265)",
-          "oklch(0.72 0.005 265)",
-          "oklch(0.84 0.004 265)",
-          "oklch(0.95 0.002 265)"
+          "oklch(0.15 0.002 229)",
+          "oklch(0.26 0.002 229)",
+          "oklch(0.37 0.002 229)",
+          "oklch(0.48 0.002 229)",
+          "oklch(0.60 0.002 229)",
+          "oklch(0.72 0.002 229)",
+          "oklch(0.84 0.002 229)",
+          "oklch(0.95 0.002 229)"
         ]
       },
       "line-strong": {
         "role": "neutral",
-        "displayName": "Strong Hairline",
-        "canonical": "oklch(0.34 0.008 265)",
+        "displayName": "Strong hairline (Wada 52)",
+        "canonical": "light-dark(oklch(0.74 0.045 97.3), oklch(0.42 0.004 229))",
         "tonalRamp": [
-          "oklch(0.15 0.001 265)",
-          "oklch(0.26 0.003 265)",
-          "oklch(0.37 0.004 265)",
-          "oklch(0.48 0.006 265)",
-          "oklch(0.60 0.008 265)",
-          "oklch(0.72 0.006 265)",
-          "oklch(0.84 0.004 265)",
-          "oklch(0.95 0.002 265)"
+          "oklch(0.15 0.002 229)",
+          "oklch(0.26 0.002 229)",
+          "oklch(0.37 0.002 229)",
+          "oklch(0.48 0.002 229)",
+          "oklch(0.60 0.002 229)",
+          "oklch(0.72 0.002 229)",
+          "oklch(0.84 0.002 229)",
+          "oklch(0.95 0.002 229)"
         ]
       },
       "fg": {
         "role": "neutral",
-        "displayName": "Ink",
-        "canonical": "oklch(0.965 0.003 265)",
+        "displayName": "Black / Sulpher Yellow ink (Wada 52)",
+        "canonical": "light-dark(oklch(0.185 0.004 229), oklch(0.94 0.055 97.3))",
         "tonalRamp": [
-          "oklch(0.15 0.000 265)",
-          "oklch(0.26 0.001 265)",
-          "oklch(0.37 0.002 265)",
-          "oklch(0.48 0.002 265)",
-          "oklch(0.60 0.003 265)",
-          "oklch(0.72 0.002 265)",
-          "oklch(0.84 0.002 265)",
-          "oklch(0.95 0.001 265)"
+          "oklch(0.15 0.033 97.3)",
+          "oklch(0.26 0.033 97.3)",
+          "oklch(0.37 0.033 97.3)",
+          "oklch(0.48 0.033 97.3)",
+          "oklch(0.60 0.033 97.3)",
+          "oklch(0.72 0.033 97.3)",
+          "oklch(0.84 0.033 97.3)",
+          "oklch(0.95 0.033 97.3)"
         ]
       },
       "fg-2": {
         "role": "neutral",
-        "displayName": "Ink 2",
-        "canonical": "oklch(0.79 0.008 265)",
+        "displayName": "Ink 2 (Wada 52)",
+        "canonical": "light-dark(oklch(0.37 0.004 229), oklch(0.84 0.035 97.3))",
         "tonalRamp": [
-          "oklch(0.15 0.001 265)",
-          "oklch(0.26 0.003 265)",
-          "oklch(0.37 0.004 265)",
-          "oklch(0.48 0.006 265)",
-          "oklch(0.60 0.008 265)",
-          "oklch(0.72 0.006 265)",
-          "oklch(0.84 0.004 265)",
-          "oklch(0.95 0.002 265)"
+          "oklch(0.15 0.021 97.3)",
+          "oklch(0.26 0.021 97.3)",
+          "oklch(0.37 0.021 97.3)",
+          "oklch(0.48 0.021 97.3)",
+          "oklch(0.60 0.021 97.3)",
+          "oklch(0.72 0.021 97.3)",
+          "oklch(0.84 0.021 97.3)",
+          "oklch(0.95 0.021 97.3)"
         ]
       },
       "fg-3": {
         "role": "neutral",
-        "displayName": "Ink 3",
-        "canonical": "oklch(0.66 0.01 265)",
+        "displayName": "Ink 3 (Wada 52)",
+        "canonical": "light-dark(oklch(0.47 0.004 229), oklch(0.7 0.025 97.3))",
         "tonalRamp": [
-          "oklch(0.15 0.002 265)",
-          "oklch(0.26 0.003 265)",
-          "oklch(0.37 0.005 265)",
-          "oklch(0.48 0.008 265)",
-          "oklch(0.60 0.010 265)",
-          "oklch(0.72 0.008 265)",
-          "oklch(0.84 0.005 265)",
-          "oklch(0.95 0.003 265)"
+          "oklch(0.15 0.015 97.3)",
+          "oklch(0.26 0.015 97.3)",
+          "oklch(0.37 0.015 97.3)",
+          "oklch(0.48 0.015 97.3)",
+          "oklch(0.60 0.015 97.3)",
+          "oklch(0.72 0.015 97.3)",
+          "oklch(0.84 0.015 97.3)",
+          "oklch(0.95 0.015 97.3)"
         ]
       },
       "primary": {
         "role": "primary",
-        "displayName": "Referee White",
-        "canonical": "oklch(0.965 0.003 265)",
+        "displayName": "Ink (the action)",
+        "canonical": "var(--fg)",
         "tonalRamp": [
           "oklch(0.15 0.000 265)",
           "oklch(0.26 0.001 265)",
@@ -141,8 +141,8 @@
       },
       "primary-fg": {
         "role": "primary",
-        "displayName": "Referee White Ink",
-        "canonical": "oklch(0.17 0.006 265)",
+        "displayName": "Ground on ink",
+        "canonical": "var(--bg)",
         "tonalRamp": [
           "oklch(0.15 0.001 265)",
           "oklch(0.26 0.002 265)",
@@ -156,213 +156,218 @@
       },
       "series-1": {
         "role": "data",
-        "displayName": "Track 1 Blue",
-        "canonical": "oklch(0.622 0.161 255.1)",
+        "displayName": "Helvetia Blue (Wada 347), Chess",
+        "canonical": "light-dark(oklch(0.452 0.109 242.8), oklch(0.545 0.109 242.8))",
         "tonalRamp": [
-          "oklch(0.15 0.024 255.1)",
-          "oklch(0.26 0.052 255.1)",
-          "oklch(0.37 0.087 255.1)",
-          "oklch(0.48 0.122 255.1)",
-          "oklch(0.60 0.161 255.1)",
-          "oklch(0.72 0.122 255.1)",
-          "oklch(0.84 0.084 255.1)",
-          "oklch(0.95 0.048 255.1)"
+          "oklch(0.15 0.065 242.8)",
+          "oklch(0.26 0.065 242.8)",
+          "oklch(0.37 0.065 242.8)",
+          "oklch(0.48 0.065 242.8)",
+          "oklch(0.60 0.065 242.8)",
+          "oklch(0.72 0.065 242.8)",
+          "oklch(0.84 0.065 242.8)",
+          "oklch(0.95 0.065 242.8)"
         ]
       },
       "series-2": {
         "role": "data",
-        "displayName": "Track 2 Orange",
-        "canonical": "oklch(0.622 0.173 40.1)",
+        "displayName": "Lilac (Wada 347), Go",
+        "canonical": "light-dark(oklch(0.605 0.087 333.3), oklch(0.68 0.087 333.3))",
         "tonalRamp": [
-          "oklch(0.15 0.026 40.1)",
-          "oklch(0.26 0.055 40.1)",
-          "oklch(0.37 0.093 40.1)",
-          "oklch(0.48 0.131 40.1)",
-          "oklch(0.60 0.173 40.1)",
-          "oklch(0.72 0.131 40.1)",
-          "oklch(0.84 0.090 40.1)",
-          "oklch(0.95 0.052 40.1)"
+          "oklch(0.15 0.052 333.3)",
+          "oklch(0.26 0.052 333.3)",
+          "oklch(0.37 0.052 333.3)",
+          "oklch(0.48 0.052 333.3)",
+          "oklch(0.60 0.052 333.3)",
+          "oklch(0.72 0.052 333.3)",
+          "oklch(0.84 0.052 333.3)",
+          "oklch(0.95 0.052 333.3)"
         ]
       },
       "series-3": {
         "role": "data",
-        "displayName": "Track 3 Aqua",
-        "canonical": "oklch(0.621 0.128 163.1)",
+        "displayName": "Sea Green (Wada 347), Othello",
+        "canonical": "light-dark(oklch(0.584 0.107 178), oklch(0.689 0.127 178))",
         "tonalRamp": [
-          "oklch(0.15 0.019 163.1)",
-          "oklch(0.26 0.041 163.1)",
-          "oklch(0.37 0.069 163.1)",
-          "oklch(0.48 0.097 163.1)",
-          "oklch(0.60 0.128 163.1)",
-          "oklch(0.72 0.097 163.1)",
-          "oklch(0.84 0.067 163.1)",
-          "oklch(0.95 0.038 163.1)"
+          "oklch(0.15 0.076 178)",
+          "oklch(0.26 0.076 178)",
+          "oklch(0.37 0.076 178)",
+          "oklch(0.48 0.076 178)",
+          "oklch(0.60 0.076 178)",
+          "oklch(0.72 0.076 178)",
+          "oklch(0.84 0.076 178)",
+          "oklch(0.95 0.076 178)"
         ]
       },
       "series-4": {
         "role": "data",
-        "displayName": "Track 4 Amber",
-        "canonical": "oklch(0.67 0.143 73.2)",
+        "displayName": "Olive Yellow (Wada 347), Hex",
+        "canonical": "light-dark(oklch(0.595 0.094 105.1), oklch(0.697 0.094 105.1))",
         "tonalRamp": [
-          "oklch(0.15 0.021 73.2)",
-          "oklch(0.26 0.046 73.2)",
-          "oklch(0.37 0.077 73.2)",
-          "oklch(0.48 0.109 73.2)",
-          "oklch(0.60 0.143 73.2)",
-          "oklch(0.72 0.109 73.2)",
-          "oklch(0.84 0.074 73.2)",
-          "oklch(0.95 0.043 73.2)"
+          "oklch(0.15 0.056 105.1)",
+          "oklch(0.26 0.056 105.1)",
+          "oklch(0.37 0.056 105.1)",
+          "oklch(0.48 0.056 105.1)",
+          "oklch(0.60 0.056 105.1)",
+          "oklch(0.72 0.056 105.1)",
+          "oklch(0.84 0.056 105.1)",
+          "oklch(0.95 0.056 105.1)"
         ]
       },
       "good": {
         "role": "status",
-        "displayName": "Verdict Green",
-        "canonical": "oklch(0.621 0.207 142.6)",
+        "displayName": "Diamine Green (Wada 313)",
+        "canonical": "light-dark(oklch(0.495 0.112 154.6), oklch(0.535 0.112 154.6))",
         "tonalRamp": [
-          "oklch(0.15 0.031 142.6)",
-          "oklch(0.26 0.066 142.6)",
-          "oklch(0.37 0.112 142.6)",
-          "oklch(0.48 0.157 142.6)",
-          "oklch(0.60 0.207 142.6)",
-          "oklch(0.72 0.157 142.6)",
-          "oklch(0.84 0.108 142.6)",
-          "oklch(0.95 0.062 142.6)"
+          "oklch(0.15 0.067 154.6)",
+          "oklch(0.26 0.067 154.6)",
+          "oklch(0.37 0.067 154.6)",
+          "oklch(0.48 0.067 154.6)",
+          "oklch(0.60 0.067 154.6)",
+          "oklch(0.72 0.067 154.6)",
+          "oklch(0.84 0.067 154.6)",
+          "oklch(0.95 0.067 154.6)"
         ]
       },
       "good-text": {
         "role": "status",
-        "displayName": "Verdict Green Text",
-        "canonical": "oklch(0.709 0.201 143.1)",
+        "displayName": "Diamine Green text (Wada 313)",
+        "canonical": "light-dark(oklch(0.488 0.112 154.6), oklch(0.633 0.112 154.6))",
         "tonalRamp": [
-          "oklch(0.15 0.030 143.1)",
-          "oklch(0.26 0.064 143.1)",
-          "oklch(0.37 0.109 143.1)",
-          "oklch(0.48 0.153 143.1)",
-          "oklch(0.60 0.201 143.1)",
-          "oklch(0.72 0.153 143.1)",
-          "oklch(0.84 0.105 143.1)",
-          "oklch(0.95 0.060 143.1)"
+          "oklch(0.15 0.067 154.6)",
+          "oklch(0.26 0.067 154.6)",
+          "oklch(0.37 0.067 154.6)",
+          "oklch(0.48 0.067 154.6)",
+          "oklch(0.60 0.067 154.6)",
+          "oklch(0.72 0.067 154.6)",
+          "oklch(0.84 0.067 154.6)",
+          "oklch(0.95 0.067 154.6)"
         ]
       },
       "warning": {
         "role": "status",
-        "displayName": "Amber",
-        "canonical": "oklch(0.811 0.164 78.5)",
+        "displayName": "Yellow (Wada 313)",
+        "canonical": "light-dark(oklch(0.594 0.126 105.7), oklch(0.941 0.2 105.7))",
         "tonalRamp": [
-          "oklch(0.15 0.025 78.5)",
-          "oklch(0.26 0.052 78.5)",
-          "oklch(0.37 0.089 78.5)",
-          "oklch(0.48 0.125 78.5)",
-          "oklch(0.60 0.164 78.5)",
-          "oklch(0.72 0.125 78.5)",
-          "oklch(0.84 0.085 78.5)",
-          "oklch(0.95 0.049 78.5)"
+          "oklch(0.15 0.120 105.7)",
+          "oklch(0.26 0.120 105.7)",
+          "oklch(0.37 0.120 105.7)",
+          "oklch(0.48 0.120 105.7)",
+          "oklch(0.60 0.120 105.7)",
+          "oklch(0.72 0.120 105.7)",
+          "oklch(0.84 0.120 105.7)",
+          "oklch(0.95 0.120 105.7)"
         ]
       },
       "critical": {
         "role": "status",
-        "displayName": "Refuted Red",
-        "canonical": "oklch(0.575 0.186 25.2)",
+        "displayName": "Carmine (Wada 313)",
+        "canonical": "light-dark(oklch(0.54 0.21 20.4), oklch(0.572 0.21 20.4))",
         "tonalRamp": [
-          "oklch(0.15 0.028 25.2)",
-          "oklch(0.26 0.060 25.2)",
-          "oklch(0.37 0.100 25.2)",
-          "oklch(0.48 0.141 25.2)",
-          "oklch(0.60 0.186 25.2)",
-          "oklch(0.72 0.141 25.2)",
-          "oklch(0.84 0.097 25.2)",
-          "oklch(0.95 0.056 25.2)"
+          "oklch(0.15 0.126 20.4)",
+          "oklch(0.26 0.126 20.4)",
+          "oklch(0.37 0.126 20.4)",
+          "oklch(0.48 0.126 20.4)",
+          "oklch(0.60 0.126 20.4)",
+          "oklch(0.72 0.126 20.4)",
+          "oklch(0.84 0.126 20.4)",
+          "oklch(0.95 0.126 20.4)"
         ]
       },
       "critical-text": {
         "role": "status",
-        "displayName": "Refuted Red Text",
-        "canonical": "oklch(0.687 0.165 22.4)",
+        "displayName": "Carmine text (Wada 313)",
+        "canonical": "light-dark(oklch(0.527 0.21 20.4), oklch(0.672 0.21 20.4))",
         "tonalRamp": [
-          "oklch(0.15 0.025 22.4)",
-          "oklch(0.26 0.053 22.4)",
-          "oklch(0.37 0.089 22.4)",
-          "oklch(0.48 0.125 22.4)",
-          "oklch(0.60 0.165 22.4)",
-          "oklch(0.72 0.125 22.4)",
-          "oklch(0.84 0.086 22.4)",
-          "oklch(0.95 0.050 22.4)"
+          "oklch(0.15 0.126 20.4)",
+          "oklch(0.26 0.126 20.4)",
+          "oklch(0.37 0.126 20.4)",
+          "oklch(0.48 0.126 20.4)",
+          "oklch(0.60 0.126 20.4)",
+          "oklch(0.72 0.126 20.4)",
+          "oklch(0.84 0.126 20.4)",
+          "oklch(0.95 0.126 20.4)"
         ]
       },
       "square-light": {
         "role": "board",
-        "displayName": "Light Square",
-        "canonical": "oklch(0.34 0.008 265)",
+        "displayName": "Light square (Wada 52)",
+        "canonical": "light-dark(oklch(0.8 0.05 97.3), oklch(0.4 0.004 229))",
         "tonalRamp": [
-          "oklch(0.15 0.001 265)",
-          "oklch(0.26 0.003 265)",
-          "oklch(0.37 0.004 265)",
-          "oklch(0.48 0.006 265)",
-          "oklch(0.60 0.008 265)",
-          "oklch(0.72 0.006 265)",
-          "oklch(0.84 0.004 265)",
-          "oklch(0.95 0.002 265)"
+          "oklch(0.15 0.002 229)",
+          "oklch(0.26 0.002 229)",
+          "oklch(0.37 0.002 229)",
+          "oklch(0.48 0.002 229)",
+          "oklch(0.60 0.002 229)",
+          "oklch(0.72 0.002 229)",
+          "oklch(0.84 0.002 229)",
+          "oklch(0.95 0.002 229)"
         ]
       },
       "square-dark": {
         "role": "board",
-        "displayName": "Dark Square",
-        "canonical": "oklch(0.27 0.008 265)",
+        "displayName": "Dark square (Wada 52)",
+        "canonical": "light-dark(oklch(0.72 0.05 97.3), oklch(0.31 0.004 229))",
         "tonalRamp": [
-          "oklch(0.15 0.001 265)",
-          "oklch(0.26 0.003 265)",
-          "oklch(0.37 0.004 265)",
-          "oklch(0.48 0.006 265)",
-          "oklch(0.60 0.008 265)",
-          "oklch(0.72 0.006 265)",
-          "oklch(0.84 0.004 265)",
-          "oklch(0.95 0.002 265)"
+          "oklch(0.15 0.002 229)",
+          "oklch(0.26 0.002 229)",
+          "oklch(0.37 0.002 229)",
+          "oklch(0.48 0.002 229)",
+          "oklch(0.60 0.002 229)",
+          "oklch(0.72 0.002 229)",
+          "oklch(0.84 0.002 229)",
+          "oklch(0.95 0.002 229)"
         ]
       },
       "stone-black": {
         "role": "board",
-        "displayName": "Black Stone",
-        "canonical": "oklch(0.13 0.004 265)",
+        "displayName": "Black stone (Wada 52)",
+        "canonical": "oklch(0.185 0.004 229)",
         "tonalRamp": [
-          "oklch(0.15 0.001 265)",
-          "oklch(0.26 0.001 265)",
-          "oklch(0.37 0.002 265)",
-          "oklch(0.48 0.003 265)",
-          "oklch(0.60 0.004 265)",
-          "oklch(0.72 0.003 265)",
-          "oklch(0.84 0.002 265)",
-          "oklch(0.95 0.001 265)"
+          "oklch(0.15 0.002 229)",
+          "oklch(0.26 0.002 229)",
+          "oklch(0.37 0.002 229)",
+          "oklch(0.48 0.002 229)",
+          "oklch(0.60 0.002 229)",
+          "oklch(0.72 0.002 229)",
+          "oklch(0.84 0.002 229)",
+          "oklch(0.95 0.002 229)"
         ]
       },
       "stone-white": {
         "role": "board",
-        "displayName": "White Stone",
-        "canonical": "oklch(0.93 0.004 265)",
+        "displayName": "White stone (Wada 52)",
+        "canonical": "oklch(0.975 0.03 97.3)",
         "tonalRamp": [
-          "oklch(0.15 0.001 265)",
-          "oklch(0.26 0.001 265)",
-          "oklch(0.37 0.002 265)",
-          "oklch(0.48 0.003 265)",
-          "oklch(0.60 0.004 265)",
-          "oklch(0.72 0.003 265)",
-          "oklch(0.84 0.002 265)",
-          "oklch(0.95 0.001 265)"
+          "oklch(0.15 0.018 97.3)",
+          "oklch(0.26 0.018 97.3)",
+          "oklch(0.37 0.018 97.3)",
+          "oklch(0.48 0.018 97.3)",
+          "oklch(0.60 0.018 97.3)",
+          "oklch(0.72 0.018 97.3)",
+          "oklch(0.84 0.018 97.3)",
+          "oklch(0.95 0.018 97.3)"
         ]
       },
       "highlight": {
         "role": "board",
-        "displayName": "Last-move Highlight",
-        "canonical": "oklch(0.8 0.12 85 / 0.32)",
+        "displayName": "Last move, Yellow (Wada 313)",
+        "canonical": "light-dark(oklch(0.594 0.126 105.7 / 0.35), oklch(0.941 0.2 105.7 / 0.28))",
         "tonalRamp": [
-          "oklch(0.15 0.018 85)",
-          "oklch(0.26 0.038 85)",
-          "oklch(0.37 0.065 85)",
-          "oklch(0.48 0.091 85)",
-          "oklch(0.60 0.120 85)",
-          "oklch(0.72 0.091 85)",
-          "oklch(0.84 0.062 85)",
-          "oklch(0.95 0.036 85)"
+          "oklch(0.15 0.120 105.7)",
+          "oklch(0.26 0.120 105.7)",
+          "oklch(0.37 0.120 105.7)",
+          "oklch(0.48 0.120 105.7)",
+          "oklch(0.60 0.120 105.7)",
+          "oklch(0.72 0.120 105.7)",
+          "oklch(0.84 0.120 105.7)",
+          "oklch(0.95 0.120 105.7)"
         ]
+      },
+      "band": {
+        "role": "neutral",
+        "displayName": "Quiet band (Wada 52, lightened)",
+        "canonical": "light-dark(oklch(0.965 0.03 97.3), oklch(0.215 0.004 229))"
       }
     },
     "typographyMeta": {
@@ -521,64 +526,70 @@
     }
   ],
   "narrative": {
-    "northStar": "The Referee's Console",
-    "overview": "Swarm Arena is the category standard played straight: a Linear-grade dark dashboard, dense, quiet and precise. A cool near-black ground carries one raised panel tone, and structure comes from hairline borders rather than boxes, shadows or colour. The chrome is deliberately colourless (white, three greys, hairlines) so that the only saturated things on screen are the data: four track hues climbing a race chart, and the rare green or red of a verdict.\n\nThe system is dark only, by design. There is no light theme and no theme switch; `color-scheme: dark` is set at the root. Density is high and calm: 13-14px UI text, 10px row padding, 16px panel gutters, a 48px top bar. Nothing is decorative. Every saturated mark either identifies a track or reports a status, and every number is set in Geist Mono with tabular figures because it was measured, not written.\n\nMotion is nearly absent. The one ambient animation is the pulsing live dot; everything else is a 150ms colour transition on hover. Reduced-motion collapses all animation and transition durations.",
+    "northStar": "The Referee's Notebook",
+    "overview": "Swarm Arena reads like a well-kept notebook of a long contest: calm, editorial, precise. Long pages run down the vertical axis in chapters, one question per band, with whitespace and a change of ground doing the work that borders and cards used to do. The chrome stays almost colourless (ink, two quieter inks, hairlines), so the saturated things on screen are the data: four engine hues climbing a chart, and the rare green or red of a verdict.\n\nColour comes from Sanzo Wada's _A Dictionary of Color Combinations_ (1933\u201334), through the MIT data package `dictionary-of-colour-combinations`. Palettes are chosen as **whole combinations**, never as single swatches: the ground and ink are one combination, the four engines another, the status colours a third. Each token keeps its book colour's hue; lightness or chroma moved only where WCAG AA required it, and every move is listed below next to the book value. The site credits the source in its footer. No scan or PDF of the book is ever committed.\n\nThere are two themes, light (paper) and dark (night), from the same combination. The page follows the reader's system setting; `data-theme=\"light\"` or `\"dark\"` on `<html>` pins one. Each token is written once as `light-dark(<light>, <dark>)` in `app/globals.css`.\n\nMotion is nearly absent: 150ms colour transitions, a scroll-linked hairline of reading progress, and smooth anchor scrolling only when the reader allows motion. Reduced motion collapses all of it.",
     "keyCharacteristics": [
-      "Dark only: near-black ground (hue 265, a faint cool blue) with one raised panel tone and one hover tone.",
-      "Hairline structure: 1px `line` borders and `divide-y` rows; no card shadows.",
-      "Colourless chrome: the primary action colour is the foreground white.",
-      "Four categorical track hues, used only as data identity.",
-      "Status hues reserved for verdicts and always paired with an icon and a label.",
-      "Geist for UI, Geist Mono only for measured data."
+      "Paper and night: Sulpher Yellow and Black (Wada 52), each the other's ink.",
+      "One idea per section, stacked vertically, separated by tone and whitespace.",
+      "Colourless chrome: the primary action is the ink colour.",
+      "Four engine hues from one four-colour combination (Wada 347), used only as data identity.",
+      "Status hues from one combination with the same Black (Wada 313), always with an icon and a label.",
+      "Geist for words, Geist Mono only for measured data."
     ],
     "rules": [
       {
+        "name": "The Whole Combination Rule",
+        "body": "New colour comes from a Wada combination as a whole, with the combination number recorded here. Keep the book hue; move lightness or chroma only for contrast, and log the move in the token map."
+      },
+      {
         "name": "The Identity, Not Rank Rule",
-        "body": "Colour follows the entity, never its rank. A track's hue is fixed by its slot and never reassigned for leader, sort order or state; track hues never appear on chrome, buttons or text that is not about that track.",
-        "section": "colors"
+        "body": "Colour follows the entity, never its rank. A track's hue is fixed by its slot and never reassigned for leader, sort order or state; track hues never appear on chrome, buttons or text that is not about that track."
       },
       {
         "name": "The Reserved Status Rule",
-        "body": "Green and red mean verified and refuted, nothing else. They always ship with an icon and a label (Flag + \"Finished\", GitMerge + \"Landed\", CircleSlash + \"Ruled dead\"); colour alone never carries a status.",
-        "section": "colors"
+        "body": "Green and red mean verified and refuted, nothing else. They always ship with an icon and a label (Flag + \"Finished\", GitMerge + \"Landed\", CircleSlash + \"Ruled dead\"); colour alone never carries a status."
       },
       {
-        "name": "The One White Rule",
-        "body": "The only action colour is the foreground white. Chrome stays greyscale so the data is the only saturated thing on screen.",
-        "section": "colors"
+        "name": "The One Ink Rule",
+        "body": "The only action colour is the ink (`fg`). Chrome stays colourless so the data is the only saturated thing on screen. No glowing accents on dark, no gradient text."
       },
       {
         "name": "The Mono Means Measured Rule",
-        "body": "Geist Mono is used only for data: Elo, moves and plies, counts, times, versions and seat IDs, always with tabular figures. Prose, labels and headings are never mono; a measured number is never sans.",
-        "section": "typography"
+        "body": "Geist Mono is used only for data: Elo, moves and plies, counts, times, versions and seat IDs, always with tabular figures. Prose, labels and headings are never mono; a measured number is never sans."
       },
       {
         "name": "The Sentence Case Rule",
-        "body": "All labels, titles and badges are sentence case at normal tracking. Hierarchy comes from weight and the three ink tones, not from caps or letter-spacing.",
-        "section": "typography"
+        "body": "All labels, titles and badges are sentence case at normal tracking. Hierarchy comes from weight and the three ink tones, not from caps or letter-spacing."
       },
       {
         "name": "The Tonal Ladder Rule",
-        "body": "Surfaces separate by lightness step and hairline, never by shadow. A shadow appears only on something that floats above the page (tooltip) or on a pressed control.",
-        "section": "elevation"
+        "body": "Surfaces separate by lightness step and hairline, never by shadow. A shadow appears only on something that floats above the page (tooltip) or on a pressed control."
       }
     ],
     "dos": [
-      "Do build every surface from the three-step tonal ladder (`bg`, `panel`, `panel-raised`) and 1px `line` hairlines.",
+      "Do give each idea its own section, and let the page grow downwards rather than packing a screen.",
+      "Do separate sections by alternating `bg` and `band` and by whitespace.",
+      "Do keep one primary action per screen; set the rest as text links.",
+      "Do take new colours from a whole Wada combination and log any lightness or chroma move in the token map.",
+      "Do write every colour token as `light-dark(<light>, <dark>)` and run `npm test -w web` after changing one.",
       "Do give each track one series slot and use it for every mark about that track: line, dot, rung, filter, tooltip row.",
-      "Do pair every green or red with a lucide icon and a word, as the ladder's Flag + \"Finished\" and the feed's verdict rows do.",
+      "Do pair every green or red with a lucide icon and a word.",
       "Do set every measured number in Geist Mono with tabular figures, and its label in sans `fg-3`.",
       "Do direct-label chart series at the line end and keep an accessible table behind the chart.",
       "Do keep transitions to 150ms colour changes and respect reduced motion."
     ],
     "donts": [
-      "Don't add a light theme or theme toggle; the system is dark only.",
+      "Don't put every element inside a small card, or a section inside a bordered panel.",
+      "Don't put a badge or chip row above a headline, or a row of hero metrics under it.",
+      "Don't add decoration that carries no information (the homepage has no 3D backdrop).",
+      "Don't pick single swatches, change a book hue, or put a hex value in a component.",
       "Don't use a track hue for chrome, buttons, emphasis or decoration, or reassign hues by rank or leader.",
-      "Don't add a fifth categorical hue without re-running the CVD validator against `panel`.",
-      "Don't introduce a brand accent; the primary is white.",
+      "Don't use green, red or yellow for anything but verdicts, failures and connecting, and never as colour alone.",
+      "Don't add glowing accents, gradient text or a cyan-on-dark palette.",
       "Don't put shadows on panels or rows; depth is tonal.",
       "Don't set prose, headings or labels in mono, or numbers in sans.",
-      "Don't use uppercase or letter-spaced labels or eyebrow text above headings."
+      "Don't use uppercase or letter-spaced labels or eyebrow text above headings.",
+      "Don't commit a scan or PDF of Wada's book."
     ]
   }
 }

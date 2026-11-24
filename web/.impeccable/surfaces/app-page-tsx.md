@@ -1,31 +1,38 @@
 ---
-version: 1
+version: 2
 slug: "app-page-tsx"
 primary_target: "app/page.tsx"
-related_targets: []
+related_targets:
+  - "components/arena/RightNow.tsx"
+  - "components/arena/EngineFeature.tsx"
+  - "components/ui/Section.tsx"
+  - "components/ui/SectionNav.tsx"
 ---
 
-# Surface: home (/) — the race
+# Surface: home (/), a calm notebook of the race
 
-Mode: Experience (portfolio showcase; the work leads from the first viewport).
-Audience: recruiters, engineers, r/artificial readers arriving from a link. Job: understand the
-race in ten seconds and trust the numbers. Action: open a track or a match to audit it.
-Constraints: every figure traces to a match; no synthetic data; no chat transcripts.
+Mode: Experience (portfolio showcase; the work leads), read as an editorial page.
+Audience: curious visitors, agent builders and the operator, arriving from a link. Job: see what
+this is, that the engines keep improving, and that every number was played. Action: open an
+engine, or play one.
+Constraints: every figure traces to a match; no synthetic data; no chat transcripts; the site
+never plays sound; WCAG AA in both themes.
 
-## Direction contract
+## Direction contract (issue #206, operator brief of 2026-11-24)
 
-THESIS: The race is the page. Four Elo lines climbing toward their finish lines lead the first
-viewport; it refuses the hero-headline-plus-stat-cards template.
-OWN-WORLD: Linear-grade dark dashboard. Cool near-black ground, one raised panel tone, hairline
-borders, Geist sans for UI, Geist Mono only for Elo, moves and counts. Four validated track hues
-(blue, orange, aqua, yellow) are data identity only; a single white primary for actions; status
-green/red reserved for verified/refuted with icon + label.
-STORY: Visitor sees four engines climbing, sees the latest game replaying, reads the board of
-records below, understands that agents coordinate through it, clicks into a track to audit.
-FIRST VIEWPORT: left 2/3: race chart (Elo over time, four direct-labeled lines, rung ticks,
-dashed finish lines) with a compact track ladder strip under it; right 1/3: live board replay of
-the latest match with result. Thin top bar: name, live dot, counters inline.
-FORM: canon (standing exit, dark dashboard), seed:ac280b1d30fe0ad6. Signature interaction:
-hover crosshair on the race reveals each engine's Elo and the version at that moment; motion
-grammar: new records slide in at the top of the board, nothing else animates.
-FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+THESIS: One idea per section, spread along the vertical axis. "Don't confuse information density
+with information compression." It refuses the hero-plus-stat-tiles-plus-card-grid dashboard.
+OWN-WORLD: Sanzo Wada combination 52 (Sulpher Yellow paper, Black ink) in light and dark, engine
+hues from combination 347, status from 313 (see DESIGN.md). Geist for words, Geist Mono for
+measured numbers. Sections separate by ground and whitespace, never by cards.
+STORY: Overview (what this is, one action) → Right now (who is at work, the latest event) → The
+engines (each given room: rating, version, where it stands) → Watch them improve (full-width
+chart, the ladders behind a disclosure, the latest game) → How it works (four steps, three
+numbers as a sentence) → News and further reading.
+FIRST VIEWPORT: the overview only: the headline, one line, one primary action ("Play an engine"),
+secondary actions as text links. A sticky section nav under the top bar.
+FORM: alternating `bg` / `band` sections, oversized chapter headings with short intros,
+asymmetric rhythm (full-width sections alternate with 5:6 two-column ones), progressive
+disclosure, no scroll snapping, no decorative backdrop.
+FINISH: critique and detect before and after, screenshots at 1440 and 390 in both themes,
+`scripts/home-check.mjs` and `scripts/tokens.test.mjs` green, DESIGN.md updated.
