@@ -4,7 +4,8 @@
 // long caption, a long count line). Checks, at desktop and phone width:
 //   1. every overlay is its node's bounding square, centred on the drawn circle (< 1 px);
 //   2. every visible element of every overlay lies inside its node's circle;
-//   3. the live board's place in its circle stays fixed (< 1 px) whatever the text does.
+//   3. the live board's place in its circle stays fixed (< 1 px) whatever the text does;
+//   4. no edge shows through the text: the body is opaque and every edge layer is drawn below it.
 // Saves screenshots of a live sector, an idle sector and a phone-width view to OUT_DIR.
 // Run: npm run build && npx next start -p 3163 (in web/), then
 // BASE_URL=http://localhost:3163 OUT_DIR=/tmp node scripts/check-node-inside.cjs
@@ -88,10 +89,25 @@ const geometry = (p) =>
         const id = o.dataset.nodeId;
         const box = o.getBoundingClientRect();
         const R = parseFloat(o.style.getPropertyValue("--node-r"));
-        const body = [...document.querySelectorAll("g.sg-node")]
-          .find((g) => g.__data__?.id === id)
-          ?.querySelector("path.sg-body")
-          ?.getBoundingClientRect();
+        const node = [...document.querySelectorAll("g.sg-node")].find(
+          (g) => g.__data__?.id === id,
+        );
+        const path = node?.querySelector("path.sg-body");
+        const body = path?.getBoundingClientRect();
+        // Opaque: fill-opacity 1 and a fill with no alpha of its own.
+        const fill = path ? getComputedStyle(path) : null;
+        const opaque =
+          !!fill &&
+          fill.fillOpacity === "1" &&
+          !/rgba\(.*,\s*0?\.\d+\)|\/\s*0?\.\d/.test(fill.fill);
+        // Every layer drawing an edge (path with a stroke and no fill) sits before the nodes.
+        const nodes = node?.parentElement;
+        const layers = nodes ? [...nodes.parentElement.children] : [];
+        const edgesAbove = layers
+          .slice(layers.indexOf(nodes) + 1)
+          .filter((g) =>
+            g.querySelector('path[stroke]:not([fill]), path[fill="none"]'),
+          ).length;
         const cx = box.left + box.width / 2;
         const cy = box.top + box.height / 2;
         const outside = [];
@@ -133,6 +149,8 @@ const geometry = (p) =>
               ]
             : null,
           bodyR: body ? body.width / 2 : null,
+          opaque,
+          edgesAbove,
           outside,
           // Measured from the circle's centre: a circle that grows (more effort) keeps it in place.
           board: board
@@ -159,6 +177,12 @@ const checkInside = (geo, label) => {
     assert(
       Math.abs(g.bodyR - g.R) <= 1,
       `${label} ${g.id}: radius matches (${g.bodyR} vs ${g.R})`,
+    );
+    assert(g.opaque, `${label} ${g.id}: its body is opaque`);
+    assert.equal(
+      g.edgesAbove,
+      0,
+      `${label} ${g.id}: no edge layer above its body`,
     );
     assert.deepEqual(
       g.outside,
