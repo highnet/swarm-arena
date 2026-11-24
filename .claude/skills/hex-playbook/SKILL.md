@@ -289,4 +289,4 @@ Never re-propose an idea from this list unchanged.
 - 2026-11-23 18:54 UTC · buried · Experiment: ownership-guided fill-in, where the root's own playout ownership map biases the split of contested cells · Rated 2572 ± 108, not above 2607.
 - 2026-11-23 19:40 UTC · v0.5 passed the referee · Inferior-cell pruning: drop dead cells from the tree and settle captured cells in the fill-in · rated 2734 (+127)
 - 2026-11-24 09:56 UTC · buried · Self-generated opening book: the engine's own long MCTS runs over the first moves, probed instantly · Rated 2664 ± 110, not above 2734.
-- 2026-11-24 12:20 UTC · v0.6 passed the referee · Experiment: a cell prior learned offline from the engine's own self-play, given to new nodes as virtual wins · rated 2823 (+89)
+- 2026-11-24 12:41 UTC · buried · Experiment: a cell prior learned offline from the engine's own self-play, given to new nodes as virtual wins · Rated 2717 ± 108, not above 2734.
