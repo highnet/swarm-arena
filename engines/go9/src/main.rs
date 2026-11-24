@@ -12,6 +12,7 @@ use std::io::{self, BufRead, Write};
 use std::time::{Duration, Instant};
 
 mod board;
+mod book;
 mod search;
 
 use board::{Board, Rng};
@@ -249,11 +250,103 @@ fn choose(moves: &[String], budget_ms: u64) -> Option<String> {
     if legal.len() == 1 {
         return Some(format_move(to_coord(legal[0])));
     }
+    if let Some(m) = book_move(moves, &flat).filter(|m| legal.contains(m)) {
+        eprintln!("info book {}", format_move(to_coord(m)));
+        return Some(format_move(to_coord(m)));
+    }
     let mut rng = seeded_rng(moves);
     let deadline = start + Duration::from_millis(budget_ms * 7 / 10);
     let out = search::search(&flat, &legal, deadline, &mut rng);
     eprintln!("info playouts {} winrate {:.3}", out.playouts, out.winrate);
     Some(format_move(to_coord(out.best)))
+}
+
+/// The opening book's move for this position, when the game is still in the book's range:
+/// at most `book::MAX_PLY` moves, no pass, no capture (every move left its stone).
+fn book_move(moves: &[String], flat: &Board) -> Option<u8> {
+    if moves.len() > book::MAX_PLY || moves.iter().any(|m| m.eq_ignore_ascii_case("pass")) {
+        return None;
+    }
+    if flat.cell.iter().filter(|&&c| c != board::EMPTY).count() != moves.len() {
+        return None;
+    }
+    book::probe(book::embedded(), &flat.cell)
+}
+
+/// Offline book tooling (`go9-engine book …`); never used during a game.
+///
+/// - `book gen <file> --playouts N [--shard i/k] [--seed S]`: searches every position of the
+///   frontier (`book::frontier` of the entries already in `<file>`) whose index is `i` mod `k`,
+///   with N playouts each and no clock, and prints one book line per position. Deterministic.
+/// - `book frontier <file>`: how many positions the frontier holds.
+/// - `book stats [opening plies]`: reads game records (`<b|w> <move>…`, the colour this engine played) on stdin
+///   and prints in-book plies per game and the first out-of-book ply.
+fn book_tool(args: &[String]) {
+    let flag = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned();
+    let load = |path: &str| book::parse(&std::fs::read_to_string(path).unwrap_or_default());
+    match args.first().map(String::as_str) {
+        Some("frontier") => {
+            let b = load(&args[1]);
+            println!("{} entries, frontier {}", b.len(), book::frontier(&b).len());
+        }
+        Some("gen") => {
+            let b = load(&args[1]);
+            let playouts: u64 = flag("--playouts").and_then(|v| v.parse().ok()).unwrap_or(50_000);
+            let seed: u64 = flag("--seed").and_then(|v| v.parse().ok()).unwrap_or(110);
+            let (i, k) = flag("--shard")
+                .and_then(|v| v.split_once('/').map(|(a, b)| (a.parse().ok(), b.parse().ok())))
+                .and_then(|(a, b)| Some((a?, b?)))
+                .unwrap_or((0usize, 1usize));
+            let out = io::stdout();
+            for (n, key) in book::frontier(&b).into_iter().enumerate() {
+                if n % k != i {
+                    continue;
+                }
+                let order: Vec<String> = book::move_order(key).into_iter().map(|p| format_move(to_coord(p))).collect();
+                let pos = Position::from_moves(&order);
+                let flat = flat_board(&pos);
+                let legal = root_moves(&pos, &flat);
+                let mut rng = Rng(book::seed(key, seed));
+                let res = search::search_limited(&flat, &legal, None, playouts, &mut rng);
+                let mut o = out.lock();
+                writeln!(o, "{}", book::format_line(key, res.best, res.playouts, res.winrate)).ok();
+                o.flush().ok();
+            }
+        }
+        Some("stats") => {
+            // Plies of the referee's opening (#105: 2), not played by the engine.
+            let skip: usize = args.get(1).and_then(|v| v.parse().ok()).unwrap_or(2);
+            let (mut games, mut inbook) = (0u32, 0u32);
+            let mut first: std::collections::BTreeMap<usize, u32> = Default::default();
+            for line in io::stdin().lock().lines().map_while(Result::ok) {
+                let mut f = line.split_whitespace();
+                let me = match f.next() {
+                    Some("b") => 0,
+                    Some("w") => 1,
+                    _ => continue,
+                };
+                let all: Vec<String> = f.map(String::from).collect();
+                games += 1;
+                let mut out_at = None;
+                for ply in (me..all.len()).step_by(2).filter(|&p| p >= skip) {
+                    let pos = Position::from_moves(&all[..ply]);
+                    let flat = flat_board(&pos);
+                    if book_move(&all[..ply], &flat).is_some() {
+                        inbook += 1;
+                    } else {
+                        out_at = Some(ply);
+                        break;
+                    }
+                }
+                *first.entry(out_at.unwrap_or(all.len())).or_default() += 1;
+            }
+            println!("{games} games, {inbook} in-book plies ({:.2} per game)", inbook as f32 / games.max(1) as f32);
+            for (ply, n) in first {
+                println!("first out-of-book ply {ply}: {n} games");
+            }
+        }
+        _ => eprintln!("usage: go9-engine book gen <file> --playouts N [--shard i/k] [--seed S] | frontier <file> | stats [opening plies]"),
+    }
 }
 
 fn to_coord(p: u8) -> Coord {
@@ -280,6 +373,11 @@ fn handle(line: &str, moves: &mut Vec<String>) -> (Option<String>, bool) {
 }
 
 fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("book") {
+        book_tool(&args[1..]);
+        return;
+    }
     let stdin = io::stdin();
     let mut out = io::stdout();
     let mut moves = Vec::new();
@@ -518,6 +616,82 @@ mod tests {
         f.play(0);
         f.play(80);
         assert!(f.is_legal(d5));
+    }
+
+    /// Every embedded book entry is a legal, non-own-eye move in its position, and the position
+    /// is reachable without captures (black has as many stones as white, or one more).
+    #[test]
+    fn book_moves_are_legal() {
+        let b = book::embedded();
+        for (&key, &mv) in b.iter() {
+            let (nb, nw) = (key.0.count_ones(), key.1.count_ones());
+            assert!(nb == nw || nb == nw + 1, "stone counts {nb}/{nw}");
+            assert!(nb + nw <= book::MAX_PLY as u32);
+            let order: Vec<String> = book::move_order(key).into_iter().map(|p| format_move(to_coord(p))).collect();
+            let pos = Position::from_moves(&order);
+            let flat = flat_board(&pos);
+            assert_eq!(&flat.cell, &book::cells_of(key), "{order:?}");
+            assert!(root_moves(&pos, &flat).contains(&mv), "illegal book move after {order:?}");
+        }
+    }
+
+    /// Every opening of the referee's suite (#105) is in the book from both sides' first move:
+    /// the ply-2 position itself. Reported, not asserted, before the book is generated.
+    #[test]
+    fn suite_openings_are_in_book() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../shared/src/openings/go9.txt");
+        let Ok(text) = std::fs::read_to_string(path) else { return };
+        let (mut hit, mut total) = (0, 0);
+        for line in text.lines().filter(|l| !l.starts_with('#') && !l.trim().is_empty()) {
+            let moves: Vec<String> = line.split('\t').next().unwrap().split_whitespace().map(String::from).collect();
+            let pos = Position::from_moves(&moves);
+            let flat = flat_board(&pos);
+            total += 1;
+            if let Some(m) = book_move(&moves, &flat) {
+                assert!(root_moves(&pos, &flat).contains(&m));
+                hit += 1;
+            }
+        }
+        println!("suite openings in book: {hit}/{total}");
+        if !book::embedded().is_empty() {
+            assert_eq!(hit, total);
+        }
+    }
+
+    /// The generator's search is reproducible: same position, budget and seed, same move.
+    #[test]
+    fn book_search_is_deterministic() {
+        let order = mv("e5 c3");
+        let pos = Position::from_moves(&order);
+        let flat = flat_board(&pos);
+        let legal = root_moves(&pos, &flat);
+        let key = book::canonical(&flat.cell).0;
+        let run = || {
+            let mut rng = Rng(book::seed(key, 110));
+            let o = search::search_limited(&flat, &legal, None, 3000, &mut rng);
+            (o.best, o.playouts, o.winrate)
+        };
+        assert_eq!(run(), run());
+        assert_eq!(run().1, 3000);
+    }
+
+    /// In book, `go` answers the stored move at once; out of book (a capture or a pass) it searches.
+    #[test]
+    fn book_is_probed_only_in_range() {
+        let moves = mv("e5 c3");
+        let pos = Position::from_moves(&moves);
+        let flat = flat_board(&pos);
+        if let Some(m) = book_move(&moves, &flat) {
+            let t = Instant::now();
+            assert_eq!(choose(&moves, 1000).unwrap(), format_move(to_coord(m)));
+            assert!(t.elapsed() < Duration::from_millis(100));
+        }
+        let with_pass = mv("e5 pass");
+        let pos = Position::from_moves(&with_pass);
+        assert_eq!(book_move(&with_pass, &flat_board(&pos)), None);
+        let long = mv("e5 c3 g7 c7 g3");
+        let pos = Position::from_moves(&long);
+        assert_eq!(book_move(&long, &flat_board(&pos)), None);
     }
 
     /// Prints playouts per second on the empty board (cargo test --release -- --nocapture).
