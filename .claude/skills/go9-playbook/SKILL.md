@@ -153,6 +153,55 @@ it). Verdict and why in "What failed and why".
 - Next: a looser "settled" test that fires earlier (e.g. regions an enemy cannot live in by
   size/shape, or Benson plus one-move safety), so the exact solve reaches real gate endgames.
 
+## Candidate (not shipped): self-generated opening book (#110)
+
+Move into "Architecture now" only once the referee passes it.
+
+- `src/book.rs`. `choose()` probes the book after the pass/one-move checks and before the search,
+  and plays the stored move instantly (`info book <move>` on stderr) if it is among the root moves.
+  The book is only consulted while the game has at most 4 moves, no pass and no capture (stones on
+  the board = moves played), so stones + side to move are the whole position (no ko/superko).
+- **Keyed by canonical position**, not move order: black and white stones as two 81-bit masks,
+  minimised over the board's 8 symmetries (`sym`: transpose, row flip, column flip). The stored
+  move is in the canonical frame and mapped back with `unsym`. Transpositions and mirrored
+  openings share one entry.
+- **What it covers** (`book::frontier`): with the region R = c3–g7 (where #105's suite draws
+  its 2-ply lines): the empty board; every 1- and 2-stone position in R (plies 1–2: our first
+  move as Black after any suite opening); every ply-2 R position plus any third black stone in R
+  (ply 3: our first move as White); every ply-2 position plus its own book move plus any white
+  reply in R (ply 4: our second move as Black). 996 + 1324 = **2320 canonical positions**.
+  No ply-5 entries (White's second move): that frontier would be ~20x larger.
+- **How it was built** (regenerate from `engines/`: `go9/book/generate.sh [shards] [playouts]`):
+  `search::search_limited` = the engine's own UCT+RAVE with a fixed **100 000 playouts** per
+  position and no clock (vs ~3.5k in a go-200 move, ~28x), RNG seeded from the position key and
+  seed 110, so the book is deterministic whatever the shard count or machine. Rounds repeat
+  until the frontier is empty (round 2 needs the ply-2 book moves). Cost: ~3 s per position
+  with 4 shard processes; 29 min wall for the whole book. Source and embedded form are the
+  same file, `book/go9-book.txt` (`black\twhite\tmove\tplayouts\twinrate`, canonical
+  GTP points), 62 KB, `include_str!`, parsed once into a HashMap.
+- **Rebuild after generating**: the book is `include_str!`, so a binary built before the last
+  round plays the old book (`generate.sh` rebuilds last).
+- Hit rate: `go9-engine book stats` reads game lines (`b|w <moves…>`, the colour the engine
+  played) on stdin and prints in-book plies per game and the first out-of-book ply.
+- Tests: every entry legal (goban + superko oracle, not an own eye) in its position and stone
+  counts consistent; all 146 suite openings in book; the generator's search reproducible;
+  probe skipped after a pass and beyond ply 4.
+- Local results: local, 200 ms, suite openings (`playMatch` with `loadSuite("go9")`,
+  not referee evidence): vs main (v0.4) **35–45** over 80 (seed 110: 16–24, seed 111: 19–21);
+  vs GNU Go 5 candidate **32–28** over 60 against main **35–25** on the same openings (seeds
+  112/113/114: 9–11, 9–11, 14–6 vs 13–7, 10–10, 12–8). Within noise of main, if anything
+  slightly behind. Hit rate (`book stats`, 47 games): **1.5 in-book plies per game**, every
+  targeted ply hit: as Black plies 2 and 4 in book, first out-of-book ply 6; as White ply 3 in
+  book, first out-of-book ply 5.
+- Why the gain is small, measured: at 3.5k playouts (one go-200 move) the root choice is very
+  unstable: on 20 frontier positions six seeds agreed with the 100k-playout move only 22% of
+  the time (and rarely with each other); at 100k four seeds agree ~75% (the empty board still
+  varies: e4/e6/f6/e5). So the book does change the opening moves; it just does not show that
+  100k-playout UCT+RAVE (C = 0) picks *better* opening moves than 3.5k. Next, if this is
+  buried: score candidate book moves by long self-play from the position (many games at go 200
+  per candidate, a search of the move's outcome rather than one search's most-visited child),
+  or average several seeds' visit counts; and cover ply 5.
+
 ## Ideas worth trying
 
 - Tree reuse between moves, progressive widening. RAVE is in (#86).
@@ -206,3 +255,4 @@ differently. Never re-propose an idea from this list unchanged.
 - 2026-11-23 19:00 UTC · v0.3 passed the referee · RAVE (AMAF) blended into UCT, ported from Hex v0.3 · rated 959 (+24 vs v0.2 on the same rung)
 - 2026-11-23 20:39 UTC · v0.4 passed the referee · Tactical playout policy: capture or escape atari near the last move, and refuse self-atari, ported from Hex's bridge-preserving fill-in · rated 1341 (+382)
 - 2026-11-23 21:44 UTC · buried · Exact endgame without tablebases: Benson-settled regions plus an alpha-beta solve of the unsettled points · Rated 1569 ± 142 vs GNU Go level 5; v0.4 rated 1682 ± 179 on the same rung.
+- 2026-11-24 10:16 UTC · v0.5 passed the referee · Self-generated opening book: the engine's own long MCTS runs over the first moves, probed instantly · rated 1447 (+58 vs v0.4 on the same rung)

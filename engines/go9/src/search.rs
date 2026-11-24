@@ -54,6 +54,12 @@ pub struct Outcome {
 /// Searches from `root` until `deadline` and returns the most-visited of `root_moves`.
 /// `root_moves` must be non-empty.
 pub fn search(root: &Board, root_moves: &[u8], deadline: Instant, rng: &mut Rng) -> Outcome {
+    search_limited(root, root_moves, Some(deadline), u64::MAX, rng)
+}
+
+/// As `search`, but stops after `max_playouts` simulations too. With no deadline the result
+/// depends only on the position, the moves and the RNG: the offline book generator uses this.
+pub fn search_limited(root: &Board, root_moves: &[u8], deadline: Option<Instant>, max_playouts: u64, rng: &mut Rng) -> Outcome {
     let mut nodes: Vec<Node> = Vec::with_capacity(1 << 16);
     nodes.push(Node::new(PASS));
     add_children(&mut nodes, 0, root_moves, rng);
@@ -65,8 +71,13 @@ pub fn search(root: &Board, root_moves: &[u8], deadline: Instant, rng: &mut Rng)
     let mut playouts: u64 = 0;
     loop {
         // Check the clock every few playouts; always run at least one.
-        if playouts % 16 == 0 && playouts > 0 && Instant::now() >= deadline {
+        if playouts >= max_playouts.max(1) {
             break;
+        }
+        if let Some(deadline) = deadline {
+            if playouts % 16 == 0 && playouts > 0 && Instant::now() >= deadline {
+                break;
+            }
         }
         let mut board = root.clone();
         path.clear();
