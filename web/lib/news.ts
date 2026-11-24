@@ -63,7 +63,9 @@ const parse = (file: string, raw: string): Article | null => {
 /** Every story, newest first. */
 export const getNews = async (): Promise<Article[]> => {
   'use cache';
-  cacheLife('minutes');
+  // Stories ship with the deploy, so they cannot change before the next one. A shorter life made
+  // every route's shell (the root layout reads this) refresh into ISR once a minute (#222).
+  cacheLife('max');
   const files = (await readdir(NEWS_DIR).catch(() => [] as string[])).filter((f) =>
     /^\d{4}-\d{2}-\d{2}-.+\.md$/.test(f),
   );
