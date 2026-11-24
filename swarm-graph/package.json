@@ -13,6 +13,7 @@
     "./replay": "./src/replay.ts",
     "./intro": "./src/intro.ts",
     "./effects": "./src/effects.ts",
+    "./beams": "./src/beams.ts",
     "./lifecycle": "./src/lifecycle.ts"
   },
   "sideEffects": false,
