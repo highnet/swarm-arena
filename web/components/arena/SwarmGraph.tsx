@@ -8,12 +8,17 @@ import {
   agentNodeId,
   buildSwarmGraph,
   createSwarmGraph,
+  planReplay,
+  stateAt,
+  summarizeReplay,
   type SwarmAgent,
   type SwarmEvent,
   type SwarmFlow,
   type SwarmGraphRenderer,
   type SwarmInput,
   type SwarmNode,
+  type SwarmReplayMode,
+  type SwarmReplayPlan,
   type SwarmReplayState,
   type SwarmStage,
 } from '@rallypoint/swarm-graph';
@@ -43,6 +48,7 @@ import { useCatchUp } from '@/lib/useCatchUp';
 import { cn } from '@/lib/utils';
 import type { EngineBoardSource } from './EngineBoard';
 import { useFleetHover } from './FleetHover';
+import { ReplayScrubber } from './ReplayScrubber';
 import { agentHref } from './seats';
 import { SwarmNodeOverlay, type NodeRating } from './SwarmNodeOverlay';
 
@@ -534,7 +540,8 @@ const SwarmGraph = ({
   const [ticker, setTicker] = useState<Tick[]>([]);
   const groups = useRef(new Map<string, GroupTally>());
   const [replay, setReplay] = useState<SwarmReplayState | null>(null);
-  const [replaying, setReplaying] = useState(false);
+  const [replayPlan, setReplayPlan] = useState<SwarmReplayPlan | null>(null);
+  const replaying = replayPlan !== null;
 
   // Callbacks read the latest props through a ref so the renderer is created once.
   const { hovered, setHovered } = useFleetHover();
@@ -611,7 +618,7 @@ const SwarmGraph = ({
       },
       onReplay: (state) => {
         setReplay(state);
-        if (!state) setReplaying(false);
+        if (!state) setReplayPlan(null);
       },
     });
     renderer.current = r;
@@ -649,16 +656,47 @@ const SwarmGraph = ({
       .reverse()
       .map((id) => colorById.get(id))
       .find(Boolean) ?? undefined;
-  const startReplay = () => {
+  /** The last 24 actively worked hours (or the whole run), from the state when it began. */
+  const startReplay = (mode: SwarmReplayMode = 'window') => {
+    const plan = planReplay(shownGraph.flows, shownGraph.hubId, { mode, durationMs: 60_000 });
+    if (!plan.flows.length) return;
     setTicker([]);
     groups.current.clear();
-    setReplaying(true);
-    renderer.current?.replay(Math.min(45_000, Math.max(15_000, shownGraph.flows.length * 250)));
+    setReplayPlan(plan);
+    renderer.current?.replay(plan);
   };
   const stopReplay = () => {
     renderer.current?.stopReplay();
-    setReplaying(false);
+    setReplayPlan(null);
+    setReplay(null);
   };
+  const replaySummary = useMemo(
+    () => (replayPlan ? summarizeReplay(replayPlan) : null),
+    [replayPlan],
+  );
+  /** Each engine's rating change still to come in the window, from the playhead to the end. */
+  const replayEnd = useMemo(
+    () =>
+      replayPlan
+        ? stateAt(replayPlan.seed, replayPlan.flows, replayPlan.flows.length, replayPlan.hubId)
+        : null,
+    [replayPlan],
+  );
+  const sectorColors = useMemo(
+    () =>
+      new Map(
+        graph.nodes.filter((n) => n.kind === 'sector').map((n) => [n.sectorId ?? '', n.color]),
+      ),
+    [graph],
+  );
+  const sectorLabels = useMemo(
+    () =>
+      new Map(
+        graph.nodes.filter((n) => n.kind === 'sector').map((n) => [n.sectorId ?? '', n.label]),
+      ),
+    [graph],
+  );
+  const replayClock = useCallback(() => renderer.current?.replayClock() ?? null, []);
 
   // Node overlays: rating, live agents and latest game, in every preset.
   const items = useMemo(() => new Map(merged.workItems.map((w) => [w.id, w])), [merged]);
@@ -675,11 +713,31 @@ const SwarmGraph = ({
     merged.agents
       .filter((a) => a.status === 'working' && a.sector === sectorId)
       .sort((a, b) => b.lastSeen.localeCompare(a.lastSeen));
-  const ratingOf = (e: EngineNode): NodeRating => {
+  const liveRatingOf = (e: EngineNode): NodeRating => {
     const l = live.ratings[e.id];
     return l && l.at > basisInput.asOf
       ? { elo: l.elo, version: l.version, delta: l.delta, key: l.key }
       : { elo: e.elo, version: e.version, delta: null, key: 0 };
+  };
+  /** During a replay a rating stands where it stood at the playhead and counts up from there. */
+  const ratingOf = (e: EngineNode): NodeRating => {
+    const now = liveRatingOf(e);
+    if (!replay || !replayPlan || !replayEnd || now.elo === null) return now;
+    const ahead = (replayEnd.rating[e.id] ?? 0) - (replay.snapshot.rating[e.id] ?? 0);
+    let last = -1;
+    for (let i = replay.index - 1; i >= 0; i--) {
+      const f = replayPlan.flows[i];
+      if (f.kind === 'rating' && f.sector === e.id && f.delta) {
+        last = i;
+        break;
+      }
+    }
+    return {
+      elo: now.elo - ahead,
+      version: now.version,
+      delta: last >= 0 ? replayPlan.flows[last].delta : null,
+      key: last + 1,
+    };
   };
   const boardOf = (e: EngineNode): EngineBoardSource | null => {
     const l = live.games[e.id];
@@ -714,11 +772,12 @@ const SwarmGraph = ({
           ) : (
             <Button
               size="sm"
-              onClick={startReplay}
+              onClick={() => startReplay('window')}
               disabled={shownGraph.flows.length === 0 || catchUp !== null}
+              title="Play back the last 24 actively worked hours; choose the whole run on the timeline"
             >
               <History className="size-3.5" aria-hidden="true" />
-              Replay run
+              Replay last 24 h
             </Button>
           )}
           <Button
@@ -780,27 +839,6 @@ const SwarmGraph = ({
           </div>
         )}
 
-        {replay && (
-          <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
-            <div className="rounded-md border border-line bg-panel-raised px-3 py-1.5 text-xs text-fg-2 shadow-lg">
-              Replaying ·{' '}
-              <span className="font-mono tabular text-fg">
-                {formatDay(replay.at)} {formatTime(replay.at)}
-              </span>
-              <span className="text-fg-3">
-                {' '}
-                · {replay.index}/{replay.total}
-              </span>
-              <div className="mt-1 h-0.5 w-full overflow-hidden rounded bg-line">
-                <div
-                  className="h-full bg-fg-2 transition-[width] duration-200"
-                  style={{ width: `${(replay.index / replay.total) * 100}%` }}
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
         {ticker.length > 0 && (
           <ol
             className="pointer-events-none absolute bottom-3 left-3 max-w-[min(22rem,calc(100%-1.5rem))] space-y-1"
@@ -854,6 +892,24 @@ const SwarmGraph = ({
           </div>
         )}
       </div>
+
+      {replayPlan && replay && replaySummary && (
+        <ReplayScrubber
+          plan={replayPlan}
+          state={replay}
+          summary={replaySummary}
+          colors={sectorColors}
+          labels={sectorLabels}
+          reducedMotion={reducedMotion}
+          clock={replayClock}
+          onSeek={(i) => renderer.current?.seek(i)}
+          onSeekTime={(ms) => renderer.current?.seekTime(ms)}
+          onPlaying={(p) => renderer.current?.setPlaying(p)}
+          onSpeed={(v) => renderer.current?.setSpeed(v)}
+          onMode={(m) => m !== replayPlan.mode && startReplay(m)}
+          onClose={stopReplay}
+        />
+      )}
 
       <ul className="relative flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line px-4 py-2.5 text-xs text-fg-3">
         {sectors.map((s) => (
