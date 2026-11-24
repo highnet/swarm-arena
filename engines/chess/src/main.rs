@@ -8,7 +8,7 @@ mod endgame;
 use endgame::Tb;
 use shakmaty::uci::UciMove;
 use shakmaty::zobrist::Zobrist64;
-use shakmaty::{Chess, Color, EnPassantMode, Move, Position, Role};
+use shakmaty::{Chess, Color, EnPassantMode, Move, Position, Rank, Role, Square};
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::io::{self, BufRead, Write};
@@ -279,6 +279,76 @@ fn order_key(m: &Move, best: Option<Move>) -> i32 {
     k
 }
 
+/// Static exchange evaluation: the material the side to move nets by playing capture `m` and
+/// letting both sides keep recapturing on its target square, each with its least valuable
+/// attacker and each free to stop when going on would lose. A swap list over the attackers of the
+/// target: the occupancy shrinks as pieces join the exchange, so a slider behind one (an x-ray,
+/// e.g. a rook battery) joins in turn. En passant removes the captured pawn from its own square;
+/// a pawn that captures onto the last rank becomes a queen. The king captures only when the
+/// other side has no attacker left. Pins are ignored. Non-captures score 0.
+fn see(pos: &Chess, m: &Move) -> i32 {
+    let (Some(from), Some(victim)) = (m.from(), m.capture()) else { return 0 };
+    let board = pos.board();
+    let to = m.to();
+    let last_rank = matches!(to.rank(), Rank::First | Rank::Eighth);
+    let mut occ = board.occupied();
+    occ.discard(from);
+    if m.is_en_passant() {
+        occ.discard(Square::from_coords(to.file(), from.rank()));
+    }
+    let promo_gain = |p: Role| value(p) - value(Role::Pawn);
+    // gain[d]: what the side making the d-th capture has netted if the exchange stops after it.
+    let mut gain = [0i32; 32];
+    gain[0] = value(victim) + m.promotion().map_or(0, promo_gain);
+    let mut on_target = m.promotion().unwrap_or(m.role());
+    let mut side = !pos.turn();
+    let mut d = 0;
+    while d + 1 < gain.len() {
+        let attackers = board.attacks_to(to, side, occ) & occ;
+        let Some((sq, role)) = [Role::Pawn, Role::Knight, Role::Bishop, Role::Rook, Role::Queen, Role::King]
+            .into_iter()
+            .find_map(|r| (attackers & board.by_role(r)).first().map(|sq| (sq, r)))
+        else {
+            break;
+        };
+        if role == Role::King && !(board.attacks_to(to, !side, occ.without(sq)) & occ.without(sq)).is_empty() {
+            break;
+        }
+        let promotes = role == Role::Pawn && last_rank;
+        d += 1;
+        gain[d] = value(on_target) + if promotes { promo_gain(Role::Queen) } else { 0 } - gain[d - 1];
+        on_target = if promotes { Role::Queen } else { role };
+        occ.discard(sq);
+        side = !side;
+    }
+    while d > 0 {
+        gain[d - 1] = -(-gain[d - 1]).max(gain[d]);
+        d -= 1;
+    }
+    gain[0]
+}
+
+/// Whether a capture can lose material at all: only when the capturing piece is worth more than
+/// its victim (otherwise the first capture already banks at least the difference). Lets the
+/// callers skip the swap list for most captures.
+fn may_lose(m: &Move) -> bool {
+    m.capture().is_some_and(|v| value(m.role()) > value(v) && m.promotion().is_none())
+}
+
+/// Ordering key for a capture that loses material (SEE < 0): after the killers, above every
+/// quiet move's history score, least bad first.
+const LOSING_CAPTURE_KEY: i32 = 350_000;
+
+/// The SEE ordering key of `m` if it is a losing capture (and not the TT move); None otherwise,
+/// and then the MVV-LVA key stands.
+fn losing_capture_key(pos: &Chess, m: &Move, tt_move: Option<Move>) -> Option<i32> {
+    if Some(*m) == tt_move || !may_lose(m) {
+        return None;
+    }
+    let s = see(pos, m);
+    (s < 0).then_some(LOSING_CAPTURE_KEY + s)
+}
+
 /// A quiet move: neither a capture nor a promotion. Only quiets go into the killer slots and the
 /// history table; captures and promotions already have their own ordering.
 fn is_quiet(m: &Move) -> bool {
@@ -378,6 +448,8 @@ struct Search<'a> {
     use_pvs: bool,
     /// Null-move pruning at null-window nodes.
     use_null: bool,
+    /// Static exchange evaluation: losing captures skipped in quiescence, ordered late in negamax.
+    use_see: bool,
     /// Ply of the null move on the current path (-1: none); a null move never follows one.
     null_ply: i32,
     /// Path entries below this index lie before the last null move: they, and the game history,
@@ -519,12 +591,19 @@ impl Search<'_> {
             }
         }
         let alpha0 = alpha;
+        let use_see = self.use_see;
         if self.use_order {
             let side = pos.turn();
             let order = &self.order;
-            moves.sort_by_cached_key(|m| -order.key(m, tt_move, side, ply));
+            moves.sort_by_cached_key(|m| {
+                let see_key = if use_see { losing_capture_key(pos, m, tt_move) } else { None };
+                -see_key.unwrap_or_else(|| order.key(m, tt_move, side, ply))
+            });
         } else {
-            moves.sort_unstable_by_key(|m| -order_key(m, tt_move));
+            moves.sort_by_cached_key(|m| {
+                let see_key = if use_see { losing_capture_key(pos, m, tt_move) } else { None };
+                -see_key.unwrap_or_else(|| order_key(m, tt_move))
+            });
         }
         self.path.push(h);
         let mut best = -INF;
@@ -628,9 +707,12 @@ impl Search<'_> {
             }
             best = stand;
             alpha = alpha.max(stand);
+            let use_see = self.use_see;
+            // Out of check, a capture that loses material by static exchange is not searched:
+            // standing pat already scores better than it can (QxP defended by a pawn).
             moves.retain(|m| match m.promotion() {
                 Some(p) => p == Role::Queen,
-                None => m.is_capture(),
+                None => m.is_capture() && !(use_see && may_lose(m) && see(pos, m) < 0),
             });
         }
         moves.sort_unstable_by_key(|m| -order_key(m, None));
@@ -786,6 +868,25 @@ fn run_feats(
     use_null: bool,
     exclude: &[Move],
 ) -> Option<Outcome> {
+    run_opts(pos, seen, hard, soft, max_depth, tt, use_tt, use_order, use_pvs, use_null, true, exclude)
+}
+
+/// `run_feats` with static exchange evaluation switched on or off as well.
+#[allow(clippy::too_many_arguments)]
+fn run_opts(
+    pos: &Chess,
+    seen: &HashSet<u64>,
+    hard: Duration,
+    soft: Duration,
+    max_depth: u32,
+    tt: &mut Tt,
+    use_tt: bool,
+    use_order: bool,
+    use_pvs: bool,
+    use_null: bool,
+    use_see: bool,
+    exclude: &[Move],
+) -> Option<Outcome> {
     let start = Instant::now();
     let mut moves: Vec<Move> = pos.legal_moves().into_iter().filter(|m| !exclude.contains(m)).collect();
     tt.new_search(pos.turn());
@@ -806,6 +907,7 @@ fn run_feats(
         use_order,
         use_pvs,
         use_null,
+        use_see,
         null_ply: -1,
         rep_floor: 0,
         null_tries: 0,
@@ -1116,6 +1218,7 @@ mod tests {
             use_order: false,
             use_pvs: false,
             use_null: false,
+            use_see: true,
             null_ply: -1,
             rep_floor: 0,
             null_tries: 0,
@@ -1480,6 +1583,7 @@ mod tests {
             use_order: false,
             use_pvs: true,
             use_null: true,
+            use_see: true,
             null_ply: -1,
             rep_floor: 0,
             null_tries: 0,
@@ -1628,5 +1732,130 @@ mod tests {
         let pos = from_fen("3k4/8/3K4/8/8/8/r7/7Q w - - 0 1");
         let out = search_depth(&pos, &HashSet::new(), 4).unwrap();
         assert!(out.score > MATE_BOUND, "score {}", out.score);
+    }
+
+    fn see_of(fen: &str, uci: &str) -> i32 {
+        let pos = from_fen(fen);
+        let m = UciMove::from_ascii(uci.as_bytes()).unwrap().to_move(&pos).unwrap();
+        see(&pos, &m)
+    }
+
+    #[test]
+    fn see_pawn_defended_piece() {
+        // QxP defended by a pawn loses the queen for a pawn; undefended it wins the pawn.
+        assert_eq!(see_of("4k3/8/4p3/3p4/8/8/8/3QK3 w - - 0 1", "d1d5"), 100 - 900);
+        assert_eq!(see_of("4k3/8/8/3p4/8/8/8/3QK3 w - - 0 1", "d1d5"), 100);
+        // NxP defended by a pawn; PxN wins outright.
+        assert_eq!(see_of("4k3/8/4p3/3p4/8/4N3/8/4K3 w - - 0 1", "e3d5"), 100 - 320);
+        assert_eq!(see_of("4k3/8/8/3n4/4P3/8/8/4K3 w - - 0 1", "e4d5"), 320);
+        // A cheaper capture banks at least the difference: the gate skips the swap list there.
+        let pos = from_fen("4k3/8/8/3n4/4P3/8/8/4K3 w - - 0 1");
+        let m = UciMove::from_ascii(b"e4d5").unwrap().to_move(&pos).unwrap();
+        assert!(!may_lose(&m));
+    }
+
+    #[test]
+    fn see_xray_rook_battery() {
+        // Re2xe5, Re8xe5, Re1xe5: the rook behind joins through the square the first one left.
+        assert_eq!(see_of("4r1k1/8/8/4p3/8/8/4R3/4R1K1 w - - 0 1", "e2e5"), 100);
+        // Without the second rook the defended pawn costs a rook.
+        assert_eq!(see_of("4r1k1/8/8/4p3/8/8/4R3/6K1 w - - 0 1", "e2e5"), 100 - 500);
+        // Black's battery too: two black rooks defend, White's two rooks attack: the exchange
+        // stops after Re8xe5, White keeps the pawn and loses nothing by stopping.
+        assert_eq!(see_of("4r1k1/4r3/8/4p3/8/8/4R3/4R1K1 w - - 0 1", "e2e5"), 100 - 500);
+        // A queen x-raying behind a bishop: Bxe4 Nxe4 Qxe4 (+100 -330 +320); alone, -230.
+        assert_eq!(see_of("7k/8/8/2n5/4p3/5B2/6Q1/K7 w - - 0 1", "f3e4"), 100 - 330 + 320);
+        assert_eq!(see_of("7k/8/8/2n5/4p3/5B2/8/K7 w - - 0 1", "f3e4"), 100 - 330);
+    }
+
+    #[test]
+    fn see_en_passant() {
+        // exd6 e.p. lifts the d5 pawn, which opens the d-file for the rook behind: Bxd6 Rxd6.
+        assert_eq!(see_of("5b1k/8/8/3pP3/8/8/8/3R3K w - d6 0 2", "e5d6"), 100);
+        // Without the rook the bishop's recapture evens it out.
+        assert_eq!(see_of("5b1k/8/8/3pP3/8/8/8/7K w - d6 0 2", "e5d6"), 0);
+        assert_eq!(see_of("7k/8/8/3pP3/8/8/8/7K w - d6 0 2", "e5d6"), 100);
+    }
+
+    #[test]
+    fn see_promotion_capture() {
+        // bxa8=Q wins rook + promotion (500 + 800); Qxa8 takes the new queen back.
+        assert_eq!(see_of("r2q2k1/1P6/8/8/8/8/8/6K1 w - - 0 1", "b7a8q"), 500 + 800 - 900);
+        assert_eq!(see_of("r5k1/1P6/8/8/8/8/8/6K1 w - - 0 1", "b7a8q"), 500 + 800);
+        // A recapture by a pawn onto the last rank promotes inside the exchange too: Rxb8 (+330),
+        // Rxb8 (-500), cxb8=Q (+500 and the promotion).
+        assert_eq!(see_of("1b2r1k1/2P5/8/8/8/8/8/1R4K1 w - - 0 1", "b1b8"), 330);
+    }
+
+    #[test]
+    fn see_king_never_captures_into_a_defended_square() {
+        // Qxf7+: the king cannot take back while the bishop guards f7.
+        assert_eq!(see_of("6k1/5p2/8/8/2B5/8/8/5QK1 w - - 0 1", "f1f7"), 100);
+        assert_eq!(see_of("6k1/5p2/8/8/8/8/8/5QK1 w - - 0 1", "f1f7"), 100 - 900);
+    }
+
+    #[test]
+    fn losing_captures_order_after_killers_and_are_skipped_in_quiescence() {
+        let fen = "4k3/8/4p3/3p4/8/8/8/3QK3 w - - 0 1";
+        let pos = from_fen(fen);
+        let m = UciMove::from_ascii(b"d1d5").unwrap().to_move(&pos).unwrap();
+        let k = losing_capture_key(&pos, &m, None).unwrap();
+        assert!(k < KILLER_KEY[1] && k > HISTORY_MAX, "{k}");
+        // The TT move keeps its place.
+        assert_eq!(losing_capture_key(&pos, &m, Some(m)), None);
+        // Fixed depth with and without SEE: same verdict on the bad capture, fewer qnodes.
+        let day = Duration::from_secs(86_400);
+        let opts = |see| run_opts(&pos, &HashSet::new(), day, day, 4, &mut Tt::new(16), true, true, true, true, see, &[]).unwrap();
+        let (off, on) = (opts(false), opts(true));
+        assert_ne!(on.best, m);
+        assert_eq!(on.score, off.score);
+        assert!(on.qnodes < off.qnodes, "{} vs {}", on.qnodes, off.qnodes);
+    }
+
+    #[test]
+    fn see_keeps_tactical_results() {
+        for fen in MATE_IN_3 {
+            let pos = from_fen(fen);
+            let out = search_depth(&pos, &HashSet::new(), 7).unwrap();
+            assert_eq!(out.score, MATE - 5, "{fen}");
+        }
+    }
+
+    #[test]
+    #[ignore = "measurement: cargo test --release -p chess-engine see_report -- --ignored --nocapture"]
+    fn see_report() {
+        let day = Duration::from_secs(86_400);
+        for depth in [5u32, 6, 7] {
+            let (mut n0, mut n1, mut q0, mut q1, mut t0, mut t1, mut same) = (0u64, 0u64, 0u64, 0u64, 0f64, 0f64, 0);
+            for fen in TT_FENS {
+                let pos = from_fen(fen);
+                let go = |see| {
+                    let t = Instant::now();
+                    let o = run_opts(&pos, &HashSet::new(), day, day, depth, &mut Tt::new(TT_BITS), true, true, true, true, see, &[]).unwrap();
+                    (o, t.elapsed().as_secs_f64() * 1000.0)
+                };
+                let ((off, ta), (on, tb)) = (go(false), go(true));
+                if (off.best, off.score) == (on.best, on.score) {
+                    same += 1;
+                } else {
+                    println!("  d{depth} differs {fen}: off {:?} {} on {:?} {}", off.best, off.score, on.best, on.score);
+                }
+                println!("  d{depth} {fen}: nodes {} -> {} qnodes {} -> {} ms {ta:.0} -> {tb:.0}", off.nodes, on.nodes, off.qnodes, on.qnodes);
+                (n0, n1, q0, q1, t0, t1) = (n0 + off.nodes, n1 + on.nodes, q0 + off.qnodes, q1 + on.qnodes, t0 + ta, t1 + tb);
+            }
+            println!(
+                "depth {depth}: nodes {n0} -> {n1} ({:+.1}%), qnodes {q0} -> {q1} ({:+.1}%), ms {t0:.0} -> {t1:.0} ({:+.1}%), same {same}/8",
+                100.0 * (n1 as f64 / n0 as f64 - 1.0),
+                100.0 * (q1 as f64 / q0 as f64 - 1.0),
+                100.0 * (t1 / t0 - 1.0)
+            );
+        }
+        for (i, fen) in TT_FENS.iter().enumerate() {
+            let pos = from_fen(fen);
+            let (hard, soft) = (Duration::from_millis(120), Duration::from_millis(60));
+            let go = |see| run_opts(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true, true, true, true, see, &[]).unwrap();
+            let (off, on) = (go(false), go(true));
+            println!("go 200 fen{i}: off depth {} nodes {} | on depth {} nodes {}", off.depth, off.nodes, on.depth, on.nodes);
+        }
     }
 }
