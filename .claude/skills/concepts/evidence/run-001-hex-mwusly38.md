@@ -1,0 +1,1 @@
+- 2026-11-24 · **rave/amaf** · Hex 11×11 · buried: Rated 2717 ± 108, not above 2734. · Win back RAVE's playout rate: cheaper AMAF update per playout, same selection
