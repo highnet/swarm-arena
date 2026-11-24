@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import type { SwarmAgent, SwarmWorkItem } from '@rallypoint/swarm-graph/model';
+import type { SwarmAgent, SwarmCount, SwarmWorkItem } from '@rallypoint/swarm-graph/model';
 import { Button } from '@/components/ui/Button';
 import { Typography } from '@/components/ui/Typography';
 import { formatDay, formatElo } from '@/lib/format';
@@ -11,8 +11,8 @@ import { cn } from '@/lib/utils';
 import { EngineBoard, type EngineBoardSource } from './EngineBoard';
 import { agentHref } from './seats';
 
-/** Agent chips shown under a node before "+N more". */
-const CHIPS = 3;
+/** Agent marks shown in a node before "+N". */
+const MARKS = 3;
 const COUNT_MS = 900;
 
 type RatingCounterProps = {
@@ -201,7 +201,8 @@ const EngineBadge = ({ engine, rating, reducedMotion, repoUrl }: EngineBadgeProp
         aria-expanded={Boolean(open)}
         aria-haspopup="dialog"
         aria-label={`${engine.name}: rated ${formatElo(rating.elo)}, ${rating.version ?? 'no version'}. Show versions`}
-        className="pointer-events-auto h-5 gap-1 bg-panel/80 px-1.5 font-mono text-[11px] tabular text-fg backdrop-blur-sm"
+        data-slot="sector-rating"
+        className="pointer-events-auto h-5 max-w-full gap-1 overflow-hidden bg-panel/80 px-1.5 font-mono text-[11px] tabular text-fg backdrop-blur-sm"
         onPointerEnter={(e) => {
           if (e.pointerType !== 'mouse') return;
           const el = e.currentTarget;
@@ -240,7 +241,25 @@ const EngineBadge = ({ engine, rating, reducedMotion, repoUrl }: EngineBadgeProp
   );
 };
 
-type AgentChipsProps = {
+type AgentMarkProps = {
+  agent: SwarmAgent;
+  title: string;
+};
+
+/**
+ * One agent working in the sector, as a small mark. The hook for the agents' icons (#200): swap
+ * the dot for the agent's icon here; the row around it already links and highlights.
+ */
+const AgentMark = ({ agent, title }: AgentMarkProps) => (
+  <span
+    data-slot="sector-agent-mark"
+    data-agent-id={agent.id}
+    title={title}
+    className="block size-2 rounded-full bg-good ring-1 ring-panel"
+  />
+);
+
+type AgentMarksProps = {
   agents: SwarmAgent[];
   items: Map<string, SwarmWorkItem>;
   detail: boolean;
@@ -248,14 +267,13 @@ type AgentChipsProps = {
   onHighlight: (agentId: string | null) => void;
 };
 
-/** Who is working in this node right now: role, name, target and (in the swarm view) the step. */
-const AgentChips = ({ agents, items, detail, seatIds, onHighlight }: AgentChipsProps) => {
-  if (agents.length === 0)
-    return (
-      <span className="hidden rounded bg-panel/70 px-1.5 text-[10px] leading-4 text-fg-3 sm:inline">
-        idle
-      </span>
-    );
+/**
+ * Who is working in this sector right now, as a compact row of marks (the agent nodes linked to
+ * the sector say the rest). Each mark names the agent's role, name, target and (in the swarm
+ * view) its step on hover, and links to the agent's page.
+ */
+const AgentMarks = ({ agents, items, detail, seatIds, onHighlight }: AgentMarksProps) => {
+  if (agents.length === 0) return null;
   const target = (a: SwarmAgent) => {
     const w = a.workItem ? items.get(a.workItem) : undefined;
     if (a.pr && (a.role === 'reviewer' || a.role === 'merger')) return `PR ${a.pr}`;
@@ -264,53 +282,64 @@ const AgentChips = ({ agents, items, detail, seatIds, onHighlight }: AgentChipsP
     return null;
   };
   return (
-    <ul className="flex flex-col items-start gap-0.5 group-data-[side=left]:items-end">
-      {agents.slice(0, CHIPS).map((a) => {
-        const text = [a.role, a.label ?? a.id, target(a), detail ? a.activity : null]
+    <ul data-slot="sector-agents" className="flex items-center gap-1">
+      {agents.slice(0, MARKS).map((a) => {
+        const title = [a.role, a.label ?? a.id, target(a), detail ? a.activity : null]
           .filter(Boolean)
           .join(' · ');
-        const chip = (
-          <span className="block max-w-44 truncate rounded bg-panel/85 px-1.5 text-[10px] leading-4 text-fg-2 ring-1 ring-line backdrop-blur-sm hover:text-fg">
-            <span
-              className="mr-1 inline-block size-1.5 rounded-full bg-good align-middle"
-              aria-hidden="true"
-            />
-            {text}
-          </span>
-        );
+        const mark = <AgentMark agent={a} title={title} />;
         return (
           <li
             key={a.id}
             className="pointer-events-auto"
-            title={[a.role, a.label, target(a), a.activity].filter(Boolean).join(' · ')}
             onPointerEnter={() => onHighlight(a.id)}
             onPointerLeave={() => onHighlight(null)}
           >
             {seatIds.has(a.id) ? (
               <Link
                 href={agentHref(a.id)}
+                aria-label={title}
+                className="block rounded-full outline-none focus-visible:ring-2 focus-visible:ring-fg-3"
                 onFocus={() => onHighlight(a.id)}
                 onBlur={() => onHighlight(null)}
               >
-                {chip}
+                {mark}
               </Link>
             ) : (
-              chip
+              mark
             )}
           </li>
         );
       })}
-      {agents.length > CHIPS && (
-        <li className="text-[10px] leading-4 text-fg-3">+{agents.length - CHIPS} more</li>
+      {agents.length > MARKS && (
+        <li className="text-[9px] leading-3 tabular text-fg-3">+{agents.length - MARKS}</li>
       )}
     </ul>
   );
 };
 
+type SectorStatusProps = {
+  live: boolean;
+};
+
+/** "live" or "idle": whether anyone works in the sector now. */
+const SectorStatus = ({ live }: SectorStatusProps) => (
+  <span
+    data-slot="sector-status"
+    className={cn('shrink-0 text-[10px] leading-3', live ? 'text-good-text' : 'text-fg-3')}
+  >
+    {live ? 'live' : 'idle'}
+  </span>
+);
+
 type SwarmNodeOverlayProps = {
   nodeId: string;
-  /** Pins the overlay to its node; the renderer moves it every frame. */
+  /** Pins the overlay over its node as the node's bounding square; the renderer moves it. */
   anchor: (nodeId: string, el: HTMLElement | null) => void;
+  /** The sector's name. */
+  label: string;
+  /** The sector's stable count (merged, landed), drawn inside it. */
+  count: SwarmCount | null;
   engine: EngineNode | null;
   rating: NodeRating | null;
   board: EngineBoardSource | null;
@@ -324,12 +353,20 @@ type SwarmNodeOverlayProps = {
 };
 
 /**
- * What a sector node carries in every preset: its engine's rating and version, who is working
- * in it now, and the engine's latest game. Properties of the node, not events.
+ * Everything a sector node carries, inside its circle (#199): its name, its engine's rating and
+ * version, the count landed, whether anyone works there, and the engine's live game. The
+ * renderer sizes this element to the node's bounding square (`anchor(…, 'inside')`).
+ *
+ * The board sits at a fixed place: centred, its top 2rem above the circle's centre. The name and
+ * rating stack upwards from a fixed line above it, the count and status downwards from a fixed
+ * line below it, so no change of text moves the board. Circles too small for all of this (phones,
+ * zoomed out) show only the name, the count and the rating, centred.
  */
 const SwarmNodeOverlay = ({
   nodeId,
   anchor,
+  label,
+  count,
   engine,
   rating,
   board,
@@ -340,36 +377,126 @@ const SwarmNodeOverlay = ({
   reducedMotion,
   repoUrl,
   onHighlight,
-}: SwarmNodeOverlayProps) => (
-  <div
-    ref={(el) => anchor(nodeId, el)}
-    data-slot="swarm-node-overlay"
-    data-node-id={nodeId}
-    className="group pointer-events-none invisible absolute top-0 left-0 z-5"
-  >
-    <div className="flex w-40 flex-col items-start gap-1 group-data-[side=left]:items-end">
-      {engine && rating && (
-        <EngineBadge
-          engine={engine}
-          rating={rating}
-          reducedMotion={reducedMotion}
-          repoUrl={repoUrl}
-        />
-      )}
-      <AgentChips
-        agents={agents}
-        items={items}
-        detail={agentDetail}
-        seatIds={seatIds}
-        onHighlight={onHighlight}
-      />
-      {board && (
-        <div className="pointer-events-auto hidden max-w-40 sm:block">
-          <EngineBoard source={board} reducedMotion={reducedMotion} />
+}: SwarmNodeOverlayProps) => {
+  // A stable ref: the renderer is told once when the element arrives and once when it goes.
+  const pin = useCallback((el: HTMLElement | null) => anchor(nodeId, el), [anchor, nodeId]);
+  const live = agents.length > 0;
+  const total = count && count.value > 0 ? `${count.value} ${count.unit}` : null;
+  const recent = count?.recent ? `${count.recent} ${count.recentUnit ?? 'recent'}` : null;
+  return (
+    <div
+      ref={pin}
+      data-slot="swarm-node-overlay"
+      data-node-id={nodeId}
+      data-live={live || undefined}
+      className="@container pointer-events-none invisible absolute top-0 left-0 z-5 rounded-full"
+    >
+      {/* Full: name and rating above the board, count and status below it. */}
+      <div data-slot="sector-full" className="absolute inset-0 hidden @min-[10.5rem]:block">
+        <div
+          data-slot="sector-head"
+          className="absolute inset-x-[22%] bottom-[calc(50%+2.25rem)] flex flex-col items-center gap-0.5"
+        >
+          <Typography
+            as="div"
+            variant="label"
+            color="primary"
+            weight="semibold"
+            truncate
+            className="max-w-full text-[11px] leading-3.5"
+          >
+            {label}
+          </Typography>
+          {engine && rating && (
+            <EngineBadge
+              engine={engine}
+              rating={rating}
+              reducedMotion={reducedMotion}
+              repoUrl={repoUrl}
+            />
+          )}
         </div>
-      )}
+
+        {board ? (
+          <div
+            data-slot="sector-board"
+            className="pointer-events-auto absolute top-[calc(50%-2rem)] left-1/2 w-[62%] -translate-x-1/2"
+          >
+            <EngineBoard source={board} reducedMotion={reducedMotion} />
+          </div>
+        ) : (
+          <div
+            data-slot="sector-count"
+            className="absolute inset-x-[15%] top-[calc(50%-2rem)] flex h-16 flex-col items-center justify-center"
+          >
+            <Typography as="div" variant="bigData" className="text-2xl leading-7">
+              {count && count.value > 0 ? count.value : '—'}
+            </Typography>
+            <Typography as="div" variant="meta" className="text-[10px] leading-3">
+              {count?.unit ?? 'nothing yet'}
+            </Typography>
+          </div>
+        )}
+
+        <div
+          data-slot="sector-foot"
+          className="absolute inset-x-[24%] top-[calc(50%+3rem)] flex flex-col items-center gap-0.5"
+        >
+          <Typography
+            as="div"
+            variant="meta"
+            truncate
+            className="max-w-full text-[10px] leading-3 tabular"
+          >
+            {board
+              ? [total, recent].filter(Boolean).join(' · ') || 'nothing landed'
+              : (recent ?? '')}
+          </Typography>
+          <div className="flex h-3 items-center gap-1.5">
+            <SectorStatus live={live} />
+            <AgentMarks
+              agents={agents}
+              items={items}
+              detail={agentDetail}
+              seatIds={seatIds}
+              onHighlight={onHighlight}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Compact: a small circle keeps the name, the count and the rating, nothing outside. */}
+      <div
+        data-slot="sector-compact"
+        className="absolute inset-[16%] flex flex-col items-center justify-center @min-[10.5rem]:hidden"
+      >
+        <Typography
+          as="div"
+          variant="label"
+          color="primary"
+          weight="semibold"
+          truncate
+          className="max-w-full text-[10px] leading-3"
+        >
+          {label}
+        </Typography>
+        <Typography as="div" variant="bigData" className="text-base leading-5">
+          {count && count.value > 0 ? count.value : '—'}
+        </Typography>
+        {rating?.elo != null && (
+          <Typography
+            as="div"
+            variant="meta"
+            truncate
+            className="flex max-w-full items-center gap-1 font-mono text-[9px] leading-3 tabular"
+          >
+            {live && <span className="size-1 shrink-0 rounded-full bg-good" aria-hidden="true" />}
+            {formatElo(rating.elo)}
+          </Typography>
+        )}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 export { SwarmNodeOverlay };

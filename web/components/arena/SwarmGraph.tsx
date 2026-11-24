@@ -385,6 +385,8 @@ const countText = (c: SwarmCount) =>
     .filter(Boolean)
     .join(' · ');
 const PRESET_KEY = 'swarm-graph-view';
+/** Sector circles, in graph units at full size: room for name, rating, board and status inside. */
+const SECTOR_RADIUS = { min: 90, max: 100 };
 
 type GroupTally = { games: number; win: number; loss: number; draw: number };
 
@@ -690,6 +692,8 @@ const SwarmGraph = ({
       title: 'Agents and the sectors of the codebase they are working in',
       reducedMotion: reduced,
       intro: introMode(),
+      // Big enough to hold each sector's information inside it (#199).
+      sectorRadius: SECTOR_RADIUS,
       onHover: (node, point) => {
         setHover(node && point ? { node, ...point, width: el.clientWidth } : null);
         // Mirror the graph's hover onto the fleet's cards.
@@ -772,7 +776,7 @@ const SwarmGraph = ({
     // Overlays mounted before the renderer existed pin themselves now.
     el.parentElement
       ?.querySelectorAll<HTMLElement>('[data-slot="swarm-node-overlay"]')
-      .forEach((o) => o.dataset.nodeId && r.anchor(o.dataset.nodeId, o));
+      .forEach((o) => o.dataset.nodeId && r.anchor(o.dataset.nodeId, o, 'inside'));
     const timers = captionTimers.current;
     return () => {
       timers.forEach(clearTimeout);
@@ -922,7 +926,7 @@ const SwarmGraph = ({
     [basisEngines],
   );
   const anchor = useCallback(
-    (nodeId: string, el: HTMLElement | null) => renderer.current?.anchor(nodeId, el),
+    (nodeId: string, el: HTMLElement | null) => renderer.current?.anchor(nodeId, el, 'inside'),
     [],
   );
   const liveIn = (sectorId: string) =>
@@ -1076,6 +1080,8 @@ const SwarmGraph = ({
               key={n.id}
               nodeId={n.id}
               anchor={anchor}
+              label={n.label}
+              count={n.sector?.count ?? null}
               engine={engine}
               rating={engine ? ratingOf(engine) : null}
               board={engine ? boardOf(engine) : null}
