@@ -39,10 +39,10 @@ import {
   run,
   RUN_ID,
 } from "./config";
-import { arenaEngine } from "./engine";
+import { arenaEngine, killAll } from "./engine";
 import { withVerdict } from "./verdict";
 import { gateShortfall, needsRungBaseline, type Rating } from "./gate";
-import { gateRung, runMatch } from "./match";
+import { gateRung, isMatchAborted, runMatch, type MatchAborted } from "./match";
 import { reference } from "./references";
 import { openingsNote } from "./openings";
 import { getStore } from "./store";
@@ -52,6 +52,8 @@ import {
   openIssue,
   REPO,
   sessionAgentId,
+  claimHolder,
+  issueComments,
 } from "./rallypoint";
 
 /**
@@ -196,6 +198,81 @@ export const claimNext = async (onlyTrack?: string, onlyIssue?: number) => {
     return briefing(task, seat, rpClaim.branch);
   }
   return null;
+};
+
+/**
+ * Check out a claim's branch to resume it (#177) and merge current origin/main into it. A local
+ * branch of that name is kept (it may hold unpushed work), else it is taken from the remote, else
+ * started from origin/main. Returns one line saying where the session now stands.
+ */
+export const resumeCheckout = async (branch: string, remote: boolean) => {
+  await git(["fetch", "origin", "main"]);
+  if (remote) await git(["fetch", "origin", branch]);
+  const local =
+    (await git(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]))
+      .code === 0;
+  const co = local
+    ? await git(["checkout", branch])
+    : await git([
+        "checkout",
+        "-B",
+        branch,
+        remote ? `origin/${branch}` : "origin/main",
+      ]);
+  if (co.code !== 0)
+    return `could not check out ${branch} (${(co.stderr || co.stdout).trim().slice(0, 200)}): check it out yourself before you change anything`;
+  for (const from of [
+    ...(local && remote ? [`origin/${branch}`] : []),
+    "origin/main",
+  ]) {
+    const m = await git(["merge", "--no-edit", from]);
+    if (m.code !== 0) {
+      await git(["merge", "--abort"]);
+      return `on ${branch}, but ${from} does not merge cleanly: run git merge ${from} and resolve the conflicts first`;
+    }
+  }
+  return `on ${branch}${remote ? "" : " (no branch was published, so it starts from origin/main)"}, with origin/main merged in`;
+};
+
+/**
+ * Resume an arena task whose claim this session's agent id already holds (#177): a resubmit after
+ * an inconclusive gate (#164), or a lesson pull request closed as superseded. The task is claimed
+ * again in the store whatever status the last submit left it in, and the branch is checked out.
+ */
+export const resumeTask = async (
+  task: Task,
+  branch: string,
+  remote: boolean,
+) => {
+  const seat = await seatOf(task);
+  const seatId = await agent(seat, task.track_id, "builder");
+  await getStore().update(
+    "tasks",
+    { id: task.id },
+    { status: "claimed", claimed_by: seatId, closed_at: null },
+  );
+  const where = await resumeCheckout(branch, remote);
+  await bumpSessions(seatId);
+  await setAgent(seatId, {
+    status: "working",
+    rp_role: "worker",
+    task_id: task.id,
+    pr: null,
+    activity: `Resumed issue #${task.issue}`,
+    session_id: process.env.CLAUDE_CODE_REMOTE_SESSION_ID ?? null,
+    started_at: now(),
+  });
+  await post("progress", {
+    track_id: task.track_id,
+    agent_id: seatId,
+    task_id: task.id,
+    title: `${seat} resumed its claim on #${task.issue}`,
+    detail: `Branch ${branch}.`,
+  });
+  return `${await briefing(task, seat, branch)}
+
+RESUMED: this session's agent id already holds the claim on #${task.issue}, so nothing was claimed
+again. You are ${where}. Pick up where the last attempt stopped (its progress log and playbook notes).`;
 };
 
 /** Put a claimed task back on the board (the session could not finish it). */
@@ -610,6 +687,43 @@ export const prepare = async () => {
 };
 
 /**
+ * A submit whose match the referee aborted because the reference kept failing (#164). That
+ * measured the reference's process, not the candidate, so it is no verdict: the engine code stays
+ * on the branch, no lesson pull request is opened, the task keeps its claim and status, and no
+ * rating is written. The worker resubmits once the reference is healthy.
+ */
+export const inconclusive = async (
+  task: Pick<Task, "id" | "track_id" | "title"> & {
+    issue?: number | null;
+  },
+  aborted: MatchAborted,
+) => {
+  // The claim outlives this session: a later one resumes it under the same agent id (#177).
+  const holder = task.issue
+    ? claimHolder(await issueComments(task.issue).catch(() => []))
+    : null;
+  const agentId = holder ?? "<the agent id that claimed it>";
+  const resume = task.issue
+    ? ` If this session ends first, a new one resumes the claim with \`npm run arena -- next --role worker ${task.track_id} --issue ${task.issue} --agent-id ${agentId}\`, then resubmits.`
+    : "";
+  const why = `inconclusive: reference failure (${aborted.reason}). No verdict: the engine change stays on the branch and the task keeps its claim; resubmit with \`npm run arena -- submit ${task.id}\`.${resume}`;
+  await progress(
+    task,
+    "referee",
+    "Inconclusive: reference failure, not a burial.",
+    why,
+    aborted.matchId,
+  ).catch(() => undefined);
+  log(`inconclusive: ${task.title} (${aborted.reason})`);
+  return {
+    shipped: false as const,
+    inconclusive: true as const,
+    why,
+    matchId: aborted.matchId,
+  };
+};
+
+/**
  * Referee a finished task: build gate, legality smoke test, gate match against the next
  * uncleared rung, then open the pull request (main merged in) or bury with the measured reason.
  */
@@ -988,8 +1102,17 @@ Arena task: \`${task.id}\``,
       elo: result.elo,
     };
   } catch (e) {
+    // A reference that kept failing is not the candidate's fault: no burial (#164).
+    if (isMatchAborted(e)) return await inconclusive(task, e);
     return await bury(`Referee error: ${String(e).slice(0, 160)}`);
   } finally {
+    // An aborted match skips the engines' close(): nothing it started may outlive the submit, or
+    // a hanging reference keeps `arena submit` from exiting (#164).
+    const killed = killAll();
+    if (killed)
+      log(
+        `stopped ${killed} engine process${killed > 1 ? "es" : ""} left running`,
+      );
     // The seat stays working until its session's retro; only the clock moves here.
     await setAgent(seatId, {});
   }

@@ -17,6 +17,12 @@ export type GameRecord = {
 export type PlayOptions = {
   /** Per-move time limit in ms; exceeding it forfeits. */
   moveTimeMs?: number;
+  /**
+   * Per-seat overrides of `moveTimeMs` (seat 0 moves first). The referee gives a reference
+   * engine its own, longer allowance: GNU Go and Edax play a fixed level with no clock, so
+   * extra time does not change their strength, only whether they answer in time (#164).
+   */
+  seatMoveTimeMs?: [number | undefined, number | undefined];
   /** Optional opening moves to start from (for balanced pairs). */
   opening?: string[];
   onMove?: (move: string, ply: number) => void;
@@ -45,7 +51,7 @@ export const playGame = async <S>(
 ): Promise<GameRecord> => {
   let state = rules.initial();
   for (const m of options.opening ?? []) state = rules.play(state, m);
-  const limit = options.moveTimeMs ?? 10_000;
+  const limitOf = (seat: 0 | 1) => options.seatMoveTimeMs?.[seat] ?? options.moveTimeMs ?? 10_000;
 
   for (;;) {
     const done = rules.outcome(state);
@@ -63,7 +69,7 @@ export const playGame = async <S>(
     const seat = rules.toMove(state);
     let move: string;
     try {
-      move = await withTimeout(seats[seat].choose(rules, state), limit);
+      move = await withTimeout(seats[seat].choose(rules, state), limitOf(seat));
     } catch (e) {
       const timeout = e instanceof Error && e.message === 'timeout';
       return forfeit(rules, state, seat, timeout ? 'timeout' : 'crash', String(e));
@@ -141,11 +147,40 @@ export type MatchOptions = PlayOptions & {
    * The candidate's own forfeits always count.
    */
   replayOpponentFailures?: number;
+  /**
+   * The opponent's own per-move limit, overriding `moveTimeMs` for its seat only. The candidate
+   * keeps `moveTimeMs`.
+   */
+  opponentMoveTimeMs?: number;
   onVoid?: (g: GameRecord, index: number, attempt: number) => void;
 };
 
 /** A game that did not count: the opponent timed out or crashed, so it was replayed. */
 export type VoidedGame = { index: number; attempt: number; termination: Termination; plies: number; detail?: string };
+
+/**
+ * The match was aborted because the opponent (a reference) kept failing: it measured the
+ * reference's process, not the candidate, so the match has no result. Callers must treat it as
+ * inconclusive, never as the candidate's failure (#164).
+ */
+export class ReferenceFailure extends Error {
+  override readonly name = 'ReferenceFailure';
+  constructor(
+    readonly opponent: string,
+    readonly game: number,
+    readonly termination: Termination,
+    readonly attempts: number,
+    detail?: string,
+  ) {
+    super(
+      `${opponent} ${termination} in game ${game} on ${attempts} attempts in a row: aborting the match (${detail ?? ''})`,
+    );
+  }
+}
+
+/** True for a ReferenceFailure, also across module copies (name check, not only instanceof). */
+export const isReferenceFailure = (e: unknown): e is ReferenceFailure =>
+  e instanceof ReferenceFailure || (e instanceof Error && e.name === 'ReferenceFailure');
 
 const isFailure = (g: GameRecord) => g.termination === 'timeout' || g.termination === 'crash';
 
@@ -181,7 +216,10 @@ export const playMatch = async <S>(
     for (let attempt = 0; ; attempt++) {
       const opening = openings[Math.floor(i / 2)];
       options.onGameStart?.(i, attempt, opening);
-      g = await playGame(rules, seats, { ...options, opening });
+      const limits: [number | undefined, number | undefined] = candidateFirst
+        ? [options.moveTimeMs, options.opponentMoveTimeMs]
+        : [options.opponentMoveTimeMs, options.moveTimeMs];
+      g = await playGame(rules, seats, { ...options, opening, seatMoveTimeMs: limits });
       // Whoever timed out or crashed may still have a move in flight: restore it before it
       // plays again, or the late answer desynchronises every later game.
       if (isFailure(g) && g.offender !== null) await seats[g.offender].reset?.();
@@ -190,9 +228,7 @@ export const playMatch = async <S>(
       voided.push({ index: i, attempt, termination: g.termination, plies: g.moves.length, detail: g.detail });
       options.onVoid?.(g, i, attempt);
       if (attempt + 1 > replays)
-        throw new Error(
-          `${opponent.id} ${g.termination} in game ${i + 1} on ${attempt + 1} attempts in a row: aborting the match (${g.detail ?? ''})`,
-        );
+        throw new ReferenceFailure(opponent.id, i + 1, g.termination, attempt + 1, g.detail);
     }
     const s = candidateFirst ? g.outcome : 1 - g.outcome;
     score += s;

@@ -11,13 +11,26 @@
 import * as d3 from 'd3';
 import type { SwarmFlow, SwarmGraph, SwarmLink, SwarmNode, SwarmStage } from './model';
 import {
+  FULL_INTRO,
+  SHORT_INTRO,
+  easeOut,
+  introCamera,
+  introEdge,
+  introLabels,
+  introPose,
+  planIntro,
+  type IntroPlan,
+} from './intro';
+import {
   applyFlow,
   indexAtTime,
   planReplay,
+  sparksAt,
   stateAt,
   type SwarmReplayPlan,
   type SwarmReplaySnapshot,
 } from './replay';
+import { beamTier, createBeamGate } from './beams';
 
 export type SwarmGraphTheme = {
   fg: string;
@@ -52,6 +65,39 @@ export type SwarmReplayState = {
   gapMs: number | null;
 };
 
+/**
+ * What an event did when it landed, for a host's effects layer: `merge`, `rating` (a rating
+ * changed: `delta` says by how much), `rung` (a ladder rung cleared), `milestone` (any other),
+ * `bury` (an idea abandoned: shown gently, never as an alarm), `reject` (changes asked), `pass`
+ * (a spark crossed a node on its way). `clear` means the replay jumped: drop what is in flight.
+ */
+export type SwarmEffectKind =
+  'merge' | 'rating' | 'rung' | 'milestone' | 'bury' | 'reject' | 'pass' | 'clear';
+
+export type SwarmEffect = {
+  kind: SwarmEffectKind;
+  /** Where it happened (empty for `clear`). */
+  nodeId: string;
+  color: string;
+  delta: number | null;
+  source: 'live' | 'replay';
+  flow: SwarmFlow | null;
+};
+
+/** A node as an effects layer reads it each frame: graph coordinates, radius, colour. */
+export type SwarmNodeView = SwarmNode & { x?: number; y?: number; r: number };
+
+/** The graph's camera for an effects layer: screen px = size / 2 + (x, y) + k · graph. */
+export type SwarmViewport = {
+  width: number;
+  height: number;
+  x: number;
+  y: number;
+  k: number;
+  /** The viewer has panned or zoomed away from the fitted view. */
+  moved: boolean;
+};
+
 export type SwarmGraphRendererOptions = {
   theme?: Partial<SwarmGraphTheme>;
   /** Turns off ambient motion; event sparks and replay still show, without particles. */
@@ -62,6 +108,19 @@ export type SwarmGraphRendererOptions = {
   /** A new event reached the graph (live) or was played back (replay). */
   onFlow?: (flow: SwarmFlow, source: 'live' | 'replay') => void;
   onReplay?: (state: SwarmReplayState | null) => void;
+  /** An event landed (or a spark crossed a node): for a host's particle layer. */
+  onEffect?: (effect: SwarmEffect) => void;
+  /**
+   * What a landed event is, for its payoff. The default knows the model's kinds (merge,
+   * milestone, rating, reject); a host refines it (a rung cleared, an idea buried).
+   */
+  effectOf?: (flow: SwarmFlow) => SwarmEffectKind | null;
+  /**
+   * How the first render appears: `full` unfolds the graph radially from the hub (about 1.4 s),
+   * `short` plays a quicker version (about 0.5 s, for coming back to the page), `none` shows the
+   * settled layout at once. Reduced motion always means `none`. Later updates never replay it.
+   */
+  intro?: 'full' | 'short' | 'none';
   /** Accessible name for the SVG. */
   title?: string;
 };
@@ -106,7 +165,50 @@ export type SwarmGraphRenderer = {
   highlight: (nodeId: string | null) => void;
   /** Recentre and reset zoom. */
   reset: () => void;
+  /** The camera, for an effects layer drawing in the same space (one reused object). */
+  viewport: () => SwarmViewport;
+  /** Every node with its position this frame. */
+  eachNode: (fn: (node: SwarmNodeView) => void) => void;
+  /**
+   * Every beam in flight: its head this frame, colour and size. `big` marks the few beams that
+   * carry a big moment (a merge, a rung cleared, a rating jump): the only ones allowed to glow.
+   * Ambient effort streams are not beams and are not reported.
+   */
+  eachSpark: (
+    fn: (x: number, y: number, color: string, size: number, big: boolean) => void,
+  ) => void;
+  /** A node's position and radius this frame, or null. */
+  nodeAt: (id: string) => SwarmNodeView | null;
+  /**
+   * A GPU layer draws the trails and bursts: the SVG keeps spark heads, ripples and words but
+   * stops drawing its own comet tails and spark bursts, so the two do not double up.
+   */
+  setLayered: (on: boolean) => void;
   destroy: () => void;
+};
+
+/** The model's own reading of what an event is; hosts refine it with `effectOf`. */
+export const defaultEffectOf = (f: SwarmFlow): SwarmEffectKind | null =>
+  f.kind === 'merge'
+    ? 'merge'
+    : f.kind === 'milestone'
+      ? 'milestone'
+      : f.kind === 'rating' && f.delta
+        ? 'rating'
+        : f.kind === 'reject'
+          ? 'reject'
+          : null;
+
+/** How long a spark takes per hop, by what it carries: payoffs travel fast, chores unhurried. */
+const STEP_MS: Partial<Record<SwarmFlow['kind'], number>> = {
+  merge: 650,
+  rating: 620,
+  milestone: 680,
+  reject: 1000,
+  plan: 1050,
+  claim: 950,
+  session: 1000,
+  post: 1000,
 };
 
 /** Reads the host's CSS variables by default, so the graph follows the page's theme. */
@@ -141,6 +243,10 @@ type Particle = {
   color: string;
   size: number;
   spark: boolean;
+  /** A big moment's beam: a touch brighter, and the only one with a glow. */
+  big?: boolean;
+  /** The beam's colour, desaturated a little so it reads as a hint of movement. */
+  tone?: string;
   onArrive?: () => void;
 };
 
@@ -161,12 +267,25 @@ type Burst = {
 type Floater = { key: number; node: SimNode; start: number; text: string; color: string };
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
+/** Width of the panel-coloured stroke behind label text: wide enough to mask a line through it. */
+const LABEL_HALO = 5;
 const AMBIENT_MS = 1500;
 const RIPPLE_MS = 900;
 const BURST_MS = 1100;
 const FLOAT_MS = 1600;
-/** Head-to-tail length of a spark's comet trail, as a fraction of the link. */
-const TRAIL = 0.22;
+/** Head-to-tail length of a beam's short fading tail, as a fraction of the link. */
+const TRAIL = 0.1;
+/** A beam's line width at 1× zoom, px: thin, so beams never cover labels. */
+const BEAM_WIDTH = 1.25;
+const BIG_BEAM_WIDTH = 1.6;
+/** A beam's head radius: no larger than a small node dot. */
+const BEAM_HEAD = 1.8;
+const BIG_BEAM_HEAD = 2.4;
+/** Peak opacity; a beam fades out over the last third of its flight. */
+const BEAM_ALPHA = 0.42;
+const BIG_BEAM_ALPHA = 0.6;
+/** Opacity over a beam's flight `t` ∈ [0, 1]: full, then fading over the last third. */
+const beamFade = (t: number) => (t < 2 / 3 ? 1 : Math.max(0, (1 - t) * 3));
 
 /** How far along the protocol an open work item is, for the arc around it. */
 const STAGE_PROGRESS: Partial<Record<SwarmStage, number>> = {
@@ -303,6 +422,24 @@ export const createSwarmGraph = (
     .style('touch-action', 'none')
     .style('user-select', 'none');
 
+  // Node names, sub-lines and counts draw in their own SVG stacked above the graph and above any
+  // effects canvas the embedder adds over it (#173): no edge, beam, burst or particle ever paints
+  // over a label. It shares the graph's viewBox and zoom, and lets every pointer through.
+  const labelSvg = d3
+    .select(container)
+    .append('svg')
+    .attr('xmlns', SVG_NS)
+    .attr('aria-hidden', 'true')
+    .attr('data-slot', 'swarm-labels')
+    .style('position', 'absolute')
+    .style('inset', '0')
+    .style('z-index', '3')
+    .style('display', 'block')
+    .style('width', '100%')
+    .style('height', '100%')
+    .style('pointer-events', 'none')
+    .style('user-select', 'none');
+
   const uid = hash(String(Math.random())).toString(36);
   const defs = svg.append('defs');
   const glow = defs
@@ -328,23 +465,36 @@ export const createSwarmGraph = (
     .attr('fill', 'none')
     .attr('stroke-linecap', 'round')
     .attr('pointer-events', 'none');
-  const gParticles = root.append('g').attr('pointer-events', 'none');
+  const gParticles = root.append('g').attr('class', 'sg-beams').attr('pointer-events', 'none');
   const gNodes = root.append('g');
   const gBursts = root.append('g').attr('pointer-events', 'none');
   const gFloaters = root.append('g').attr('pointer-events', 'none');
+  const labelRoot = labelSvg.append('g');
+  const gTags = labelRoot.append('g');
+  /** Each node's label block in the top layer: `g.sg-tag` > glyph (in `g.sg-tag-inner`), name, sub-line. */
+  const tagGroups = () => gTags.selectAll<SVGGElement, SimNode>('g.sg-tag');
 
   let view = d3.zoomIdentity;
   const zoom = d3
     .zoom<SVGSVGElement, unknown>()
     .scaleExtent([0.4, 3])
     .on('zoom', (e) => {
+      // A viewer who pans or zooms during the intro takes the camera from it.
+      if (intro && e.sourceEvent) intro.camera = false;
       root.attr('transform', e.transform.toString());
+      labelRoot.attr('transform', e.transform.toString());
       view = e.transform;
       placeAnchors();
+      // The chips keep their screen size, so their room in graph units changes with the zoom.
+      layoutLabels();
     });
   svg.call(zoom).on('dblclick.zoom', null);
 
-  const setViewBox = () => svg.attr('viewBox', [-width / 2, -height / 2, width, height].join(' '));
+  const setViewBox = () => {
+    const box = [-width / 2, -height / 2, width, height].join(' ');
+    svg.attr('viewBox', box);
+    labelSvg.attr('viewBox', box);
+  };
   setViewBox();
 
   let graph: SwarmGraph | null = null;
@@ -358,6 +508,8 @@ export const createSwarmGraph = (
   let nextKey = 0;
   const lastEmit = new Map<string, number>();
   let hovered: SimNode | null = null;
+  /** A GPU effects layer draws trails and bursts (see `setLayered`). */
+  let layered = false;
   let replayOverride: Map<string, number> | null = null;
   type ReplayRun = {
     plan: SwarmReplayPlan;
@@ -373,6 +525,20 @@ export const createSwarmGraph = (
     shownAt: number;
   };
   let run: ReplayRun | null = null;
+  /** The beam budget: live, replay and catch-up all draw from it (see `./beams`). */
+  const beams = createBeamGate();
+  type IntroRun = {
+    plan: IntroPlan;
+    start: number;
+    /** Settled positions, computed off-screen before anything moves. */
+    target: Map<string, { x: number; y: number }>;
+    /** Scale of each node while it travels out. */
+    scale: Map<string, number>;
+    /** Whether the intro still drives the camera (false once the viewer has panned). */
+    camera: boolean;
+    labels: number;
+  };
+  let intro: IntroRun | null = null;
   const liveTimers = new Set<ReturnType<typeof setTimeout>>();
 
   const colorOf = (n: SwarmNode) => n.color ?? theme.neutral;
@@ -600,6 +766,29 @@ export const createSwarmGraph = (
               .attr('dur', '40s')
               .attr('repeatCount', 'indefinite');
           inner.append('path').attr('class', 'sg-body');
+          g.transition().duration(500).attr('opacity', 1);
+          // New nodes spring in from nothing.
+          if (motion)
+            inner
+              .attr('transform', 'scale(0.01)')
+              .transition()
+              .delay(80)
+              .duration(900)
+              .ease(d3.easeElasticOut.amplitude(1).period(0.45))
+              .attr('transform', 'scale(1)');
+          return g;
+        },
+        (update) => update,
+        (exit) => exit.transition().duration(400).attr('opacity', 0).remove(),
+      );
+
+    // The label layer mirrors the nodes one-for-one, appearing and leaving with them.
+    const tags = tagGroups()
+      .data([...nodeById.values()], (n) => n.id)
+      .join(
+        (enter) => {
+          const g = enter.append('g').attr('class', 'sg-tag').attr('opacity', 0);
+          const inner = g.append('g').attr('class', 'sg-tag-inner');
           inner
             .append('text')
             .attr('class', 'sg-glyph')
@@ -608,7 +797,6 @@ export const createSwarmGraph = (
           g.append('text').attr('class', 'sg-label').attr('text-anchor', 'middle');
           g.append('text').attr('class', 'sg-sub').attr('text-anchor', 'middle');
           g.transition().duration(500).attr('opacity', 1);
-          // New nodes spring in from nothing.
           if (motion)
             inner
               .attr('transform', 'scale(0.01)')
@@ -728,7 +916,7 @@ export const createSwarmGraph = (
         if (!motion || !n.active) el.attr('r', n.r * 2.2);
       });
 
-    groups
+    tags
       .select<SVGTextElement>('text.sg-glyph')
       .style('font-family', (n) => (n.kind === 'agent' ? theme.font : theme.monoFont))
       .attr('font-size', (n) =>
@@ -747,7 +935,8 @@ export const createSwarmGraph = (
       });
     countUp();
 
-    groups
+    // A wide halo in the panel colour masks anything passing behind the text, in both themes.
+    tags
       .select<SVGTextElement>('text.sg-label')
       .style('font-family', (n) =>
         n.kind === 'work' && (n.phase === 'branch' || n.phase === 'pr')
@@ -759,17 +948,19 @@ export const createSwarmGraph = (
       .style('fill', (n) => (n.kind === 'sector' || n.active ? theme.fg : theme.fgFaint))
       .style('paint-order', 'stroke')
       .style('stroke', theme.panel)
-      .attr('stroke-width', 3)
+      .attr('stroke-width', LABEL_HALO)
+      .attr('stroke-linejoin', 'round')
       .text((n) => labelOf(n));
 
-    groups
+    tags
       .select<SVGTextElement>('text.sg-sub')
       .style('font-family', theme.font)
       .attr('font-size', 10)
       .style('fill', theme.fgFaint)
       .style('paint-order', 'stroke')
       .style('stroke', theme.panel)
-      .attr('stroke-width', 3)
+      .attr('stroke-width', LABEL_HALO)
+      .attr('stroke-linejoin', 'round')
       .text((n) => subOf(n));
 
     groups
@@ -909,8 +1100,7 @@ export const createSwarmGraph = (
   /** Sector effort numbers count up (or down) to their new value instead of jumping. */
   const shownNumber = new Map<string, number>();
   const countUp = () => {
-    gNodes
-      .selectAll<SVGGElement, SimNode>('g.sg-node')
+    tagGroups()
       .filter((n) => n.kind === 'sector')
       .select<SVGTextElement>('text.sg-glyph')
       .each(function (n) {
@@ -936,6 +1126,11 @@ export const createSwarmGraph = (
       .selectAll<SVGGElement, SimNode>('g.sg-node')
       .filter((n) => n === node)
       .select<SVGGElement>('g.sg-inner')
+      .merge(
+        tagGroups()
+          .filter((n) => n === node)
+          .select<SVGGElement>('g.sg-tag-inner'),
+      )
       .interrupt('pop')
       .transition('pop')
       .duration(130)
@@ -950,7 +1145,7 @@ export const createSwarmGraph = (
   /** Sparks thrown out of a node, and a word rising off it. */
   const celebrate = (node: SimNode, color: string, count: number, text: string | null) => {
     const now = performance.now();
-    if (motion)
+    if (motion && !layered)
       for (let i = 0; i < count; i++)
         bursts.push({
           key: nextKey++,
@@ -1022,6 +1217,8 @@ export const createSwarmGraph = (
         y1: (n.y ?? 0) + n.r,
       },
     }));
+    // The HTML chips beside a node (rating, agents) are obstacles too: a label never hides under one.
+    const chips = [...chipBoxes.values()];
     const placed: Box[] = [];
     const ordered = [...nodeById.values()]
       .filter((n) => labelOf(n) || subOf(n))
@@ -1072,6 +1269,7 @@ export const createSwarmGraph = (
         c.box.y1 <= height / 2 - 2;
       const clashes = (c: typeof below) =>
         placed.filter((b) => hit(b, c.box)).length +
+        chips.filter((b) => hit(b, c.box)).length +
         bodies.filter((o) => o.n !== n && hit(o.box, c.box)).length;
       const free = (c: typeof below) => inside(c) && clashes(c) === 0;
       const candidates = [below, above, right, left];
@@ -1091,7 +1289,7 @@ export const createSwarmGraph = (
         sub: pick.top + lh + 10,
       });
     }
-    const groups = gNodes.selectAll<SVGGElement, SimNode>('g.sg-node');
+    const groups = tagGroups();
     groups
       .select<SVGTextElement>('text.sg-label')
       .attr('text-anchor', (n) => spot.get(n.id)?.anchor ?? 'middle')
@@ -1110,8 +1308,10 @@ export const createSwarmGraph = (
     groups
       .select<SVGPathElement>('path.sg-body')
       .attr('d', (n) => bodyPath(n, n === hovered ? n.r + 4 : n.r));
-    groups
-      .attr('opacity', (n) => (!near || near.has(n.id) ? 1 : 0.2))
+    const dim = (n: SimNode) => (!near || near.has(n.id) ? 1 : 0.2);
+    groups.attr('opacity', dim);
+    tagGroups()
+      .attr('opacity', dim)
       .select<SVGTextElement>('text.sg-label')
       .text((n) => labelOf(n));
     layoutLabels();
@@ -1128,7 +1328,10 @@ export const createSwarmGraph = (
   };
 
   const anchors = new Map<string, HTMLElement>();
+  /** Where each anchored chip sits, in graph units, for the label layout to keep clear of. */
+  const chipBoxes = new Map<string, { x0: number; y0: number; x1: number; y1: number }>();
   const placeAnchors = () => {
+    chipBoxes.clear();
     // Read every size first, then write every position: one layout per frame, not one per badge.
     const placed = [...anchors].map(([id, el]) => ({
       el,
@@ -1155,7 +1358,14 @@ export const createSwarmGraph = (
       const y = Math.max(pad, Math.min(height - h - pad, cy - h / 2));
       el.dataset.side = side;
       el.style.visibility = 'visible';
-      el.style.transform = `translate(${Math.round(Math.max(pad, Math.min(width - w - pad, x)))}px, ${Math.round(y)}px)`;
+      el.style.opacity = intro ? String(intro.labels) : '';
+      const left = Math.max(pad, Math.min(width - w - pad, x));
+      el.style.transform = `translate(${Math.round(left)}px, ${Math.round(y)}px)`;
+      if (w > 0 && h > 0) {
+        const gx = (sx: number) => (sx - width / 2 - view.x) / view.k;
+        const gy = (sy: number) => (sy - height / 2 - view.y) / view.k;
+        chipBoxes.set(n.id, { x0: gx(left), y0: gy(y), x1: gx(left + w), y1: gy(y + h) });
+      }
     }
   };
   const anchor = (nodeId: string, el: HTMLElement | null) => {
@@ -1179,9 +1389,13 @@ export const createSwarmGraph = (
       n.x = Math.max(-lim.x, Math.min(lim.x, n.x ?? 0));
       n.y = Math.max(-lim.y, Math.min(lim.y, n.y ?? 0));
     }
-    gNodes
-      .selectAll<SVGGElement, SimNode>('g.sg-node')
-      .attr('transform', (n) => `translate(${n.x ?? 0},${n.y ?? 0})`);
+    const scaleOf = intro?.scale;
+    const place = (n: SimNode) => {
+      const k = scaleOf?.get(n.id);
+      return `translate(${n.x ?? 0},${n.y ?? 0})${k !== undefined && k < 1 ? ` scale(${k})` : ''}`;
+    };
+    gNodes.selectAll<SVGGElement, SimNode>('g.sg-node').attr('transform', place);
+    tagGroups().attr('transform', place);
     gLinks
       .selectAll<SVGPathElement, SimLink>('path')
       .attr('d', (l) => curvePath(l.source, l.target));
@@ -1218,16 +1432,52 @@ export const createSwarmGraph = (
     const coloured = (flow.kind === 'merge' ? path : [...path].reverse()).find(
       (n) => n.kind !== 'hub' && n.color,
     );
-    const color = flow.kind === 'reject' ? theme.critical : coloured ? colorOf(coloured) : theme.fg;
+    const effect = (options.effectOf ?? defaultEffectOf)(flow);
+    // A buried idea fades out gently in its own colour; only a request for changes is red.
+    const color =
+      effect === 'bury'
+        ? theme.fgMuted
+        : flow.kind === 'reject'
+          ? theme.critical
+          : coloured
+            ? colorOf(coloured)
+            : theme.fg;
     const last = path[path.length - 1];
+    const emit = (kind: SwarmEffectKind, node: SimNode, c: string) =>
+      options.onEffect?.({ kind, nodeId: node.id, color: c, delta: flow.delta, source, flow });
+    const tier = beamTier(flow, effect);
+    const step = STEP_MS[flow.kind] ?? 850;
+    // Ask the beam budget before anything moves: routine events never beam, and a burst or a
+    // crowded moment folds into one beam with a count.
+    const offer =
+      motion && tier !== 'none'
+        ? beams.offer(`${flow.sector ?? ''}|${flow.kind}`, now, step * (path.length - 1))
+        : null;
+    /** Events this beam carries by the time it lands (a burst folds in while it flies). */
+    const carried = () => (offer?.fire ? beams.count(offer.id) : 1);
+    const times = (n: number) => (n > 1 ? ` ×${n}` : '');
     const land = () => {
+      const n = carried();
+      if (effect) emit(effect, last, effect === 'bury' && coloured ? colorOf(coloured) : color);
+      if (effect === 'bury') {
+        ripple(last, color, performance.now());
+        pop(last, 0.3);
+        celebrate(last, color, 0, 'buried');
+        return;
+      }
       ripple(last, color, performance.now(), flow.kind === 'merge');
       pop(last, flow.kind === 'merge' ? 1.6 : 0.7);
       if (flow.kind === 'merge') {
-        celebrate(last, color, 18, `+${flow.weight} merged`);
+        celebrate(last, color, 18, n > 1 ? `${n} merged` : `+${flow.weight} merged`);
         const hub = graph ? nodeById.get(graph.hubId) : undefined;
         if (hub) pop(hub, 0.8);
-      } else if (flow.kind === 'milestone') celebrate(last, color, 10, 'milestone');
+      } else if (flow.kind === 'milestone')
+        celebrate(
+          last,
+          color,
+          10,
+          `${effect === 'rung' ? 'rung cleared' : 'milestone'}${times(n)}`,
+        );
       else if (flow.kind === 'rating' && flow.delta) {
         pop(last, flow.delta > 0 ? 1.4 : 0.6);
         celebrate(
@@ -1236,14 +1486,23 @@ export const createSwarmGraph = (
           flow.delta > 0 ? 10 : 0,
           `${flow.delta > 0 ? '+' : ''}${flow.delta}`,
         );
-      } else if (flow.kind === 'reject') celebrate(last, color, 0, 'changes asked');
+      } else if (flow.kind === 'reject') celebrate(last, color, 0, `changes asked${times(n)}`);
+      else if (n > 1) celebrate(last, color, 0, `×${n}`);
     };
     options.onFlow?.(flow, source);
     if (!motion) {
       land();
       return;
     }
-    const step = 850;
+    if (!offer?.fire) {
+      // No beam: a routine event, or one folded into a beam already flying (or the next one).
+      // A soft pulse on its node at most; a big moment over the cap keeps a quiet ripple.
+      pop(last, 0.25);
+      if (tier === 'big') ripple(last, color, now);
+      return;
+    }
+    const big = tier === 'big';
+    const tone = `color-mix(in srgb, ${color} 72%, ${theme.fgMuted})`;
     for (let i = 0; i < path.length - 1; i++) {
       const final = i === path.length - 2;
       const via = path[i + 1];
@@ -1253,7 +1512,9 @@ export const createSwarmGraph = (
           to: via,
           duration: step,
           color,
-          size: 3.2 + Math.min(3, flow.weight),
+          tone,
+          big,
+          size: big ? BIG_BEAM_HEAD : BEAM_HEAD,
           spark: true,
           delay: i * step,
           onArrive: final
@@ -1261,6 +1522,7 @@ export const createSwarmGraph = (
             : () => {
                 ripple(via, color, performance.now());
                 pop(via, 0.5);
+                emit('pass', via, color);
               },
         },
         now,
@@ -1275,8 +1537,7 @@ export const createSwarmGraph = (
       .selectAll<SVGGElement, SimNode>('g.sg-node')
       .select<SVGPathElement>('path.sg-body')
       .attr('d', (n) => bodyPath(n, n.r));
-    gNodes
-      .selectAll<SVGGElement, SimNode>('g.sg-node')
+    tagGroups()
       .select<SVGTextElement>('text.sg-glyph')
       .filter((n) => n.kind === 'sector')
       .attr('font-size', (n) => Math.max(10, Math.min(15, n.r * 0.5)));
@@ -1305,7 +1566,7 @@ export const createSwarmGraph = (
           to: l.target,
           duration: 1100,
           color: colorOf(l.source),
-          size: 2.2,
+          size: 1.4,
           spark: false,
         },
         now,
@@ -1316,6 +1577,7 @@ export const createSwarmGraph = (
   let dashOffset = 0;
   const timer = d3.timer(() => {
     const now = performance.now();
+    if (intro) stepIntro(now);
     ambient(now);
     advanceReplay(now);
 
@@ -1338,10 +1600,7 @@ export const createSwarmGraph = (
     // Sparks drag a comet tail behind them along the curve they travel.
     gTrails
       .selectAll<SVGPathElement, Particle>('path')
-      .data(
-        visible.filter((p) => p.spark),
-        (p) => p.key,
-      )
+      .data(layered ? [] : visible.filter((p) => p.spark), (p) => p.key)
       .join((enter) => enter.append('path'))
       .each(function (p) {
         const t = Math.max(0, Math.min(1, (now - p.start) / p.duration));
@@ -1354,9 +1613,10 @@ export const createSwarmGraph = (
         }
         d3.select(this)
           .attr('d', `M${pts.join('L')}`)
-          .style('stroke', p.color)
-          .attr('stroke-width', p.size * 1.3)
-          .attr('stroke-opacity', 0.35);
+          .style('stroke', p.tone ?? p.color)
+          .attr('stroke-width', p.big ? BIG_BEAM_WIDTH : BEAM_WIDTH)
+          .attr('stroke-linecap', 'round')
+          .attr('stroke-opacity', (p.big ? BIG_BEAM_ALPHA : BEAM_ALPHA) * 0.8 * beamFade(t));
       });
     gParticles
       .selectAll<SVGCircleElement, Particle>('circle')
@@ -1370,9 +1630,15 @@ export const createSwarmGraph = (
           .attr('cx', pos.x)
           .attr('cy', pos.y)
           .attr('r', p.size * (p.spark ? 1 : 0.6 + 0.4 * Math.sin(Math.PI * t)))
-          .style('fill', p.color)
-          .attr('fill-opacity', p.spark ? 1 : 0.85)
-          .attr('filter', p.spark ? glowUrl : null);
+          .style('fill', p.tone ?? p.color)
+          .attr(
+            'fill-opacity',
+            p.spark
+              ? (p.big ? BIG_BEAM_ALPHA : BEAM_ALPHA) * beamFade(t)
+              : 0.3 * Math.sin(Math.PI * t),
+          )
+          // Only big moments glow; every other beam is a quiet line.
+          .attr('filter', p.big ? glowUrl : null);
       });
 
     gRipples
@@ -1434,7 +1700,7 @@ export const createSwarmGraph = (
           .attr('opacity', t < 0.15 ? t / 0.15 : 1 - Math.max(0, (t - 0.55) / 0.45));
       });
 
-    if (motion) {
+    if (motion && !intro) {
       dashOffset = (dashOffset - 0.4) % 1000;
       gLinks
         .selectAll<SVGPathElement, SimLink>('path')
@@ -1443,9 +1709,113 @@ export const createSwarmGraph = (
     }
   });
 
+  // ---- intro -------------------------------------------------------------------------------
+
+  const linkPaths = () => gLinks.selectAll<SVGPathElement, SimLink>('path');
+  const labelTexts = () => gTags.selectAll<SVGTextElement, SimNode>('text.sg-label, text.sg-sub');
+
+  const startIntro = (mode: 'full' | 'short') => {
+    const hubId = graph?.hubId;
+    const target = new Map<string, { x: number; y: number }>();
+    for (const n of nodeById.values()) target.set(n.id, { x: n.x ?? 0, y: n.y ?? 0 });
+    const plan = planIntro(
+      [...nodeById.values()].map((n) => ({
+        id: n.id,
+        role: n.id === hubId ? 'hub' : n.kind === 'sector' ? 'sector' : 'other',
+        sectorId: n.sectorId ? `sector:${n.sectorId}` : null,
+        x: n.x ?? 0,
+        y: n.y ?? 0,
+      })),
+      mode === 'short' ? SHORT_INTRO : FULL_INTRO,
+    );
+    // Only on a view nobody has moved yet: open zoomed in on the hub and pull back.
+    const camera = view.k === 1 && view.x === 0 && view.y === 0;
+    intro = { plan, start: performance.now(), target, scale: new Map(), camera, labels: 0 };
+    // Edges draw on from source to target: a unit-length dash slid along the path.
+    linkPaths()
+      .interrupt()
+      .attr('pathLength', 1)
+      .attr('stroke-dasharray', '1 1')
+      .attr('stroke-dashoffset', 1)
+      .attr('opacity', (l) => linkStyle(l).opacity);
+    stepIntro(intro.start);
+  };
+
+  const stepIntro = (now: number) => {
+    if (!intro) return;
+    const t = now - intro.start;
+    if (t >= intro.plan.totalMs) {
+      finishIntro();
+      return;
+    }
+    const { plan, target, scale } = intro;
+    for (const n of nodeById.values()) {
+      const to = target.get(n.id);
+      if (!to) continue;
+      const pose = introPose(to, plan.timing.get(n.id), t);
+      n.x = pose.x;
+      n.y = pose.y;
+      n.vx = 0;
+      n.vy = 0;
+      scale.set(n.id, pose.scale);
+    }
+    const fade = (n: SimNode) => {
+      const to = target.get(n.id);
+      return to ? introPose(to, plan.timing.get(n.id), t).opacity : 1;
+    };
+    gNodes.selectAll<SVGGElement, SimNode>('g.sg-node').style('opacity', fade);
+    tagGroups().style('opacity', fade);
+    linkPaths().attr(
+      'stroke-dashoffset',
+      (l) => 1 - introEdge(plan.timing.get(l.source.id), plan.timing.get(l.target.id), t),
+    );
+    intro.labels = introLabels(plan, t);
+    labelTexts().style('opacity', intro.labels);
+    const halo = easeOut(t / Math.max(1, plan.totalMs));
+    gBloom.style('opacity', halo);
+    gRings.style('opacity', halo);
+    if (intro.camera) svg.call(zoom.transform, d3.zoomIdentity.scale(introCamera(plan, t)));
+    draw();
+  };
+
+  /** Land the intro: settled positions, styles back, and the simulation takes over gently. */
+  const finishIntro = () => {
+    if (!intro) return;
+    const { target, camera } = intro;
+    intro = null;
+    for (const n of nodeById.values()) {
+      const to = target.get(n.id);
+      if (!to) continue;
+      n.x = to.x;
+      n.y = to.y;
+      n.vx = 0;
+      n.vy = 0;
+    }
+    gNodes.selectAll<SVGGElement, SimNode>('g.sg-node').style('opacity', null);
+    tagGroups().style('opacity', null);
+    labelTexts().style('opacity', null);
+    gBloom.style('opacity', null);
+    gRings.style('opacity', null);
+    linkPaths()
+      .attr('pathLength', null)
+      .attr('stroke-dasharray', (l) => linkStyle(l).dash)
+      .attr('stroke-dashoffset', null);
+    if (camera) svg.call(zoom.transform, d3.zoomIdentity);
+    draw();
+    // Low alpha and heavy damping for the first second, so there is no second jolt.
+    simulation.velocityDecay(0.6).alpha(0.08).restart();
+    const t = setTimeout(() => {
+      liveTimers.delete(t);
+      simulation.velocityDecay(0.35);
+    }, 1000);
+    liveTimers.add(t);
+  };
+
   // ---- public API --------------------------------------------------------------------------
 
   const update = (next: SwarmGraph, updateOptions: SwarmUpdateOptions = {}) => {
+    // A live refresh mid-intro lands the intro at once rather than fighting the simulation.
+    finishIntro();
     const first = graph === null;
     const quiet = first || Boolean(updateOptions.quiet);
     graph = next;
@@ -1496,13 +1866,15 @@ export const createSwarmGraph = (
 
     simulation.nodes([...nodeById.values()]);
     linkForce.links(simLinks);
-    simulation.alpha(first ? 1 : 0.35).restart();
-    if (first && !motion) {
+    const introMode = motion ? (options.intro ?? 'full') : 'none';
+    if (first) {
+      // Settle the layout off-screen first, so every end position is known before anything moves.
       simulation.stop();
       for (let i = 0; i < 300; i++) simulation.tick();
-    }
+    } else simulation.alpha(0.35).restart();
 
     renderStatic();
+    if (first && introMode !== 'none' && nodeById.size > 0) startIntro(introMode);
     draw();
 
     // A work item moving to its next stage (branch → pull request → approved) gets its moment.
@@ -1533,6 +1905,16 @@ export const createSwarmGraph = (
       delay = Math.min(delay + 220, 4000);
     }
   };
+
+  const clearEffects = () =>
+    options.onEffect?.({
+      kind: 'clear',
+      nodeId: '',
+      color: '',
+      delta: null,
+      source: 'replay',
+      flow: null,
+    });
 
   const replayState = (r: ReplayRun): SwarmReplayState => {
     const i = r.next;
@@ -1577,7 +1959,8 @@ export const createSwarmGraph = (
       for (let i = r.next; i < due; i++) {
         const f = r.plan.flows[i];
         applyFlow(r.snap, f, r.plan.hubId);
-        if (i >= from) fireFlow(f, 'replay', now);
+        if (i >= from && sparksAt(r.plan, i)) fireFlow(f, 'replay', now);
+        else if (i >= from) options.onFlow?.(f, 'replay');
       }
       r.next = due;
       r.dirty = true;
@@ -1604,6 +1987,8 @@ export const createSwarmGraph = (
       particles = [];
       bursts = [];
       floaters = [];
+      beams.reset();
+      clearEffects();
       resize();
       renderStatic();
       options.onReplay?.(null);
@@ -1612,6 +1997,7 @@ export const createSwarmGraph = (
 
   const replay = (planOrDuration: SwarmReplayPlan | number = 30_000) => {
     if (!graph) return;
+    finishIntro();
     stopReplay();
     const plan =
       typeof planOrDuration === 'number'
@@ -1668,6 +2054,8 @@ export const createSwarmGraph = (
     particles = [];
     bursts = [];
     floaters = [];
+    beams.reset();
+    clearEffects();
     showSnapshot(r.snap);
     emitReplay();
   };
@@ -1697,12 +2085,43 @@ export const createSwarmGraph = (
     svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity);
   };
 
+  const port: SwarmViewport = { width, height, x: 0, y: 0, k: 1, moved: false };
+  const viewport = () => {
+    port.width = width;
+    port.height = height;
+    port.x = view.x;
+    port.y = view.y;
+    port.k = view.k;
+    port.moved = view.k !== 1 || view.x !== 0 || view.y !== 0;
+    return port;
+  };
+  const eachNode = (fn: (node: SwarmNodeView) => void) => {
+    for (const n of nodeById.values()) fn(n);
+  };
+  const eachSpark = (
+    fn: (x: number, y: number, color: string, size: number, big: boolean) => void,
+  ) => {
+    const now = performance.now();
+    for (const p of particles) {
+      if (now < p.start || !p.spark) continue;
+      const t = Math.max(0, Math.min(1, (now - p.start) / p.duration));
+      const pos = pointAt(p.from, p.to, d3.easeCubicInOut(t));
+      fn(pos.x, pos.y, p.color, p.size, Boolean(p.big));
+    }
+  };
+  const nodeAt = (id: string) => nodeById.get(id) ?? null;
+  const setLayered = (on: boolean) => {
+    layered = on;
+    if (on) bursts = [];
+  };
+
   const observer = new ResizeObserver(() => {
     const w = Math.max(320, container.clientWidth);
     const h = Math.max(320, container.clientHeight);
     if (w === width && h === height) return;
     width = w;
     height = h;
+    finishIntro();
     setViewBox();
     placeRing();
     resize();
@@ -1711,12 +2130,14 @@ export const createSwarmGraph = (
   observer.observe(container);
 
   const destroy = () => {
+    intro = null;
     run = null;
     liveTimers.forEach(clearTimeout);
     timer.stop();
     simulation.stop();
     observer.disconnect();
     svg.remove();
+    labelSvg.remove();
   };
 
   return {
@@ -1731,6 +2152,11 @@ export const createSwarmGraph = (
     replayClock,
     highlight,
     reset,
+    viewport,
+    eachNode,
+    eachSpark,
+    nodeAt,
+    setLayered,
     destroy,
   };
 };

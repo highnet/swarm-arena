@@ -173,6 +173,36 @@ what it is, why it might work, and its verdict. Never fill this from another eng
   local 20-game results as weak. Verdict: **buried** at 2572 ± 108 vs v0.4's 2607 (40 games vs v0.4, about even); code
   reverted, design under 'What failed'.
 
+- **Learned cell prior from self-play (#155).** A table from the local
+  pattern around a cell (its six neighbours in `board::inferior`'s slot order, each empty / own /
+  opponent / own edge / opponent edge; White's patterns transposed onto Black's, which reverses
+  the slots, then the 180° rotation folded) to the win rate of the engine's own movers who played
+  there. Each new child gets `PRIOR_VISITS` virtual visits at that rate. Why it might work: the
+  #111 opening book lost because a long search of the same playout policy keeps its bias, so the
+  offline compute goes into priors instead; patterns steer only the tree, not the playouts.
+  Code (reverted; commit a5b8826 on branch `agent/155-experiment-a-cell-prior-learned-offline-fr`
+  has it, the prior first landed in 1c5b508 / ef571ca): `src/prior.rs` (pattern, folds, table load; tests: table loads, every raw index holds its
+  class's rate, both folds are board symmetries, edge slots), `src/bin/prior_gen.rs` (generator,
+  documented and seeded: game g of shard s has seed s·10⁶ + g, first two moves random and not
+  recorded, prior off, `Limit::Playouts(8000)`), `src/prior.bin` (15625 bytes, rate × 255,
+  smoothed with 20 virtual games at 50%). Generated from 4 shards × 2000 games: 334855 moves
+  over 488 classes; Black won 63% of the games. Frequent classes ranged from 4% to 88% (e.g.
+  class 677: 4% over 3873 moves; 36: 88% over 4966), so the signal is real but it is "who
+  played here went on to win", which mixes the move's worth with the state of the game.
+  `go 200` at f6 e7 g5 (playouts, shared 4-core machine): off 40–60k (avg ~52k over 13 runs),
+  AMAF only 20 visits 32–55k (avg ~49k, about −6%), real stats 20 visits 36–38k, real 50
+  31–40k, both 20 30–34k: virtual visits in the real stats make C = 0 selection commit to
+  prior-favoured lines, the tree goes deeper and each playout pays more AMAF work.
+  `arena versus hex` vs main, 40 games each, 200 ms: seed 840896035: real 20 **17–23**, real 5
+  15–25, real 50 21–19, AMAF 20 18–22, AMAF 50 17–23, both 20 22–18, prior off (= main)
+  22–18; seed 777: both 20 18–22, prior off 21–19. Every variant sits inside the ±2-game spread
+  of prior-off vs main itself: no measurable gain locally. Submitted with AMAF only, 20 visits
+  (the only variant inside the playout budget). The referee's gate (40 games from the balanced
+  suite, pr#169) said **25–15–0, 2823 ± 111 (+89)**, against every local run's tie: either the
+  balanced openings expose what the prior helps with, or the local runs undersell it. Verdict:
+  **buried** at 2717 ± 108, not above v0.5's 2734, though the 40-game gate went 25–15; code
+  reverted, why and what to try instead under 'What failed'.
+
 ## What failed and why
 
 When an idea is buried, write what it was, the measured result and what to try differently.
@@ -197,6 +227,22 @@ Never re-propose an idea from this list unchanged.
   of the same flawed playout policy does not fix its opening bias. Try instead (if at all):
   a book only where long and short search disagree and the long one's margin is large, or
   spend the offline compute on tuning (K, priors) rather than per-position moves.
+- Learned cell prior from self-play (#155, buried at 2717 ± 108, not above v0.5's 2734, though
+  the referee's 40-game gate vs main went 25–15 (+89, pr#169); every local 40-game `versus` run
+  of every variant sat within the ±2-game spread of main vs itself). Design (reverted; commit
+  a5b8826 on branch `agent/155-experiment-a-cell-prior-learned-offline-fr` has the code, the
+  generator and the 15 KB table): the six-neighbour pattern of a cell, folded for colour and the
+  180° rotation, mapped to the self-play win rate of movers who played there, given to each new
+  child as 20 virtual AMAF visits. Likely why no gain: the table measures "who played here went
+  on to win", which mixes the move's worth with the state of the game (Black won 63% of the
+  generator's games), and a six-cell pattern says little that RAVE's own per-cell statistics do
+  not learn within a few hundred playouts; as AMAF-only visits it barely moves C = 0 selection,
+  in the real stats it commits the tree to prior-favoured lines, and it costs ~6% of playouts.
+  The 25–15 gate against flat local runs is one more case of a 40-game result that did not hold
+  up in the rating. Try instead: a played-vs-available prior (how often the pattern was chosen
+  when it was on the board, the Go "urgency" form) rather than the outcome win rate; larger
+  patterns (the 12-cell radius-2 ring, with bridges); or the table in the playouts' split rather
+  than the tree.
 - RAVE with a UCB term (#50): C = 0.3 lost 1–7 to plain UCT, C = 0.1 3–5. AMAF already spreads
   statistics over all children; the exploration bonus just diverts real visits. Use C = 0.
 - Second-row edge-template pairing in the fill-in (#73, buried at 2607 ± 108, i.e. no gain over
@@ -244,6 +290,7 @@ Never re-propose an idea from this list unchanged.
 
 | Concept | Here | Verdict |
 | --- | --- | --- |
+| learned evaluation | pattern -> self-play win rate as virtual AMAF visits on new nodes (#155) | buried at 2717 ± 108, not above v0.5's 2734, though the 40-game gate went 25–15 (+89, pr#169); local 40-game runs all within noise |
 | inferior-move pruning | dead cells and opponent-captured pairs left out of each node's children (#95) | pruning 30–10 vs v0.4 locally; the same cells in the fill-in lost 14–26 |
 
 ## Results log
@@ -258,3 +305,4 @@ Never re-propose an idea from this list unchanged.
 - 2026-11-23 18:54 UTC · buried · Experiment: ownership-guided fill-in, where the root's own playout ownership map biases the split of contested cells · Rated 2572 ± 108, not above 2607.
 - 2026-11-23 19:40 UTC · v0.5 passed the referee · Inferior-cell pruning: drop dead cells from the tree and settle captured cells in the fill-in · rated 2734 (+127)
 - 2026-11-24 09:56 UTC · buried · Self-generated opening book: the engine's own long MCTS runs over the first moves, probed instantly · Rated 2664 ± 110, not above 2734.
+- 2026-11-24 12:41 UTC · buried · Experiment: a cell prior learned offline from the engine's own self-play, given to new nodes as virtual wins · Rated 2717 ± 108, not above 2734.

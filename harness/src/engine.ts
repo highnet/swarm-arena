@@ -19,6 +19,54 @@ export const findBin = (name: string, envVar: string): string => {
   return candidates.find((c) => existsSync(c)) ?? name;
 };
 
+/** Every engine process this referee started and has not seen exit (#164). */
+const live = new Set<ChildProcessWithoutNullStreams>();
+
+/** How many engine processes are still running. */
+export const liveProcesses = () => live.size;
+
+/**
+ * Kill every engine process still running, now. An aborted match skips the normal `close()`
+ * calls, and one hanging reference keeps its pipes open and the referee process alive (#164):
+ * `arena submit` calls this on the way out, whatever happened. Returns how many it killed.
+ */
+/** SIGKILL a child and its process group (it is detached, so it leads one). */
+const killGroup = (child: ChildProcessWithoutNullStreams) => {
+  try {
+    if (child.pid === undefined) throw new Error("no pid");
+    process.kill(-child.pid, "SIGKILL");
+  } catch {
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      /* already gone */
+    }
+  }
+};
+
+export const killAll = () => {
+  const n = live.size;
+  for (const child of live) killGroup(child);
+  live.clear();
+  return n;
+};
+
+let hooked = false;
+/** Kill the engine processes on exit and on Ctrl-C / SIGTERM too, not only on a clean return. */
+const hookExit = () => {
+  if (hooked) return;
+  hooked = true;
+  process.on("exit", killAll);
+  for (const [sig, code] of [
+    ["SIGINT", 130],
+    ["SIGTERM", 143],
+  ] as const)
+    process.on(sig, () => {
+      killAll();
+      process.exit(code);
+    });
+};
+
 /**
  * A line-based process speaking a small protocol. Used for arena engines (see
  * engines/PROTOCOL.md) and wrapped for the external reference engines.
@@ -31,7 +79,20 @@ export class LineProcess {
   private exited = false;
 
   constructor(command: string, args: string[], cwd?: string) {
-    this.child = spawn(command, args, { cwd, stdio: ["pipe", "pipe", "pipe"] });
+    hookExit();
+    // Its own process group, so killAll() reaches anything the engine itself started.
+    this.child = spawn(command, args, {
+      cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+      detached: process.platform !== "win32",
+    });
+    live.add(this.child);
+    // A spawn error (binary missing) arrives as an event; without a listener it would throw.
+    this.child.on("error", () => {
+      live.delete(this.child);
+      this.exited = true;
+      for (const w of this.waiting.splice(0)) w("\u0000exit");
+    });
     this.lines = createInterface({ input: this.child.stdout });
     this.lines.on("line", (line) => {
       const w = this.waiting.shift();
@@ -39,6 +100,7 @@ export class LineProcess {
       else this.buffered.push(line);
     });
     this.child.on("exit", () => {
+      live.delete(this.child);
       this.exited = true;
       for (const w of this.waiting.splice(0)) w("\u0000exit");
     });
@@ -72,7 +134,8 @@ export class LineProcess {
   /** Kill the process now, failing any pending read. */
   kill() {
     this.lines.close();
-    this.child.kill("SIGKILL");
+    // The whole group: a restart must not orphan whatever the old process started.
+    killGroup(this.child);
   }
 
   async close() {
@@ -82,7 +145,7 @@ export class LineProcess {
       } catch {
         /* already gone */
       }
-      setTimeout(() => this.child.kill("SIGKILL"), 500).unref();
+      setTimeout(() => killGroup(this.child), 500).unref();
     }
     this.lines.close();
   }

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { liveStream, LIVE_TABLE } from "./live";
+import { GAMES, playMatch, randomPlayer, type Mover } from "@arena/shared";
+import { liveHooks, liveStream, LIVE_TABLE } from "./live";
 import type { Store } from "./store";
 
 type Row = Record<string, unknown>;
@@ -122,3 +123,43 @@ for (const mode of ["reject", "throw", "hang"] as const) {
     if (mode !== "hang") assert.equal(lines.length, 1, "logged once");
   });
 }
+
+/** A random player that takes a few ms per move, so the store sees each game in progress. */
+const slow = (seed: number): Mover => {
+  const inner = randomPlayer(seed);
+  return {
+    id: `slow-${seed}`,
+    choose: async (r, st) => {
+      await sleep(3);
+      return inner.choose(r, st);
+    },
+  };
+};
+
+test("versus hooks stream every game of a playMatch with no match row, and clear them all", async () => {
+  const { store, rows, log } = memoryStore();
+  const live = liveStream(
+    store,
+    { ...info, match_id: null },
+    { intervalMs: 5 },
+  );
+  const hooks = liveHooks(live, "run-t-othello-versus-x");
+  const seen = new Set<string>();
+  const res = await playMatch(GAMES.othello, slow(1), slow(2), 2, {
+    onGameStart: hooks.onGameStart,
+    onMove: (m, p) => {
+      hooks.onMove(m, p);
+      for (const id of rows.keys()) seen.add(id);
+    },
+    onVoid: hooks.onVoid,
+    onGame: hooks.onGame,
+  }).finally(hooks.done);
+  assert.equal(res.wins + res.losses + res.draws, 4);
+  assert.equal(rows.size, 0, "every row is deleted once its game ends");
+  for (let g = 1; g <= 4; g++)
+    assert.ok(
+      log.includes(`delete run-t-othello-versus-x-g${g}`),
+      `game ${g} streamed and ended`,
+    );
+  assert.ok(seen.size >= 1, "rows exist while games are played");
+});

@@ -64,3 +64,88 @@ test("the delivered issue comes from Closes, then Refs, then the agent/ branch",
   });
   assert.equal(deliveredIssue(pull("This closes #5 in passing.")), null);
 });
+
+test("a worker re-dispatched with the claim holder's agent id resumes; any other id is refused (#177)", async () => {
+  const { holdsClaim, claimHolder } = await import("./rallypoint");
+  const labels = [{ name: "status:claimed" }, { name: "arena" }, { name: "engine:go9" }];
+  const comments = [
+    { body: "Claimed by Rallypoint agent `cd-d2-worker-go154`.\n\n- plan" },
+    { body: "Inconclusive gate; resubmitting." },
+    // A quoted claim later in a comment never counts: the line must open the body.
+    { body: "> Claimed by Rallypoint agent `intruder`." },
+  ];
+  assert.equal(claimHolder(comments), "cd-d2-worker-go154");
+  const base = { labels, comments, reserved: true };
+  assert.equal(holdsClaim({ ...base, agentId: "cd-d2-worker-go154" }), true);
+  assert.equal(holdsClaim({ ...base, agentId: "someone-else" }), false);
+  assert.equal(holdsClaim({ ...base, agentId: "intruder" }), false);
+  // No live reservation: the claim was released, so it is claimed afresh, not resumed.
+  assert.equal(holdsClaim({ ...base, reserved: false, agentId: "cd-d2-worker-go154" }), false);
+  // Any other hold (blocked, deferred, needs:human) is never resumed past.
+  for (const hold of ["status:blocked", "status:deferred", "needs:human"])
+    assert.equal(
+      holdsClaim({ ...base, labels: [...labels, { name: hold }], agentId: "cd-d2-worker-go154" }),
+      false,
+    );
+  // A re-claim supersedes: the last claim comment is the holder.
+  const reclaimed = [...comments, { body: "Claimed by Rallypoint agent `cd-d2-worker-go154b`." }];
+  assert.equal(holdsClaim({ ...base, comments: reclaimed, agentId: "cd-d2-worker-go154" }), false);
+  assert.equal(holdsClaim({ ...base, comments: reclaimed, agentId: "cd-d2-worker-go154b" }), true);
+});
+
+test("release-claim lists a branch's pull requests by head through the REST transport (#177)", async () => {
+  const scripts = resolve(ARENA_ROOT, ".rallypoint/scripts/lib");
+  const { createTransport } = (await import(resolve(scripts, "api.mjs"))) as {
+    createTransport: (o: {
+      request: (c: { method: string; path: string }) => { status: number; body: unknown };
+      repository: string;
+    }) => (...args: string[]) => string;
+  };
+  const { branchPullRequests } = (await import(resolve(scripts, "release-claim.mjs"))) as {
+    branchPullRequests: (
+      gh: (...args: string[]) => string,
+      branches: { name: string }[],
+    ) => { ok: boolean; items?: { name: string; state: string; settledAt: string | null; pullRequests: number[] }[] };
+  };
+  const seen: string[] = [];
+  const pulls: Record<string, unknown[]> = {
+    "agent/154-go-tree-reuse": [
+      { number: 162, state: "closed", merged_at: null, closed_at: "2026-11-24T10:00:00Z", head: { ref: "agent/154-go-tree-reuse", sha: "a" } },
+    ],
+    "agent/155-merged": [
+      { number: 170, state: "closed", merged_at: "2026-11-24T11:00:00Z", closed_at: "2026-11-24T11:00:00Z", head: { ref: "agent/155-merged", sha: "b" } },
+    ],
+    "agent/156-open": [
+      { number: 171, state: "open", merged_at: null, closed_at: null, head: { ref: "agent/156-open", sha: "c" } },
+    ],
+  };
+  const gh = createTransport({
+    repository: "highnet/swarm-arena",
+    request: ({ method, path }) => {
+      seen.push(`${method} ${path}`);
+      const url = new URL(path, "https://x");
+      assert.equal(url.pathname, "/repos/highnet/swarm-arena/pulls");
+      assert.equal(url.searchParams.get("state"), "all");
+      const head = url.searchParams.get("head") ?? "";
+      assert.match(head, /^highnet:/);
+      return { status: 200, body: pulls[head.slice("highnet:".length)] ?? [] };
+    },
+  });
+  const out = branchPullRequests(gh, [
+    { name: "agent/154-go-tree-reuse" },
+    { name: "agent/155-merged" },
+    { name: "agent/156-open" },
+    { name: "agent/157-none" },
+  ]);
+  assert.equal(out.ok, true, JSON.stringify(out));
+  assert.deepEqual(
+    out.items!.map(({ name, state, settledAt, pullRequests }) => ({ name, state, settledAt, pullRequests })),
+    [
+      { name: "agent/154-go-tree-reuse", state: "settled", settledAt: "2026-11-24T10:00:00.000Z", pullRequests: [162] },
+      { name: "agent/155-merged", state: "settled", settledAt: "2026-11-24T11:00:00.000Z", pullRequests: [170] },
+      { name: "agent/156-open", state: "open", settledAt: null, pullRequests: [171] },
+      { name: "agent/157-none", state: "none", settledAt: null, pullRequests: [] },
+    ],
+  );
+  assert.equal(seen.length, 4);
+});

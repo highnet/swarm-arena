@@ -136,6 +136,11 @@ export type SwarmReplayPlanOptions = {
   holdMs?: number;
   /** Which events the replay dwells on. Default `isMilestone`. */
   isMilestone?: (f: SwarmFlow) => boolean;
+  /**
+   * Step between the events of one burst (the games of a match, say: flows sharing a `group`
+   * back to back). A burst plays as one beat, as the live graph coalesces it. Default 70 ms.
+   */
+  burstStepMs?: number;
 };
 
 export type SwarmReplayPlan = {
@@ -153,6 +158,12 @@ export type SwarmReplayPlan = {
   gaps: SwarmIdleGap[];
   /** Indexes into `flows` of milestones. */
   milestones: number[];
+  /**
+   * For each flow, the index of the first flow of the burst it belongs to (flows sharing a
+   * `group` back to back), or -1 when it is not part of one. A burst's first flow points at
+   * itself. Renderers spark a burst sparingly and land its last flow.
+   */
+  burst: number[];
   startAt: string | null;
   endAt: string | null;
 };
@@ -182,6 +193,10 @@ export const planReplay = (
   const milestones = shown.flatMap((f, i) => (dwell(f) ? [i] : []));
   const isMs = new Set(milestones);
   const gapAt = new Set(win.gaps.map((g) => g.index));
+  const burst = burstsOf(shown);
+  const burstStep = options.burstStepMs ?? 70;
+  /** A burst's later events (not milestones, not after an idle gap) ride on its first beat. */
+  const rides = (i: number) => burst[i] >= 0 && burst[i] < i && !isMs.has(i) && !gapAt.has(i);
 
   // Fixed costs first (beats, holds, a floor per event), then real time shares the rest.
   const floor = 30;
@@ -190,6 +205,10 @@ export const planReplay = (
     if (i === 0) return 0;
     if (gapAt.has(i)) {
       fixed += beatMs;
+      return 0;
+    }
+    if (rides(i)) {
+      fixed += burstStep;
       return 0;
     }
     fixed += floor;
@@ -206,7 +225,7 @@ export const planReplay = (
   shown.forEach((_, i) => {
     if (i > 0) {
       const share = span > 0 ? (weight[i] / span) * budget : budget / Math.max(1, shown.length);
-      const step = gapAt.has(i) ? beatMs : floor + share;
+      const step = gapAt.has(i) ? beatMs : rides(i) ? burstStep : floor + share;
       at += step * squeeze + (isMs.has(i - 1) ? holdMs * squeeze : 0);
     }
     times.push(at);
@@ -222,9 +241,35 @@ export const planReplay = (
     total,
     gaps: win.gaps,
     milestones,
+    burst,
     startAt: shown[0]?.at ?? null,
     endAt: shown.at(-1)?.at ?? null,
   };
+};
+
+/**
+ * Bursts: runs of consecutive flows that share a `group` id. Each flow maps to the index of its
+ * run's first flow, or -1 when its run is a single flow (or it has no group).
+ */
+export const burstsOf = (flows: SwarmFlow[]): number[] => {
+  const out = new Array<number>(flows.length).fill(-1);
+  let i = 0;
+  while (i < flows.length) {
+    const id = flows[i].group?.id;
+    let j = i + 1;
+    if (id) while (j < flows.length && flows[j].group?.id === id) j++;
+    if (j - i > 1) for (let k = i; k < j; k++) out[k] = i;
+    i = j;
+  }
+  return out;
+};
+
+/** Whether the replay should spark flow `i` (a burst sparks its first, every fourth and last). */
+export const sparksAt = (plan: Pick<SwarmReplayPlan, 'burst'>, i: number) => {
+  const b = plan.burst[i] ?? -1;
+  if (b < 0) return true;
+  const last = plan.burst[i + 1] !== b;
+  return last || (i - b) % 4 === 0;
 };
 
 /** The playback offset → how many events have fired by then (binary search). */

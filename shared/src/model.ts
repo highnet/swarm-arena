@@ -209,7 +209,8 @@ export type GameRow = {
 export type LiveGameRow = {
   id: string;
   run_id: string;
-  match_id: string;
+  /** The referee's match; null for an `arena versus` game, which has no match (#163). */
+  match_id: string | null;
   track_id: GameId;
   candidate_version: string;
   /** The reference engine and level, or the main version, as the match labels it. */
