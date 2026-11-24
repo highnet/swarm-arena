@@ -25,10 +25,11 @@ const CHECK_EVERY: u32 = 64;
 /// opponent of the mover has captured.
 pub const PRUNE_EXPANSION: bool = true;
 /// Learned cell prior (#155): each new child starts with this many virtual visits at the
-/// learned win rate of its cell's pattern (`prior.rs`). 0 turns it off.
+/// learned win rate of its cell's pattern (`prior.rs`). 0 turns it off. Measured (#155): real
+/// stats cost 30-40% of the playouts, AMAF only about 6%; none beat main in 40 games.
 pub const PRIOR_VISITS: u32 = 20;
 /// Which statistics get the virtual visits.
-pub const PRIOR_TARGET: PriorTarget = PriorTarget::Real;
+pub const PRIOR_TARGET: PriorTarget = PriorTarget::Amaf;
 
 /// Where the prior's virtual visits go.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -41,24 +42,16 @@ pub enum PriorTarget {
     Both,
 }
 
-/// The prior settings in effect (the constants, or `HEX_PRIOR=<visits>,<real|amaf|both>` when
-/// tuning locally).
+/// Turns the prior off for this process (the offline generator learns the table without it).
+pub static PRIOR_OFF: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The prior settings in effect.
 fn prior_settings() -> (u32, PriorTarget) {
-    static S: std::sync::OnceLock<(u32, PriorTarget)> = std::sync::OnceLock::new();
-    *S.get_or_init(|| {
-        let Ok(v) = std::env::var("HEX_PRIOR") else {
-            return (PRIOR_VISITS, PRIOR_TARGET);
-        };
-        let mut it = v.split(',');
-        let n = it.next().and_then(|x| x.parse().ok()).unwrap_or(PRIOR_VISITS);
-        let t = match it.next() {
-            Some("amaf") => PriorTarget::Amaf,
-            Some("both") => PriorTarget::Both,
-            Some("real") => PriorTarget::Real,
-            _ => PRIOR_TARGET,
-        };
-        (n.min(255), t)
-    })
+    if PRIOR_OFF.load(std::sync::atomic::Ordering::Relaxed) {
+        (0, PRIOR_TARGET)
+    } else {
+        (PRIOR_VISITS.min(255), PRIOR_TARGET)
+    }
 }
 
 /// The cells a node with this position gets children on: every empty cell, minus (with

@@ -115,7 +115,7 @@ fn game(seed: u64, playouts: u32) -> (Vec<(usize, bool)>, bool) {
 
 fn play(args: &[String]) {
     // The table is learned from the engine without the prior (whatever the compiled table).
-    std::env::set_var("HEX_PRIOR", "0");
+    search::PRIOR_OFF.store(true, std::sync::atomic::Ordering::Relaxed);
     let shard = num(args, "--shard", 0);
     let games = num(args, "--games", 100);
     let playouts = num(args, "--playouts", 3000) as u32;
