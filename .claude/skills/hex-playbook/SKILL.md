@@ -133,41 +133,8 @@ over plain UCT at 200 ms only with C = 0 (C = 0.3 lost 1–7), at K = 1000, desp
 playouts. Go needs first-play-wins, must skip recaptured points and passes, and its moves are more
 order-dependent, so expect a smaller gain there; start its sweep at C = 0 too.
 
-### Candidate (not shipped): self-generated opening book (#111)
-
-Not in "Architecture now" until the referee passes it.
-
-- **What:** `src/book.rs` + `src/book.txt` (include_str!, ~70 KB text). Every position after one
-  ply (121 → 61 up to symmetry) and after two plies (14 520 → 7 260), keyed by both bitboards,
-  canonical under the 180° rotation (cell i ↔ 120 − i, `u128::reverse_bits() >> 7`; Black's
-  edges stay Black's). `choose` probes it after the win/block checks and the f6 first move, and
-  plays the stored move at once (`info book ply N` on stderr). Off book: search as before.
-- **Why these positions:** the referee starts every pair from a random 2-ply line of
-  `shared/src/openings/hex.txt` (#105), so the engine as Black is in book on its first move of
-  every gate game, whatever the suite holds; the book was not built from the suite. As White
-  its first move is at ply 3 (two Black stones), 14 520 × 119 / 2 positions: not covered.
-  From the empty board (site games, `arena versus`) both sides get one book move (f6 → the ply-1
-  table answers White; Black's ply 3 is in the ply-2 table).
-- **How it was built:** `cargo run --release --bin gen-book -- --playouts 400000 --shard I/4`
-  for I = 0..3 (four processes: the crate may not use threads, offline tooling included), then
-  `cat` + `sort` into `src/book.txt`. Each position gets the engine's own search
-  (`search_capped`) for **400 000 playouts** (about 8× a 200 ms gate move) with the tree cap
-  raised from 2M to **16M nodes** (at 2M the tree stops growing after ~35k playouts), seed
-  from the position and `--seed 1`. ~1.7 s per position on this machine, ~50 min for 7 321
-  positions on 4 cores. No clock in the search, so the file is reproducible from the command.
-- **Local measurement:** 40 games vs main (v0.5) at 200 ms from the referee's suite (seed 7,
-  20 pairs, each pair from its own entry): **19–21**, i.e. no measurable change. Expected: the
-  book replaces one move per game as Black with an 8× longer search of the same engine, and
-  the gate's 2-ply starts leave White out of book. Book moves concentrate on the short
-  diagonal (e7 665, f6 577, d8 494, g5 433, h4 354 of 7 321).
-- **Hit rate in gate games:** one in-book ply per game as Black (its first move, ply 3), none
-  as White (first out-of-book ply: its first move, ply 4; as Black, its second move, ply 5).
-
 ## Ideas worth trying
 
-- Book (#111) follow-ups: cover White's first move from the suite (ply 3) only along likely
-  lines (the opponent's own probable ply-2 replies), or a deeper book along the engine's own
-  self-play from each suite start; spend more playouts on the ply-1 table (61 positions).
 
 - Win back RAVE's playout rate: structure-of-arrays AMAF counters (vectorisable update), or
   skip the AMAF update below a depth; then re-check K (K = 3000 tied K = 1000).
@@ -210,6 +177,25 @@ what it is, why it might work, and its verdict. Never fill this from another eng
 When an idea is buried, write what it was, the measured result and what to try differently.
 Never re-propose an idea from this list unchanged.
 
+- Self-generated opening book (#111, buried at 2664 ± 110 vs v0.5's 2734: the referee's 40
+  games vs v0.5 went **16–24**; locally 19–21 over 40 from the suite, seed 7). Design (reverted;
+  commit 4b8332c on branch `agent/111-hex-self-generated-opening-book-the-engine` has the
+  code and the 126 KB book): every position after one ply (61 up to the 180° rotation, cell
+  i ↔ 120 − i, `u128::reverse_bits() >> 7`) and after two plies (7 260), keyed by both
+  bitboards, canonical under the rotation; `choose` played the stored move after the
+  win/block checks. Built by `gen-book` (`src/bin`, offline): the engine's own search for
+  400 000 playouts per position (~8× a 200 ms move) with the tree cap raised from 2M to 16M
+  nodes (at 2M the tree stops growing after ~35k playouts), seed from the position, four
+  processes (`--shard I/4`; no threads in the crate, tooling included), ~1.6 s a position,
+  48 min. Hit rate in gate games: one book move per game as Black (its first move, ply 3),
+  none as White (the suite's 2-ply starts put White's first move at ply 3: 14 520 × 119 / 2
+  positions). Book moves crowd the short diagonal (e7 665, f6 577, d8 494, g5 433, h4 354).
+  Likely why no gain: one move in ~60, chosen by the same search with 8× the playouts, barely
+  differs from the 200 ms choice in strength, and the engine's MCTS value at ply 2 is still
+  ±several points (the 400k-playout win rates sit at 0.53–0.61, close together); a long search
+  of the same flawed playout policy does not fix its opening bias. Try instead (if at all):
+  a book only where long and short search disagree and the long one's margin is large, or
+  spend the offline compute on tuning (K, priors) rather than per-position moves.
 - RAVE with a UCB term (#50): C = 0.3 lost 1–7 to plain UCT, C = 0.1 3–5. AMAF already spreads
   statistics over all children; the exploration bonus just diverts real visits. Use C = 0.
 - Second-row edge-template pairing in the fill-in (#73, buried at 2607 ± 108, i.e. no gain over
