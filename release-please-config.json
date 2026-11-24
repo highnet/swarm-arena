@@ -11,9 +11,25 @@
       "package-name": "swarm-arena",
       "exclude-paths": ["engines", ".claude/skills/chess-playbook", ".claude/skills/go9-playbook", ".claude/skills/othello-playbook", ".claude/skills/hex-playbook", "web/public/wasm"]
     },
-    "engines/chess": { "release-type": "rust", "component": "chess-engine" },
-    "engines/go9": { "release-type": "rust", "component": "go9-engine" },
-    "engines/othello": { "release-type": "rust", "component": "othello-engine" },
-    "engines/hex": { "release-type": "rust", "component": "hex-engine" }
+    "engines/chess": {
+      "release-type": "rust",
+      "component": "chess-engine",
+      "extra-files": [{ "type": "toml", "path": "/engines/Cargo.lock", "jsonpath": "$.package[?(@.name.value=='chess-engine')].version" }]
+    },
+    "engines/go9": {
+      "release-type": "rust",
+      "component": "go9-engine",
+      "extra-files": [{ "type": "toml", "path": "/engines/Cargo.lock", "jsonpath": "$.package[?(@.name.value=='go9-engine')].version" }]
+    },
+    "engines/othello": {
+      "release-type": "rust",
+      "component": "othello-engine",
+      "extra-files": [{ "type": "toml", "path": "/engines/Cargo.lock", "jsonpath": "$.package[?(@.name.value=='othello-engine')].version" }]
+    },
+    "engines/hex": {
+      "release-type": "rust",
+      "component": "hex-engine",
+      "extra-files": [{ "type": "toml", "path": "/engines/Cargo.lock", "jsonpath": "$.package[?(@.name.value=='hex-engine')].version" }]
+    }
   }
 }
