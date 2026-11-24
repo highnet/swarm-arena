@@ -146,47 +146,13 @@ order-dependent, so expect a smaller gain there; start its sweep at C = 0 too.
   not (#73, under 'What failed'). Next: K = 300–500 (only 1000 vs 3000 was tried with pairing); a template stone on row 3 (IIIa,
   needs a 4-cell carrier: pair it as "respond inside the carrier" rather than a fixed split);
   two-distance or resistance evaluation as priors.
-- Inferior cells (#95) are in at expansion; #180 added vulnerable cells and a complete local
-  dead test (see the candidate note below). Next: capture-dominated cells for the mover itself
+- Inferior cells (#95) are in at expansion; #180's vulnerable cells and complete local dead
+  test were buried (under 'What failed'). Next: capture-dominated cells for the mover itself
   (a cell in the mover's own captured pair is dominated by its partner's neighbours?), vulnerable
   cells whose killer is two cells away (a captured pair as the killer), and why the complete dead
   test did not help on its own. Each needs the same random-completion proof test. Also why the
   fill-in lost (below) - try pairs-only without the dead split.
 
-**Candidate (not shipped): vulnerable-cell pruning (#180, `search::PRUNE_VULNERABLE = true`).**
-An empty cell c is vulnerable for the mover M when an opponent stone on an empty neighbour d
-would make c dead; M's move at c is then dominated by M's move at d (with the opponent on d, c's
-colour is irrelevant, so (M c, O d) wins exactly as (O c, O d), and giving d to M only helps:
-(M d, O c)). `board::vulnerable` returns, per slot j, the cells that an opponent stone on their
-slot-j neighbour kills (the dead test with slot j forced to the opponent, six times, bitboard
-ANDs only). `search::dominated` drops c only when some killer d is itself kept and not vulnerable,
-so two cells never prune each other and every dropped cell leaves a better child; the fallback to
-every empty cell and the win/block checks in `choose` stay. Proof test: >5000 completions, (M c,
-O d) won by M ⇒ (M d, O c) won by M, and with O on d flipping c never changes the winner.
-**Complete local dead test (`board::DEAD_COMPLETE`, built and proven but off: did not help).** A
-cell is dead iff no four of its slots, in cyclic order, alternate "could be X" / "could be Y"
-(then for every completion each colour's neighbours form one run of consecutive slots, and
-consecutive slots touch, so no chain needs the cell). It contains four-in-a-row and adds X X X
-Y Y ·, X X · Y Y ·, X X X Y Y Y and the corner/edge versions (a1 with b1 Black alone is dead).
-Tested against a brute force over all 729 slot patterns of f6 and the random-completion proof.
-Measured, 40 games vs main v0.5 at 200 ms per seed, main-vs-main (both off) as the control:
-
-| seed | vulnerable only | complete dead only | both | main vs main |
-| --- | --- | --- | --- | --- |
-| 180424 | 25–15 | 16–24 | 19–21 | 19–21 |
-| 77180 | 22–18 | 24–16 | 19–21 | 21–19 |
-| 3180 | 24–16 | | | 20–20 |
-| total | **71–49** | 40–40 | 38–42 | 60–60 |
-
-Playouts at f6 e7 g5 (3 runs, shared machine): `go 200` main 45–49k, vulnerable 51–52k,
-complete dead 48–56k; `go 1000` main 288–313k, vulnerable 316–351k, complete dead 355–362k (no
-cost: the tree has fewer children). Root children on random positions with 20/30/40/50 stones
-(200 each): main 98.0/86.7/75.2/63.7, complete dead 97.2/85.2/73.2/61.0, vulnerable
-95.5/83.5/71.1/59.1, both 88.9/75.6/63.0/51.5 (with the complete test many more cells become
-vulnerable). Why "both" did not help when vulnerable alone did is open: every pruned cell is
-provably dominated, so the likeliest cause is RAVE losing the AMAF statistics those children
-carried (siblings share credit), or noise; 40-game local results have failed to predict the
-referee twice, so treat the vulnerable gain (+3 seeds) as a lead, not a result.
 - Parallel root search within the time budget.
 
 ## Novel experiments
@@ -242,6 +208,48 @@ what it is, why it might work, and its verdict. Never fill this from another eng
 
 When an idea is buried, write what it was, the measured result and what to try differently.
 Never re-propose an idea from this list unchanged.
+
+- Vulnerable-cell pruning (#180, **buried at 2681 ± 109: the referee went 17–23 vs v0.5**, after
+  71–49 over 120 local games). Code reverted; commit e44b827 on pr#185's branch has it
+  (`search::PRUNE_VULNERABLE`, `board::vulnerable`, `search::dominated`).
+  An empty cell c is vulnerable for the mover M when an opponent stone on an empty neighbour d
+  would make c dead; M's move at c is then dominated by M's move at d (with the opponent on d, c's
+  colour is irrelevant, so (M c, O d) wins exactly as (O c, O d), and giving d to M only helps:
+  (M d, O c)). `board::vulnerable` returns, per slot j, the cells that an opponent stone on their
+  slot-j neighbour kills (the dead test with slot j forced to the opponent, six times, bitboard
+  ANDs only). `search::dominated` drops c only when some killer d is itself kept and not vulnerable,
+  so two cells never prune each other and every dropped cell leaves a better child; the fallback to
+  every empty cell and the win/block checks in `choose` stay. Proof test: >5000 completions, (M c,
+  O d) won by M ⇒ (M d, O c) won by M, and with O on d flipping c never changes the winner.
+  Complete local dead test (`board::DEAD_COMPLETE`, same commit; built and proven, but it was
+  off in the submitted build because it showed no local gain). A cell is dead iff no four of its slots, in cyclic order, alternate "could be X" / "could be Y"
+  (then for every completion each colour's neighbours form one run of consecutive slots, and
+  consecutive slots touch, so no chain needs the cell). It contains four-in-a-row and adds X X X
+  Y Y ·, X X · Y Y ·, X X X Y Y Y and the corner/edge versions (a1 with b1 Black alone is dead).
+  Tested against a brute force over all 729 slot patterns of f6 and the random-completion proof.
+  Measured, 40 games vs main v0.5 at 200 ms per seed, main-vs-main (both off) as the control:
+
+| seed | vulnerable only | complete dead only | both | main vs main |
+| --- | --- | --- | --- | --- |
+| 180424 | 25–15 | 16–24 | 19–21 | 19–21 |
+| 77180 | 22–18 | 24–16 | 19–21 | 21–19 |
+| 3180 | 24–16 | | | 20–20 |
+| total | **71–49** | 40–40 | 38–42 | 60–60 |
+
+  Playouts at f6 e7 g5 (3 runs, shared machine): `go 200` main 45–49k, vulnerable 51–52k,
+  complete dead 48–56k; `go 1000` main 288–313k, vulnerable 316–351k, complete dead 355–362k (no
+  cost: the tree has fewer children). Root children on random positions with 20/30/40/50 stones
+  (200 each): main 98.0/86.7/75.2/63.7, complete dead 97.2/85.2/73.2/61.0, vulnerable
+  95.5/83.5/71.1/59.1, both 88.9/75.6/63.0/51.5 (with the complete test many more cells become
+  vulnerable). Likely why neither held up: every pruned cell is provably dominated, so pruning
+  cannot cost correctness, only information: with C = 0 and RAVE the search already gives dominated cells
+  almost no visits (their AMAF values are low), so dropping ~10% of the children changes little,
+  and the gain shown locally (71–49, ~1.6σ per 80 games, control 60–60) was noise. That is the
+  third local-vs-referee miss (#73, #88, now #180), this time over 120 games on three seeds with a
+  flat control. Do not ship more inferior-cell pruning on local evidence; try instead making the
+  detector feed something the search lacks (e.g. skip playouts' wasted moves, or prove wins: a
+  cell whose capture-domination closes a connection), and want well over 120 local games (or a
+  gain far above 60%) before believing one.
 
 - Self-generated opening book (#111, buried at 2664 ± 110 vs v0.5's 2734: the referee's 40
   games vs v0.5 went **16–24**; locally 19–21 over 40 from the suite, seed 7). Design (reverted;
@@ -327,7 +335,7 @@ Never re-propose an idea from this list unchanged.
 | --- | --- | --- |
 | learned evaluation | pattern -> self-play win rate as virtual AMAF visits on new nodes (#155) | buried at 2717 ± 108, not above v0.5's 2734, though the 40-game gate went 25–15 (+89, pr#169); local 40-game runs all within noise |
 | inferior-move pruning | dead cells and opponent-captured pairs left out of each node's children (#95) | pruning 30–10 vs v0.4 locally; the same cells in the fill-in lost 14–26 |
-| inferior-move pruning | vulnerable cells (killed by one opponent reply next to them) left out when the killer is a child (#180) | candidate: 71–49 vs v0.5 over 120 local games (control 60–60); the complete local dead test alone 40–40 |
+| inferior-move pruning | vulnerable cells (killed by one opponent reply next to them) left out when the killer is a child (#180) | buried at 2681 ± 109 (referee 17–23 vs v0.5) after 71–49 over 120 local games (control 60–60); the complete local dead test alone 40–40 |
 
 ## Results log
 
