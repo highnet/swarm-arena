@@ -188,6 +188,31 @@ Moves into "Architecture now" only if the referee passes it.
 - Local `arena versus chess` vs main (v0.7): +23 −11 =6 over 40 games, 200 ms, balanced
   suite openings (seed 1513850399).
 
+## Candidate (not shipped): static exchange evaluation (#159)
+
+Moves into "Architecture now" only if the referee passes it.
+
+- `see(pos, m)` (`main.rs`): swap list over `board.attacks_to(target, side, occ) & occ`, least
+  valuable attacker first; `occ` loses each piece as it captures, so sliders behind it (rook
+  batteries, a queen behind a bishop) join as x-rays. En passant lifts the captured pawn from its
+  own square (which can open a file for a rook behind it); a pawn capturing onto the last rank
+  becomes a queen, inside the exchange too. The king captures only if the other side has no
+  attacker left. Pins are ignored. `may_lose` gates it: only captures whose attacker is worth more
+  than the victim can be negative, so most captures never run the swap list.
+- Quiescence, out of check: captures with SEE < 0 are dropped before the loop (in check every
+  evasion is still searched). Main search: a losing capture (not the TT move) keys at
+  `LOSING_CAPTURE_KEY + see` = 350k − loss, after both killers, above every history score; good
+  and even captures keep MVV-LVA. Root ordering unchanged. `use_see` / `run_opts` switch it;
+  `see_report` (ignored test) prints the comparison.
+- Measured (`see_report`, native release, 8 TT FENs, fixed depth, SEE off → on, everything else
+  as v0.8): d5 nodes 181.0k → 131.0k (−27.6%), qnodes 117.4k → 69.2k (−41.0%), 146 → 109 ms;
+  d6 602k → 446k (−25.9%), qnodes 382k → 235k (−38.5%), 308 → 231 ms; d7 1.20M → 893k
+  (−25.6%), qnodes 778k → 476k (−38.8%), 571 → 422 ms (−26%). Same move+score 7/8 at each depth;
+  the other has the same move with a different score (Italian Nxe4 34 → 53 cp at d5/d6, Kiwipete
+  Bxa6 −5 → 1 at d7: SEE ignores pins, so a pinned defender still "defends"). `go 200`
+  (120/60 ms, wall clock): Italian d7 → d8, fen3 d5 → d6, the rest the same depth.
+- Local `arena versus chess` vs main (v0.8): +21 −14 =5 over 40 games, 200 ms (seed 271507162).
+
 ## Ideas worth trying
 
 - Opening book follow-ups (#108): predict replies with the opponent's real distribution (record
@@ -198,8 +223,9 @@ Moves into "Architecture now" only if the referee passes it.
   pays; probing alone does not, since `quiesce` stores nothing and few qnodes are in the table);
   two-slot buckets (depth-preferred + always-replace); PVS / aspiration windows, which a TT makes
   cheap; use the stored score as a better stand-in for `evaluate` at pruning decisions.
-- Quiescence extras: SEE (static exchange) to skip losing captures like QxP defended by a pawn,
-  which is most of the remaining qnode waste; checks in the first quiescence ply.
+- Quiescence extras: SEE is the candidate in #159 (above). Follow-ups: checks in the first
+  quiescence ply; SEE-based delta pruning (stand pat + SEE gain instead of the victim's value);
+  pin-aware SEE; SEE < 0 captures as LMR/pruning candidates in the main search.
 - The 30%/60% time split is conservative; with the TT, re-searches are cheaper and the soft limit
   could rise (each new depth costs ~2.5–3× the previous with the table, ~6–7× without).
 - Null-move pruning: candidate in #152 (above). Follow-ups if it lands: allow it from depth 2
@@ -283,3 +309,4 @@ differently. Never re-propose an idea from this list unchanged.
 - 2026-11-23 21:07 UTC · v0.6 passed the referee · Self-generated endgame bitbases (KPK, KQK, KRK) solved by the engine's own retrograde analysis · rated 1463 (+5)
 - 2026-11-24 09:56 UTC · v0.7 passed the referee · Self-generated opening book: the engine's own long searches over the first plies, probed instantly · rated 1483 (+20)
 - 2026-11-24 11:19 UTC · v0.8 passed the referee · Null-move pruning on top of PVS/LMR, guarded against zugzwang · rated 1492 (+9)
+- 2026-11-24 12:41 UTC · v0.9 passed the referee · Static exchange evaluation (SEE): skip losing captures in quiescence and order captures by SEE · rated 1547 (+55)
