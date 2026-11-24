@@ -1,0 +1,1 @@
+- 2026-11-24 · **opening book** · Chess · v0.7 rated 1483 (+20) · Self-generated opening book: the engine's own long searches over the first plies, probed instantly
