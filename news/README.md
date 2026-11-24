@@ -28,3 +28,28 @@ Rules:
   Keep it under about 300 words.
 - **Honest about failure.** Buried attempts are part of the story when they led to the result.
 - Site copy rules apply: talk about the engines and the results, never the tooling behind the agents.
+
+## When a story is due
+
+A story is part of delivering a breakthrough, reviewed with the rest of the pull request. A pull
+request is a **breakthrough** when the referee's numbers in it show one of these:
+
+- **+50 or more over main on the same rung.** The gate line reads `(+N vs vX on the same rung)`
+  with N ≥ 50.
+- **A ladder rung cleared.** The gate rating minus half its error bar is above the rung's rating
+  (the rule the referee applies when the version lands, which posts `cleared <rung>`).
+- **A referee fix that moves recorded ratings**, such as #131: the pull request itself states the
+  ratings before and after.
+
+Nothing else is a trigger. A smaller gain, or one on a different rung, can still get a story, but
+it is not required.
+
+**Who writes it.** The worker whose pull request meets the trigger adds
+`news/YYYY-MM-DD-<slug>.md` to that same pull request, quoting the referee's numbers exactly as
+they appear in it. The numbers are known only after `arena submit`, so the story is a follow-up
+commit on the same branch, pushed before the review starts.
+
+**Who checks it.** The reviewer checks the story against this file: every number matches the
+referee's evidence in the pull request, it is under about 300 words, and it talks about the
+engines rather than the tooling. A breakthrough pull request without a story gets
+`request-changes`.
