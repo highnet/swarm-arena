@@ -194,7 +194,12 @@ let ok = errors.length === 0;
 const rows = [];
 for (const m of marks) {
   // The hidden tab draws nothing: measure from the moment it is back.
-  const w = frames.filter((f) => f.t >= m.start && f.t <= m.end);
+  // From the last frame before the change: a node the change adds was not present before it.
+  const i0 = Math.max(
+    0,
+    frames.findLastIndex((f) => f.t < m.start),
+  );
+  const w = frames.slice(i0).filter((f) => f.t <= m.end);
   if (!w.length) continue;
   const a = w[0].pos;
   const z = w[w.length - 1].pos;

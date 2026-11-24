@@ -162,9 +162,15 @@ export const separate = (bodies: Body[], settle = false, sweeps = 24) => {
 
 /**
  * The solver: d3-force's forces, integrated for the free bodies only, on flat typed arrays (the
- * inner loops are O(free × all) and run a couple of hundred times). Returns the ticks it took.
+ * inner loops are O(free × all) and run up to `maxTicks` times). `step(k)` runs at most `k` more
+ * ticks and says whether it is done; once done, the bodies hold their places.
  */
-const solve = (bodies: Body[], links: readonly LayoutLink[], maxTicks: number, seed: number) => {
+const createSolver = (
+  bodies: Body[],
+  links: readonly LayoutLink[],
+  maxTicks: number,
+  seed: number,
+) => {
   const n = bodies.length;
   const X = new Float64Array(n);
   const Y = new Float64Array(n);
@@ -213,7 +219,8 @@ const solve = (bodies: Body[], links: readonly LayoutLink[], maxTicks: number, s
   const alphaDecay = 1 - Math.pow(0.001, 1 / maxTicks);
   let alpha = 1;
   let ticks = 0;
-  while (ticks < maxTicks) {
+  let done = free.length === 0;
+  const tick = () => {
     alpha += (0 - alpha) * alphaDecay;
     ticks++;
     // Springs: each pulls its ends towards its rest length; a held end does not give.
@@ -307,33 +314,43 @@ const solve = (bodies: Body[], links: readonly LayoutLink[], maxTicks: number, s
       Y[a] = Math.max(-LY[a], Math.min(LY[a], Y[a] + VY[a]));
       v = Math.max(v, Math.abs(VX[a]), Math.abs(VY[a]));
     }
-    // At rest: nothing free moves more than a hundredth of a pixel a tick.
-    if (ticks > 20 && v < 0.01) break;
-  }
-  for (let f = 0; f < free.length; f++) {
-    const a = free[f];
-    bodies[a].x = X[a];
-    bodies[a].y = Y[a];
-  }
-  return ticks;
+    // At rest: nothing free moves more than a twentieth of a pixel a tick (the tween to the
+    // place is what the viewer sees, so sub-pixel settling is not worth the time).
+    if ((ticks > 12 && v < 0.05) || ticks >= maxTicks) done = true;
+  };
+  const step = (k: number) => {
+    for (let i = 0; i < k && !done; i++) tick();
+    if (done)
+      for (let f = 0; f < free.length; f++) {
+        const a = free[f];
+        bodies[a].x = X[a];
+        bodies[a].y = Y[a];
+      }
+    return done;
+  };
+  return { step, ticks: () => ticks };
+};
+
+/** A layout in progress: `step(k)` runs up to `k` solver ticks; `result()` once it is done. */
+export type LayoutJob = {
+  /** Nodes the solver places (neither fixed nor pinned). */
+  free: number;
+  /** Run up to `ticks` more solver ticks. True once the layout is at rest. */
+  step: (ticks: number) => boolean;
+  /** The places, once `step` has returned true. */
+  result: () => LayoutResult;
 };
 
 /**
- * Lay the graph out to rest. Same input, same output.
- *
- * The solver is d3-force's model (many-body charge, collision, a pull to the anchor, springs on
- * the links, velocity decay and a cooling alpha) run headless, but it only integrates the free
- * nodes: fixed and pinned ones are obstacles that push and pull, never move, and cost nothing to
- * step. A tick is O(free × all); d3's own loop rebuilds a Barnes–Hut quadtree over every node
- * each tick, which at a few hundred nodes costs more than it saves (and an arrival would pay for
- * the whole graph). At rest early once nothing free moves a hundredth of a pixel a tick.
+ * Start a layout that can be run in slices (a few ticks per frame), so a big batch never blocks
+ * the main thread for long. Run to the end, it gives exactly what `layoutGraph` gives.
  */
-export const layoutGraph = (
+export const startLayout = (
   nodes: readonly LayoutNode[],
   links: readonly LayoutLink[],
   options: LayoutOptions = {},
-): LayoutResult => {
-  const maxTicks = options.maxTicks ?? 160;
+): LayoutJob => {
+  const maxTicks = options.maxTicks ?? 90;
   const byId = new Map(nodes.map((n) => [n.id, n]));
 
   // Start points: held nodes where they are held; new ones beside their parent.
@@ -360,14 +377,43 @@ export const layoutGraph = (
     const held = node.fixed ?? node.pinned;
     return { node, mobile: !held, x: held?.x ?? p.x, y: held?.y ?? p.y };
   });
-  const free = bodies.filter((b) => b.mobile);
+  const free = bodies.filter((b) => b.mobile).length;
+  const solver = createSolver(bodies, links, maxTicks, options.seed ?? 221);
+  let out: LayoutResult | null = null;
+  const step = (ticks: number) => {
+    if (out) return true;
+    if (!solver.step(ticks)) return false;
+    separate(bodies, options.settle);
+    for (const b of bodies) clampTo(b);
+    const positions = new Map<string, LayoutPoint>();
+    for (const b of bodies) positions.set(b.node.id, { x: b.x, y: b.y });
+    out = { positions, free, ticks: solver.ticks() };
+    return true;
+  };
+  const result = () => {
+    if (!out) throw new Error('layout not finished: step it until it returns true');
+    return out;
+  };
+  return { free, step, result };
+};
 
-  let ticks = 0;
-  if (free.length) ticks = solve(bodies, links, maxTicks, options.seed ?? 221);
-  separate(bodies, options.settle);
-  for (const b of bodies) clampTo(b);
-
-  const positions = new Map<string, LayoutPoint>();
-  for (const b of bodies) positions.set(b.node.id, { x: b.x, y: b.y });
-  return { positions, free: free.length, ticks };
+/**
+ * Lay the graph out to rest. Same input, same output./**
+ * Lay the graph out to rest. Same input, same output.
+ *
+ * The solver is d3-force's model (many-body charge, collision, a pull to the anchor, springs on
+ * the links, velocity decay and a cooling alpha) run headless, but it only integrates the free
+ * nodes: fixed and pinned ones are obstacles that push and pull, never move, and cost nothing to
+ * step. A tick is O(free × all); d3's own loop rebuilds a Barnes–Hut quadtree over every node
+ * each tick, which at a few hundred nodes costs more than it saves (and an arrival would pay for
+ * the whole graph). At rest early once nothing free moves a twentieth of a pixel a tick.
+ */
+export const layoutGraph = (
+  nodes: readonly LayoutNode[],
+  links: readonly LayoutLink[],
+  options: LayoutOptions = {},
+): LayoutResult => {
+  const job = startLayout(nodes, links, options);
+  job.step(Infinity);
+  return job.result();
 };

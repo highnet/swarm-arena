@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { layoutGraph, type LayoutLink, type LayoutNode, type LayoutPoint } from './layout';
+import {
+  layoutGraph,
+  startLayout,
+  type LayoutLink,
+  type LayoutNode,
+  type LayoutPoint,
+} from './layout';
 
 /** A fleet like the site's: `k` sectors on the ring, each with work in flight, issues and seats. */
 const fleet = (k: number) => {
@@ -226,4 +232,16 @@ test('performance: well inside a frame at today’s size and at 3×', () => {
     assert.ok(full < budget, `full layout of ${nodes.length} nodes took ${full.toFixed(1)} ms`);
     assert.ok(incremental < budget, `one arrival took ${incremental.toFixed(1)} ms`);
   }
+});
+
+test('a layout run in slices gives exactly the one-shot result', () => {
+  const { nodes, links } = fleet(6);
+  const whole = layoutGraph(nodes, links);
+  const job = startLayout(nodes, links);
+  let slices = 0;
+  while (!job.step(7)) slices++;
+  assert.ok(slices > 2, 'it took several slices');
+  const sliced = job.result();
+  assert.equal(sliced.ticks, whole.ticks);
+  for (const [id, p] of whole.positions) assert.deepEqual(sliced.positions.get(id), p, id);
 });

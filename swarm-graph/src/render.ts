@@ -34,7 +34,13 @@ import {
   staggerAt,
   type Pose,
 } from './lifecycle';
-import { layoutGraph, type LayoutLink, type LayoutNode, type LayoutPoint } from './layout';
+import {
+  startLayout,
+  type LayoutJob,
+  type LayoutLink,
+  type LayoutNode,
+  type LayoutPoint,
+} from './layout';
 import {
   applyFlow,
   indexAtTime,
@@ -699,7 +705,14 @@ export const createSwarmGraph = (
   /** What decides a node's place: when this changes (a seat reassigned), the node is re-placed. */
   const placementOf = (n: SimNode) => {
     const ties = simLinks
-      .filter((l) => l.source.id === n.id && l.kind !== 'contribution' && l.kind !== 'fork')
+      // A tie to a node already leaving does not count: it is gone from this view.
+      .filter(
+        (l) =>
+          l.source.id === n.id &&
+          l.kind !== 'contribution' &&
+          l.kind !== 'fork' &&
+          !departures.has(l.target.id),
+      )
       .map((l) => `${l.kind}>${l.target.id}`)
       .sort()
       .join(',');
@@ -713,10 +726,18 @@ export const createSwarmGraph = (
    * resized canvas) keeps every node where `places` already has it (stretched with the canvas)
    * and only clears overlaps.
    */
+  /** A big batch being solved a slice per frame (see `relayout`), and what it was built from. */
+  let pending: { job: LayoutJob; keys: Map<string, string>; refit: boolean } | null = null;
+  /** Solve inline up to this much work (free nodes × all nodes); a bigger batch is sliced. */
+  const INLINE_WORK = 600;
+  /** Main-thread time a frame may spend on a sliced layout. */
+  const SLICE_MS = 6;
+
   const relayout = (refit = false) => {
     if (!graph) return;
     const hubId = graph.hubId;
     const nodes: LayoutNode[] = [];
+    const keys = new Map<string, string>();
     const parentOf = new Map<string, string>();
     for (const l of simLinks)
       if (l.kind !== 'contribution' && !parentOf.has(l.source.id))
@@ -725,7 +746,7 @@ export const createSwarmGraph = (
       const key = placementOf(n);
       const place = places.get(n.id);
       const keep = place && (refit || departures.has(n.id) || placedBy.get(n.id) === key);
-      placedBy.set(n.id, key);
+      keys.set(n.id, key);
       nodes.push({
         id: n.id,
         r: collideOf(n),
@@ -746,22 +767,72 @@ export const createSwarmGraph = (
       distance: linkDistance(l),
       strength: linkStrength(l),
     }));
+    const job = startLayout(nodes, ties, { settle: refit });
+    // A newer graph supersedes a batch still being solved: it is rebuilt from what stands now.
+    pending = { job, keys, refit };
+    // The first layout, reduced motion and small changes are solved at once; a big batch (a
+    // preset switch, a replay starting) is solved a slice per frame, its new nodes kept hidden
+    // until their places are known, so no frame spends more than SLICE_MS on it.
+    if (!places.size || !motion || intro || refit || job.free * nodes.length <= INLINE_WORK) {
+      runLayout(Infinity);
+      return;
+    }
+    for (const n of nodeById.values())
+      if (!places.has(n.id)) {
+        const a = arrivals.get(n.id);
+        if (a) a.start = Infinity;
+        // Hidden until placed; meanwhile it stands on its parent, never at the centre.
+        const parent = nodeById.get(parentOf.get(n.id) ?? '');
+        if (n.x === undefined && parent?.x !== undefined) {
+          n.x = parent.x;
+          n.y = parent.y;
+        }
+      }
+  };
+
+  /** Advance the pending layout by up to `budget` ms; apply it once it is done. */
+  const runLayout = (budget: number) => {
+    const p = pending;
+    if (!p) return;
     const began = performance.now();
-    const { positions } = layoutGraph(nodes, ties, { settle: refit });
-    // Visible in a performance trace (and to the site's calm check) as one named entry.
+    let done = false;
+    while (!(done = p.job.step(4)) && performance.now() - began < budget);
+    // Visible in a performance trace (and to the site's calm check): one entry per slice.
     try {
-      performance.measure('swarm-graph layout', { start: began, end: performance.now() });
+      performance.measure('swarm-graph layout', {
+        start: began,
+        end: performance.now(),
+        detail: { nodes: nodeById.size, free: p.job.free, done },
+      });
     } catch {
       // An older runtime without measure options: the layout still ran.
     }
+    if (!done) return;
+    pending = null;
+    applyLayout(p.job.result().positions, p.keys, p.refit);
+  };
+
+  /** Send every node to its new place: a tween for a moved one, a fade-in for a new one. */
+  const applyLayout = (
+    positions: Map<string, LayoutPoint>,
+    keys: Map<string, string>,
+    refit: boolean,
+  ) => {
     const now = performance.now();
     const R = ringRadii();
+    let held = 0;
     for (const n of nodeById.values()) {
       const to = positions.get(n.id);
       if (!to) continue;
+      const key = keys.get(n.id);
+      if (key !== undefined) placedBy.set(n.id, key);
       places.set(n.id, to);
       if (!refit || !homes.has(n.id)) homes.set(n.id, { x: to.x / R.x, y: to.y / R.y });
-      if (n.x === undefined || n.y === undefined || !motion || intro) {
+      // A new node waiting on a sliced layout starts fading in now, at its place.
+      const a = arrivals.get(n.id);
+      const waited = a?.start === Infinity;
+      if (a && waited) a.start = now + staggerAt(held++, ARRIVAL.staggerMs, ARRIVAL.maxSteps);
+      if (waited || n.x === undefined || n.y === undefined || !motion || intro) {
         // New (it fades in right there), or no motion: straight to its place.
         n.x = to.x;
         n.y = to.y;
@@ -1837,6 +1908,7 @@ export const createSwarmGraph = (
   const timer = d3.timer(() => {
     const now = performance.now();
     if (intro) stepIntro(now);
+    if (pending) runLayout(SLICE_MS);
     const moved = stepMoves(now);
     if (stepLife(now) || moved) draw();
     ambient(now);
@@ -2240,6 +2312,9 @@ export const createSwarmGraph = (
 
     renderStatic();
     if (first && introMode !== 'none' && nodeById.size > 0) startIntro(introMode);
+    // Pose arrivals before drawing, so a new node (or one waiting on a sliced layout) and its
+    // edges never show for a frame before they fade in.
+    stepLife(performance.now());
     draw();
 
     // A work item moving to its next stage (branch → pull request → approved) gets its moment.
@@ -2513,6 +2588,7 @@ export const createSwarmGraph = (
     run = null;
     liveTimers.forEach(clearTimeout);
     timer.stop();
+    pending = null;
     observer.disconnect();
     svg.remove();
     labelSvg.remove();

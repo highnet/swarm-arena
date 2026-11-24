@@ -130,7 +130,12 @@ const results = await page.evaluate(async () => {
 
   /** Motion of every node present throughout, from `from` to now. */
   const measure = (name, from, { changed = [], skipMs = 0, refit = false, since = from } = {}) => {
-    const w = frames.filter((f) => f.t >= from + skipMs);
+    // From the last frame before the change: a node the change adds was not present before it.
+    const i0 = Math.max(
+      0,
+      frames.findLastIndex((f) => f.t < from + skipMs),
+    );
+    const w = frames.slice(i0);
     const a = w[0].pos;
     const z = w[w.length - 1].pos;
     const ids = Object.keys(a).filter((id) => w.every((f) => f.pos[id]));
@@ -252,6 +257,27 @@ const results = await page.evaluate(async () => {
       });
     show({ quiet: true });
   });
+  // Big enough that the renderer solves it a slice per frame: still nothing already there moves.
+  await scenario('a big batch arrives (a sliced layout)', async () => {
+    for (const s of sectors)
+      for (let k = 0; k < 4; k++)
+        input.agents.push({
+          id: `${s}-batch-${k}`,
+          role: 'worker',
+          status: 'working',
+          sector: s,
+          workItem: `${s}-i`,
+          lastSeen: at(now),
+        });
+    show({ quiet: true });
+  });
+  await scenario('the batch leaves again', async () => {
+    input.agents = input.agents.filter((a) => !a.id.includes('-batch-'));
+    show({ quiet: true });
+  });
+  const sliced = performance
+    .getEntriesByName('swarm-graph layout')
+    .filter((e) => e.detail && e.detail.done === false).length;
   for (const [name, to] of [
     ['preset live → Everything', true],
     ['preset Everything → live', false],
@@ -374,7 +400,7 @@ const results = await page.evaluate(async () => {
     minText,
   };
   sized.destroy();
-  return { out, moved, sizes };
+  return { out, moved, sizes, sliced };
 });
 await browser.close();
 
@@ -398,6 +424,13 @@ for (const s of results.out) {
       `overshoot ${s.overshoot.toFixed(1)} px, time-to-stable ${Math.round(s.settleMs)} ms, ` +
       `peak ${s.perFrame.toFixed(1)} px/frame` +
       (pass ? '' : ` (${[s.who, s.oWho].filter(Boolean).join(', ')})`),
+  );
+}
+{
+  const pass = results.sliced > 0;
+  ok &&= pass;
+  console.log(
+    `${pass ? 'ok  ' : 'FAIL'} the big batch was solved in slices: ${results.sliced} partial slices`,
   );
 }
 const z = results.sizes;
