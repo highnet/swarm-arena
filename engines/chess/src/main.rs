@@ -471,6 +471,8 @@ struct Search<'a> {
     /// Quiescence nodes only.
     qnodes: u64,
     stopped: bool,
+    /// Best root move and score of a depth the clock cut short, once its first move completed.
+    partial: Option<(Move, i32)>,
 }
 
 impl Search<'_> {
@@ -764,6 +766,7 @@ impl Search<'_> {
         }
         self.path.pop();
         if self.stopped {
+            self.partial = best;
             None
         } else {
             best
@@ -783,15 +786,75 @@ struct Outcome {
     tb_hits: u64,
     null_tries: u64,
     null_cuts: u64,
+    /// The move comes from a depth the hard stop cut short (`depth` is the last completed one).
+    #[cfg_attr(not(test), allow(dead_code))]
+    partial: bool,
 }
 
-/// Iterative deepening: depth 1, 2, 3, ... until the clock says stop. Always returns the best move
-/// of the last completed depth. Stops searching by 60% of the budget, and does not start a depth it
-/// is unlikely to finish.
+/// How a search spends its `go <ms>`. `hard` is when the search stops wherever it is; a new depth
+/// starts only while `soft` allows it. With `predict`, that check uses the next iteration's
+/// expected cost (the last iteration's time times the measured growth per ply) instead of a fixed
+/// cut-off; with `partial`, a depth cut short by `hard` still counts once its first root move (the
+/// previous best) has been searched: any move that beat it did so at the new depth.
+#[derive(Clone, Copy)]
+struct Clock {
+    start: Instant,
+    hard: Duration,
+    soft: Duration,
+    predict: bool,
+    partial: bool,
+}
+
+/// Growth per ply assumed before two iterations have been timed, and the clamp on the measured one.
+const BRANCH_DEFAULT: f64 = 3.0;
+const BRANCH_MIN: f64 = 1.5;
+const BRANCH_MAX: f64 = 6.0;
+/// Iterations faster than this are too noisy to measure the growth from.
+const BRANCH_FLOOR: Duration = Duration::from_micros(500);
+/// Share of the next iteration that must fit before the hard stop for it to start. Its first root
+/// move (the previous best, searched with a full window) took a median 35% of an iteration over
+/// the 8 TT FENs (8-66%), and with `partial` that move alone is a usable result. Smaller after an
+/// unstable iteration, where a deeper look is worth more.
+const START_SHARE: f64 = 0.4;
+const START_SHARE_UNSTABLE: f64 = 0.25;
+/// A score this much below the previous depth's counts as unstable.
+const SCORE_DROP: i32 = 40;
+
+impl Clock {
+    /// No clock beyond the two given limits: a fixed cut-off at `soft`, as before #186.
+    fn fixed(hard: Duration, soft: Duration) -> Clock {
+        Clock { start: Instant::now(), hard, soft, predict: false, partial: false }
+    }
+
+    /// The policy before #186: stop at 60% of the budget, start no depth after 30%.
+    #[cfg(test)]
+    fn legacy(start: Instant, budget_ms: u64) -> Clock {
+        let hard = Duration::from_millis(budget_ms * 6 / 10);
+        let soft = Duration::from_millis(budget_ms * 3 / 10);
+        Clock { start, hard, soft, predict: false, partial: false }
+    }
+
+    /// The game clock: stop with a safety margin left for unwinding, output and the slower wasm
+    /// build (a tenth of the budget, at least 15 ms, at most 100 ms), and start a depth only when
+    /// its predicted cost fits.
+    fn for_budget(start: Instant, budget_ms: u64) -> Clock {
+        let margin = (budget_ms / 10).clamp(15, 100).min(budget_ms / 2);
+        let hard = Duration::from_millis(budget_ms - margin);
+        Clock { start, hard, soft: hard, predict: true, partial: true }
+    }
+}
+
+/// Iterative deepening: depth 1, 2, 3, ... until the clock says stop. Returns the best move of the
+/// deepest depth searched far enough to trust (see `Clock`).
+#[cfg(test)]
 fn search(pos: &Chess, seen: &HashSet<u64>, budget_ms: u64) -> Option<Outcome> {
-    let hard = Duration::from_millis(budget_ms * 6 / 10);
-    let soft = Duration::from_millis(budget_ms * 3 / 10);
-    TT.with(|tt| run(pos, seen, hard, soft, MAX_DEPTH, &mut tt.borrow_mut(), true, true, true, &[]))
+    search_from(pos, seen, Instant::now(), budget_ms)
+}
+
+/// `search` with the budget counted from `start` (when the `go` arrived).
+fn search_from(pos: &Chess, seen: &HashSet<u64>, start: Instant, budget_ms: u64) -> Option<Outcome> {
+    let clock = Clock::for_budget(start, budget_ms);
+    TT.with(|tt| run_clock(pos, seen, clock, MAX_DEPTH, &mut tt.borrow_mut(), true, true, true, true, true, &[]))
 }
 
 /// Fixed-depth search with no clock and a fresh table: deterministic, for tests and measurement.
@@ -887,7 +950,26 @@ fn run_opts(
     use_see: bool,
     exclude: &[Move],
 ) -> Option<Outcome> {
-    let start = Instant::now();
+    let clock = Clock::fixed(hard, soft);
+    run_clock(pos, seen, clock, max_depth, tt, use_tt, use_order, use_pvs, use_null, use_see, exclude)
+}
+
+/// The iterative-deepening loop under a `Clock`.
+#[allow(clippy::too_many_arguments)]
+fn run_clock(
+    pos: &Chess,
+    seen: &HashSet<u64>,
+    clock: Clock,
+    max_depth: u32,
+    tt: &mut Tt,
+    use_tt: bool,
+    use_order: bool,
+    use_pvs: bool,
+    use_null: bool,
+    use_see: bool,
+    exclude: &[Move],
+) -> Option<Outcome> {
+    let start = clock.start;
     let mut moves: Vec<Move> = pos.legal_moves().into_iter().filter(|m| !exclude.contains(m)).collect();
     tt.new_search(pos.turn());
     // The root is never cut off; its stored move (from the previous `go`) only orders.
@@ -895,7 +977,7 @@ fn run_opts(
     moves.sort_by_key(|m| -order_key(m, tt_move));
     let first = *moves.first()?;
     let mut out =
-        Outcome { best: first, score: 0, depth: 0, nodes: 0, qnodes: 0, tt_hits: 0, tt_cuts: 0, tb_hits: 0, null_tries: 0, null_cuts: 0 };
+        Outcome { best: first, score: 0, depth: 0, nodes: 0, qnodes: 0, tt_hits: 0, tt_cuts: 0, tb_hits: 0, null_tries: 0, null_cuts: 0, partial: false };
     if moves.len() == 1 {
         return Some(out);
     }
@@ -917,13 +999,26 @@ fn run_opts(
         tb_hits: 0,
         path: Vec::with_capacity(MAX_DEPTH as usize + 1),
         root_turn: pos.turn(),
-        deadline: start + hard,
+        deadline: start + clock.hard,
         nodes: 0,
         qnodes: 0,
         stopped: false,
+        partial: None,
     };
+    // Time of the previous completed iteration, for the growth per ply.
+    let mut before = Duration::ZERO;
+    let mut iter_start = Instant::now();
     for depth in 1..=max_depth {
-        let Some((m, score)) = s.root(pos, &moves, depth) else { break };
+        let Some((m, score)) = s.root(pos, &moves, depth) else {
+            // Cut short by the hard stop: keep the new depth's best if its first move finished.
+            if clock.partial {
+                if let Some((m, score)) = s.partial {
+                    out = Outcome { best: m, score, partial: true, ..out };
+                }
+            }
+            break;
+        };
+        let unstable = depth > 1 && (m != out.best || score < out.score - SCORE_DROP);
         out = Outcome { best: m, score, depth, ..out };
         if use_tt {
             s.tt.store(hash(pos), depth, 0, score, EXACT, Some(m));
@@ -935,7 +1030,19 @@ fn run_opts(
         // A mate inside the searched depth cannot be beaten by searching deeper. A longer one can:
         // the endgame tables score mates far beyond the horizon, and a shorter mate may still exist.
         let mate_in = MATE - score.abs();
-        if (score.abs() > MATE_BOUND && mate_in <= depth as i32) || start.elapsed() >= soft {
+        if score.abs() > MATE_BOUND && mate_in <= depth as i32 {
+            break;
+        }
+        let now = Instant::now();
+        let last = now - iter_start;
+        let elapsed = now - start;
+        let fits = next_fits(elapsed, last, before, clock.soft, unstable);
+        (before, iter_start) = (last, now);
+        if clock.predict {
+            if !fits {
+                break;
+            }
+        } else if elapsed >= clock.soft {
             break;
         }
     }
@@ -947,6 +1054,20 @@ fn run_opts(
     out.null_tries = s.null_tries;
     out.null_cuts = s.null_cuts;
     Some(out)
+}
+
+/// Whether the next depth is worth starting: its predicted cost (the last iteration's time times
+/// the growth per ply, measured from the last two iterations and clamped) must fit before `limit`,
+/// or at least the share of it that yields a usable result.
+fn next_fits(elapsed: Duration, last: Duration, before: Duration, limit: Duration, unstable: bool) -> bool {
+    let growth = if before >= BRANCH_FLOOR {
+        (last.as_secs_f64() / before.as_secs_f64()).clamp(BRANCH_MIN, BRANCH_MAX)
+    } else {
+        BRANCH_DEFAULT
+    };
+    let share = if unstable { START_SHARE_UNSTABLE } else { START_SHARE };
+    let predicted = last.as_secs_f64() * growth;
+    elapsed.as_secs_f64() + predicted * share <= limit.as_secs_f64()
 }
 
 /// Pick a move for the side to move, given the moves so far (used by the self-play test).
@@ -970,6 +1091,7 @@ fn handle(line: &str, moves: &mut Vec<String>) -> (Option<String>, bool) {
             (None, false)
         }
         Some("go") => {
+            let start = Instant::now();
             let budget = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1000);
             let Some((pos, seen)) = replay(moves) else { return (Some("bestmove 0000".into()), false) };
             if let Some(m) = book::probe(&pos) {
@@ -980,7 +1102,7 @@ fn handle(line: &str, moves: &mut Vec<String>) -> (Option<String>, bool) {
                     return (Some(format!("info book 1\nbestmove {}", UciMove::from_standard(m))), false);
                 }
             }
-            let reply = match search(&pos, &seen, budget) {
+            let reply = match search_from(&pos, &seen, start, budget) {
                 Some(o) => format!(
                     "info depth {} score {} nodes {} qnodes {} tthits {} ttcuts {} tbhits {}\nbestmove {}",
                     o.depth,
@@ -1232,6 +1354,7 @@ mod tests {
             nodes: 0,
             qnodes: 0,
             stopped: false,
+            partial: None,
         };
         assert_eq!(s.quiesce(&mated, 3, 0, -INF, INF), -(MATE - 3));
     }
@@ -1597,6 +1720,7 @@ mod tests {
             nodes: 0,
             qnodes: 0,
             stopped: false,
+            partial: None,
         };
         // Black to move, a queen up, but in check from the bishop: every condition except the
         // check holds (null window, depth, pieces, eval far above beta).
@@ -1857,5 +1981,116 @@ mod tests {
             let (off, on) = (go(false), go(true));
             println!("go 200 fen{i}: off depth {} nodes {} | on depth {} nodes {}", off.depth, off.nodes, on.depth, on.nodes);
         }
+    }
+
+    /// Search under a clock on a fresh game table, timed from the call.
+    fn clocked(pos: &Chess, clock: impl Fn(Instant) -> Clock) -> (Outcome, f64) {
+        let mut tt = Tt::new(TT_BITS);
+        let t = Instant::now();
+        let o = run_clock(pos, &HashSet::new(), clock(t), MAX_DEPTH, &mut tt, true, true, true, true, true, &[]).unwrap();
+        (o, t.elapsed().as_secs_f64() * 1000.0)
+    }
+
+    #[test]
+    fn next_depth_starts_only_when_its_predicted_share_fits() {
+        let ms = Duration::from_millis;
+        // 10 ms used, last depth 4 ms after 1 ms (growth 4): next ~16 ms, 40% of it 6.4 ms.
+        assert!(next_fits(ms(10), ms(4), ms(1), ms(17), false));
+        assert!(!next_fits(ms(10), ms(4), ms(1), ms(16), false));
+        // Unstable: only a quarter of it (4 ms) has to fit.
+        assert!(next_fits(ms(10), ms(4), ms(1), ms(15), true));
+        assert!(!next_fits(ms(10), ms(4), ms(1), ms(13), true));
+        // Growth is clamped: a 6.7x jump counts as 6x (24 ms, 9.6), a shrink as 1.5x (6 ms, 2.4).
+        assert!(!next_fits(ms(10), ms(4), Duration::from_micros(600), ms(19), false));
+        assert!(next_fits(ms(10), ms(4), Duration::from_micros(600), ms(20), false));
+        assert!(next_fits(ms(10), ms(4), ms(8), ms(13), false));
+        // Too fast to measure: assume 3x (12 ms, 4.8).
+        assert!(next_fits(ms(10), ms(4), Duration::from_micros(100), ms(15), false));
+        assert!(!next_fits(ms(10), ms(4), Duration::from_micros(100), ms(14), false));
+    }
+
+    #[test]
+    fn game_clock_keeps_a_margin() {
+        let t = Instant::now();
+        for (budget, hard) in [(200u64, 180u64), (50, 35), (20, 10), (1000, 900), (3000, 2900)] {
+            assert_eq!(Clock::for_budget(t, budget).hard, Duration::from_millis(hard), "go {budget}");
+        }
+    }
+
+    #[test]
+    fn cut_short_depth_still_plays_a_legal_move_in_time() {
+        // A hard stop far below what a depth takes: the result is a completed or partial depth's
+        // legal move, and the reply stays inside the budget.
+        for fen in TT_FENS {
+            let pos = from_fen(fen);
+            for budget in [20u64, 60, 200] {
+                let (o, ms) = clocked(&pos, |t| Clock::for_budget(t, budget));
+                assert!(pos.is_legal(o.best), "{fen}: {:?}", o.best);
+                assert!(ms < budget as f64, "{fen}: {ms:.1} ms for go {budget}");
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "measurement: cargo test --release -p chess-engine clock_report -- --ignored --nocapture"]
+    fn clock_report() {
+        for budget in [200u64, 1000] {
+            println!("go {budget}: fen | legacy depth ms | predicted depth(+partial) ms");
+            let (mut ld, mut nd, mut lt, mut nt) = (0u32, 0u32, 0.0, 0.0);
+            for (i, fen) in TT_FENS.iter().enumerate() {
+                let pos = from_fen(fen);
+                let (a, at) = clocked(&pos, |t| Clock::legacy(t, budget));
+                let (b, bt) = clocked(&pos, |t| Clock::for_budget(t, budget));
+                println!(
+                    "  fen{i} | d{} {at:.0} ms {} | d{}{} {bt:.0} ms {}",
+                    a.depth,
+                    UciMove::from_standard(a.best),
+                    b.depth,
+                    if b.partial { "+" } else { "" },
+                    UciMove::from_standard(b.best)
+                );
+                // fen5-7 end at once (table mate, near-forced): the mean is over the first five.
+                if i < 5 {
+                    (ld, nd, lt, nt) = (ld + a.depth, nd + b.depth, lt + at, nt + bt);
+                }
+            }
+            println!("  fen0-4 mean depth {:.2} -> {:.2}, mean ms {:.0} -> {:.0}", ld as f64 / 5.0, nd as f64 / 5.0, lt / 5.0, nt / 5.0);
+        }
+    }
+
+    #[test]
+    #[ignore = "measurement: cargo test --release -p chess-engine clock_worst_case -- --ignored --nocapture"]
+    fn clock_worst_case() {
+        // Self-play at go 200 through the protocol path, timing every reply.
+        let mut worst = 0.0f64;
+        let mut n = 0;
+        for game in 0..6 {
+            let mut moves: Vec<String> = Vec::new();
+            handle("game chess", &mut moves);
+            // Vary the opening a little so the games differ.
+            let first = ["e2e4", "d2d4", "c2c4", "g1f3", "e2e3", "b1c3"][game];
+            moves.push(first.into());
+            for _ in 0..120 {
+                let mut m = moves.clone();
+                handle(&format!("position {}", moves.join(" ")), &mut m);
+                let t = Instant::now();
+                let (reply, _) = handle("go 200", &mut m);
+                let ms = t.elapsed().as_secs_f64() * 1000.0;
+                worst = worst.max(ms);
+                n += 1;
+                let reply = reply.unwrap();
+                let mv = reply.lines().last().unwrap().trim_start_matches("bestmove ").to_string();
+                if mv == "0000" {
+                    break;
+                }
+                moves.push(mv);
+                let Some((pos, _)) = replay(&moves) else { break };
+                if pos.is_game_over() {
+                    break;
+                }
+            }
+        }
+        println!("{n} replies at go 200, worst {worst:.1} ms");
+        assert!(worst < 200.0);
     }
 }

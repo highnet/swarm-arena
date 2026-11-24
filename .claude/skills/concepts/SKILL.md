@@ -36,7 +36,7 @@ Use these names so evidence lines up; add a new one when nothing fits.
 | rave/amaf | share move statistics across a playout |
 | evaluation features | hand-built terms: material, mobility, corners, territory, connectivity |
 | learned evaluation | weights tuned here, by self-play, from the engine's own games |
-| time management | how much of the clock to spend per move |
+| time management | how much of the clock to spend per move. Chess #186: with a fixed budget per move, unused time buys nothing; stop near the budget minus a safety margin, start the next iteration when a share of its predicted cost (last iteration × measured growth) fits, and keep a cut-short iteration's result once its first (previous-best) move finished. Reusable by Othello's iterative deepening and the MCTS engines' flat 80% |
 | endgame solver | exact search when few moves remain |
 | opening exploration | how the engine spends its first moves (no books) |
 | opening book | the engine's own deep offline searches of early positions, stored and probed instantly (never an external book) |
