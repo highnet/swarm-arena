@@ -129,3 +129,16 @@ test('a busy history still fits the duration', () => {
   const plan = planReplay(flows, 'hub:main', { durationMs: 60_000 });
   assert.ok(plan.total <= 61_600, `total ${plan.total}`);
 });
+
+test('a host chooses what the replay dwells on', () => {
+  const flows = [
+    flow(0, 0, { kind: 'milestone', sub: 'match' }),
+    flow(1, MIN, { kind: 'milestone', sub: 'rung' }),
+    flow(2, 2 * MIN, { kind: 'rating', delta: 12 }),
+  ];
+  const plan = planReplay(flows, 'hub:main', { isMilestone: (f) => f.sub === 'rung' });
+  assert.deepEqual(plan.milestones, [1]);
+  const s = summarizeReplay(plan);
+  assert.equal(s.milestones, 1);
+  assert.equal(s.ratings, 1);
+});

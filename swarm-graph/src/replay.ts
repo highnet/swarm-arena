@@ -134,6 +134,8 @@ export type SwarmReplayPlanOptions = {
   beatMs?: number;
   /** Extra hold after a milestone. Default 500 ms. */
   holdMs?: number;
+  /** Which events the replay dwells on. Default `isMilestone`. */
+  isMilestone?: (f: SwarmFlow) => boolean;
 };
 
 export type SwarmReplayPlan = {
@@ -176,7 +178,8 @@ export const planReplay = (
       : activeWindow(flows, Number.POSITIVE_INFINITY, idleMs);
   const shown = flows.slice(win.start);
   const seed = stateAt(emptySnapshot(), flows, win.start, hubId);
-  const milestones = shown.flatMap((f, i) => (isMilestone(f) ? [i] : []));
+  const dwell = options.isMilestone ?? isMilestone;
+  const milestones = shown.flatMap((f, i) => (dwell(f) ? [i] : []));
   const isMs = new Set(milestones);
   const gapAt = new Set(win.gaps.map((g) => g.index));
 
@@ -240,7 +243,10 @@ export const indexAtTime = (plan: SwarmReplayPlan, ms: number) => {
 export type SwarmReplaySummary = {
   events: number;
   merges: number;
+  /** Events the plan dwelt on. */
   milestones: number;
+  /** Rating changes (versions rated). */
+  ratings: number;
   rejects: number;
   /** Rating change per sector over the window. */
   rating: Record<string, number>;
@@ -251,7 +257,8 @@ export const summarizeReplay = (plan: SwarmReplayPlan): SwarmReplaySummary => {
   return {
     events: end.events,
     merges: end.merges,
-    milestones: end.milestones,
+    milestones: plan.milestones.length,
+    ratings: plan.flows.filter((f) => f.kind === 'rating' && f.delta).length,
     rejects: end.rejects,
     rating: end.rating,
   };

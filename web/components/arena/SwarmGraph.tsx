@@ -54,6 +54,10 @@ import { SwarmNodeOverlay, type NodeRating } from './SwarmNodeOverlay';
 
 const TICKER = 5;
 
+/** What a replay dwells on: merges, rungs cleared and rating changes (not every match ending). */
+const replayMilestone = (f: SwarmFlow) =>
+  f.kind === 'merge' || f.sub === 'rung' || (f.kind === 'rating' && Boolean(f.delta));
+
 const FLOW_VERB: Record<SwarmFlow['kind'], string> = {
   plan: 'planned',
   claim: 'claimed',
@@ -658,12 +662,17 @@ const SwarmGraph = ({
       .find(Boolean) ?? undefined;
   /** The last 24 actively worked hours (or the whole run), from the state when it began. */
   const startReplay = (mode: SwarmReplayMode = 'window') => {
-    const plan = planReplay(shownGraph.flows, shownGraph.hubId, { mode, durationMs: 60_000 });
+    const plan = planReplay(shownGraph.flows, shownGraph.hubId, {
+      mode,
+      durationMs: 60_000,
+      isMilestone: replayMilestone,
+    });
     if (!plan.flows.length) return;
     setTicker([]);
     groups.current.clear();
-    setReplayPlan(plan);
+    // The renderer reports the old replay stopping first; the new plan must land after that.
     renderer.current?.replay(plan);
+    setReplayPlan(plan);
   };
   const stopReplay = () => {
     renderer.current?.stopReplay();

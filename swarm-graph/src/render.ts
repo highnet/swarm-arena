@@ -368,6 +368,9 @@ export const createSwarmGraph = (
     done: boolean;
     snap: SwarmReplaySnapshot;
     last: number;
+    /** Effort changed since the nodes were last resized. */
+    dirty: boolean;
+    shownAt: number;
   };
   let run: ReplayRun | null = null;
   const liveTimers = new Set<ReturnType<typeof setTimeout>>();
@@ -1557,6 +1560,8 @@ export const createSwarmGraph = (
 
   /** Most events a single frame sparks; a bigger jump (a hidden tab) lands the rest silently. */
   const FRAME_SPARKS = 6;
+  /** Node sizes follow the playback at most this often: resizing every node is the costly part. */
+  const RESIZE_MS = 160;
 
   /** One frame of playback: move the clock and fire what it passed. */
   const advanceReplay = (now: number) => {
@@ -1575,6 +1580,12 @@ export const createSwarmGraph = (
         if (i >= from) fireFlow(f, 'replay', now);
       }
       r.next = due;
+      r.dirty = true;
+    }
+    // Hosts re-render on every state; the playhead itself glides on `replayClock()`.
+    if (r.dirty && (now - r.shownAt >= RESIZE_MS || r.clock >= r.plan.total)) {
+      r.dirty = false;
+      r.shownAt = now;
       showSnapshot(r.snap);
       emitReplay();
     }
@@ -1616,6 +1627,8 @@ export const createSwarmGraph = (
       done: false,
       snap: stateAt(plan.seed, [], 0, plan.hubId),
       last: performance.now(),
+      dirty: false,
+      shownAt: 0,
     };
     particles = [];
     showSnapshot(run.snap);
@@ -1650,6 +1663,8 @@ export const createSwarmGraph = (
     r.done = false;
     r.snap = stateAt(r.plan.seed, r.plan.flows, i, r.plan.hubId);
     r.last = performance.now();
+    r.dirty = false;
+    r.shownAt = r.last;
     particles = [];
     bursts = [];
     floaters = [];

@@ -316,7 +316,7 @@ const ReplayScrubber = ({
             {plan.mode === 'window' ? 'Last 24 active hours' : 'The whole run'}
           </span>
           <span className="font-mono tabular">{summary.merges} merged</span>
-          <span className="font-mono tabular">{summary.milestones} milestones</span>
+          <span className="font-mono tabular">{summary.ratings} versions rated</span>
           {summary.rejects > 0 && (
             <span className="font-mono tabular">{summary.rejects} sent back</span>
           )}
