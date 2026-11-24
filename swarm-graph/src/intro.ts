@@ -28,7 +28,7 @@ export type IntroTiming = {
 
 export type IntroPlan = {
   timing: Map<string, IntroTiming>;
-  /** When the last node arrives: the simulation takes over from here. */
+  /** When the last node arrives at its place: nothing moves after this. */
   totalMs: number;
   /** When labels start fading in (they come last). */
   labelsAt: number;

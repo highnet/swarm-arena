@@ -2,19 +2,28 @@ import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowDown, ArrowUp, Swords } from 'lucide-react';
 import type { GameId, Rung } from '@arena/shared';
-import { DetailShell, Facts } from '@/components/arena/Detail';
-import { PageSkeleton } from '@/components/arena/PageSkeleton';
-import { EngineChip } from '@/components/arena/SidePanels';
-import { Panel } from '@/components/ui/Panel';
-import { Typography } from '@/components/ui/Typography';
+import { Facts } from '@/components/arena/Detail';
 import { NextSteps, engineSteps } from '@/components/arena/NextSteps';
+import { PageSkeleton } from '@/components/arena/PageSkeleton';
+import { Section } from '@/components/ui/Section';
+import { SectionHeading } from '@/components/ui/SectionHeading';
+import { SectionNav, type SectionNavItem } from '@/components/ui/SectionNav';
+import { TextLink } from '@/components/ui/TextLink';
+import { Typography } from '@/components/ui/Typography';
 import { getSnapshot } from '@/lib/data';
 import { formatDay, formatElo, formatTime } from '@/lib/format';
 import { matchHref, rungHref } from '@/lib/routes';
 import { pageMeta } from '@/lib/site';
-import { SHORT_NAME } from '@/lib/tracks';
+import { SERIES, SHORT_NAME } from '@/lib/tracks';
+import { cn } from '@/lib/utils';
+
+const CHAPTERS: SectionNavItem[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'matches', label: 'Matches' },
+  { id: 'ladder', label: 'The ladder' },
+  { id: 'more', label: 'Further reading' },
+];
 
 type RungPageProps = {
   params: Promise<{ id: string; rung: string }>;
@@ -48,103 +57,88 @@ const RungContent = async (props: RungPageProps) => {
   const found = await find(props);
   if (!found) notFound();
   const { s, rungs, at, rung } = found;
-  const slots = Object.fromEntries(s.tracks.map((t) => [t.id, t.color_slot])) as Partial<
-    Record<GameId, number>
-  >;
+  const track = s.tracks.find((t) => t.id === rung.track_id);
+  const slot = track?.color_slot ?? 1;
+  const name = SHORT_NAME[rung.track_id];
   const matches = s.matches
     .filter((m) => playedAgainst(rung, m))
     .sort((a, b) => b.started_at.localeCompare(a.started_at));
-  const below = at > 0 ? rungs[at - 1] : null;
-  const above = at < rungs.length - 1 ? rungs[at + 1] : null;
+  const games = matches.reduce((n, m) => n + m.wins + m.draws + m.losses, 0);
 
   return (
-    <DetailShell
-      eyebrow={
-        <>
-          <EngineChip track={rung.track_id} slots={slots} />
-          <span>
-            Rung {at + 1} of {rungs.length}
-          </span>
-        </>
-      }
-      title={rung.label}
-    >
-      <Facts
-        items={[
-          { label: 'Rating', value: formatElo(rung.elo), note: rung.opponent },
-          {
-            label: 'Status',
-            value: rung.cleared_at ? (
-              <span className="text-good-text">beaten</span>
-            ) : (
-              <span className="text-fg-3">ahead</span>
-            ),
-            note: rung.cleared_at ? formatDay(rung.cleared_at) : undefined,
-            href: rung.cleared_by_match ? matchHref(rung.cleared_by_match) : undefined,
-          },
-          { label: 'Matches', value: matches.length, note: 'against this opponent' },
-          {
-            label: 'Games',
-            value: matches.reduce((n, m) => n + m.wins + m.draws + m.losses, 0),
-          },
-        ]}
-      />
+    <main className="flex w-full flex-col">
+      <SectionNav items={CHAPTERS} />
+      {/* 1 · The rung: who this opponent is, and whether the engine has beaten it. */}
+      <Section id="overview" labelledBy="rung-title" space="roomy">
+        <SectionHeading
+          level="page"
+          id="rung-title"
+          title={rung.label}
+          intro={
+            <>
+              Rung {at + 1} of {rungs.length} on the{' '}
+              <Link
+                href={`/engines/${rung.track_id}`}
+                className="text-fg underline decoration-line-strong underline-offset-4 hover:decoration-fg"
+              >
+                {name} ladder
+              </Link>
+              .{' '}
+              {rung.cleared_at
+                ? `The engine beat it on ${formatDay(rung.cleared_at)}, in a gate match.`
+                : 'The engine has not beaten it yet.'}
+            </>
+          }
+        />
+        <Facts
+          variant="open"
+          items={[
+            { label: 'Rating', value: formatElo(rung.elo), note: rung.opponent },
+            {
+              label: 'Status',
+              value: rung.cleared_at ? (
+                <span className="text-good-text">beaten</span>
+              ) : (
+                <span className="text-fg-3">ahead</span>
+              ),
+              note: rung.cleared_at ? `the gate match, ${formatDay(rung.cleared_at)}` : undefined,
+              href: rung.cleared_by_match ? matchHref(rung.cleared_by_match) : undefined,
+            },
+            { label: 'Matches', value: matches.length, note: 'against this opponent' },
+            { label: 'Games', value: games, note: 'in those matches' },
+          ]}
+        />
+      </Section>
 
-      <nav
-        aria-label="Neighbouring rungs"
-        className="grid gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-2"
-      >
-        {below ? (
-          <Link
-            href={rungHref(below)}
-            className="bg-panel px-4 py-3 text-xs text-fg-2 hover:bg-panel-raised"
-          >
-            <span className="inline-flex items-center gap-1">
-              <ArrowDown className="size-3" aria-hidden="true" />
-              Below · {below.label} ({formatElo(below.elo)})
-            </span>
-          </Link>
-        ) : (
-          <div className="bg-panel px-4 py-3 text-xs text-fg-3">The bottom rung</div>
-        )}
-        {above ? (
-          <Link
-            href={rungHref(above)}
-            className="bg-panel px-4 py-3 text-xs text-fg-2 hover:bg-panel-raised sm:text-right"
-          >
-            <span className="inline-flex items-center gap-1">
-              Above · {above.label} ({formatElo(above.elo)})
-              <ArrowUp className="size-3" aria-hidden="true" />
-            </span>
-          </Link>
-        ) : (
-          <div className="bg-panel px-4 py-3 text-xs text-fg-3 sm:text-right">The top rung</div>
-        )}
-      </nav>
-
-      <Panel icon={Swords} title="Matches against this rung">
+      {/* 2 · The evidence: every match against this opponent. */}
+      <Section id="matches" labelledBy="matches-title" tone="band">
+        <SectionHeading
+          id="matches-title"
+          title="Matches against it"
+          intro="Every match the referee played against this opponent, newest first. Each opens its games."
+        />
         {matches.length === 0 ? (
-          <Typography variant="small" className="px-4 py-6">
-            No match against this opponent yet.
-          </Typography>
+          <Typography variant="intro">No match against this opponent yet.</Typography>
         ) : (
-          <ol className="divide-y divide-line">
+          <ol className="divide-y divide-line border-y border-line">
             {matches.map((m) => (
               <li
                 key={m.id}
-                className="relative flex items-center gap-3 px-4 py-2.5 hover:bg-panel-raised"
+                className="grid grid-cols-[1fr_auto] items-baseline gap-x-6 gap-y-1 py-5 sm:grid-cols-[8rem_1fr_auto_10rem]"
               >
                 <Link
                   href={matchHref(m.id)}
-                  className="font-mono text-[13px] text-fg after:absolute after:inset-0 after:content-['']"
+                  className="font-mono text-[15px] text-fg underline-offset-4 hover:underline"
                 >
                   {m.engine_version}
                 </Link>
-                <span className="text-xs text-fg-3">{m.purpose}</span>
-                <span className="ml-auto font-mono text-[13px] tabular text-fg">
+                <span className="order-3 col-span-2 text-[13px] text-fg-3 sm:order-none sm:col-span-1">
+                  {m.purpose} match
+                </span>
+                <span className="text-right font-mono text-[15px] tabular text-fg">
                   {m.wins}–{m.losses}–{m.draws}
                 </span>
-                <span className="w-28 text-right font-mono text-xs tabular text-fg-3">
+                <span className="order-4 col-span-2 font-mono text-[13px] tabular text-fg-3 sm:order-none sm:col-span-1 sm:text-right">
                   {m.finished_at
                     ? `${formatDay(m.finished_at)} ${formatTime(m.finished_at)}`
                     : 'running'}
@@ -153,14 +147,76 @@ const RungContent = async (props: RungPageProps) => {
             ))}
           </ol>
         )}
-      </Panel>
-      <NextSteps links={[...engineSteps(rung.track_id), 'versions']} />
-    </DetailShell>
+      </Section>
+
+      {/* 3 · Where this rung sits: the whole ladder, this rung marked. */}
+      <Section id="ladder" labelledBy="ladder-title">
+        <div className="grid gap-12 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:gap-20">
+          <SectionHeading
+            id="ladder-title"
+            space="none"
+            title="The whole ladder"
+            intro={`The ${name} engine's reference opponents, strongest at the top. This rung is marked.`}
+            action={<TextLink href={`/engines/${rung.track_id}`}>The {name} engine</TextLink>}
+          />
+          <nav aria-labelledby="ladder-title">
+            <ol className="divide-y divide-line border-y border-line">
+              {[...rungs].reverse().map((r) => {
+                const here = r.id === rung.id;
+                return (
+                  <li
+                    key={r.id}
+                    className="grid grid-cols-[1rem_4rem_1fr_auto] items-baseline gap-x-3 py-4"
+                  >
+                    <span
+                      className={cn(
+                        'size-2 self-center rounded-full',
+                        here ? SERIES[slot].bg : 'bg-transparent',
+                      )}
+                      aria-hidden="true"
+                    />
+                    <span className="font-mono text-[13px] tabular text-fg-3">
+                      {formatElo(r.elo)}
+                    </span>
+                    {here ? (
+                      <span aria-current="page" className="text-[15px] font-medium text-fg">
+                        {r.label}
+                      </span>
+                    ) : (
+                      <Link
+                        href={rungHref(r)}
+                        className="text-[15px] text-fg-2 underline-offset-4 hover:text-fg hover:underline"
+                      >
+                        {r.label}
+                      </Link>
+                    )}
+                    <span
+                      className={cn('text-[13px]', r.cleared_at ? 'text-good-text' : 'text-fg-3')}
+                    >
+                      {r.cleared_at ? 'beaten' : 'ahead'}
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+          </nav>
+        </div>
+      </Section>
+
+      {/* 4 · Where to go next. */}
+      <Section id="more" labelledBy="next-steps-title" tone="band" space="compact">
+        <NextSteps
+          variant="list"
+          title="Further reading"
+          links={[...engineSteps(rung.track_id), 'versions']}
+        />
+      </Section>
+    </main>
   );
 };
 
 const RungPage = (props: RungPageProps) => (
-  <Suspense fallback={<PageSkeleton className="max-w-5xl px-4 pt-6 sm:px-6" />}>
+  <Suspense fallback={<PageSkeleton />}>
     <RungContent {...props} />
   </Suspense>
 );

@@ -1,10 +1,10 @@
 /**
  * Browser check for nodes leaving and arriving (issue #174). Bundles the real renderer, drives it
  * with fake timestamps, and samples the DOM mid-animation in Chromium:
- *   1. an agent goes stale: it dims (fading), then fades out over ~1.8 s, shrinking, label first,
- *      with no jump in the other nodes, and only then leaves the DOM;
- *   2. a new agent appears: mid-arrival it is partly transparent, smaller, and between its parent
- *      and its final place.
+ *   1. an agent goes stale: it dims (fading), then fades out in place within 700 ms, shrinking,
+ *      label first, with no jump in the other nodes, and only then leaves the DOM;
+ *   2. a new agent appears: mid-arrival it is partly transparent and smaller, already at its place
+ *      (it fades and grows in there, #221), and no other node moves.
  * Run: node swarm-graph/scripts/lifecycle-check.mjs (needs Playwright's Chromium). Exits 1 on a
  * failed check.
  */
@@ -154,12 +154,12 @@ const results = await page.evaluate(async () => {
   const t0 = performance.now();
   r.update(graphAt(11));
   const samples = [];
-  for (const ms of [300, 900, 1400]) {
+  for (const ms of [120, 300, 480]) {
     await sleep(ms - (performance.now() - t0));
     samples.push({ ms, ...pose('agent:stale'), shift: maxShift(before, others()) });
   }
   out.leaving = samples;
-  await sleep(2300 - (performance.now() - t0));
+  await sleep(760 - (performance.now() - t0));
   out.afterLeave = { inDom: Boolean(nodeEl('agent:stale')), tag: Boolean(tagEl('agent:stale')) };
   await sleep(1500);
   out.settleShift = maxShift(before, others());
@@ -169,10 +169,12 @@ const results = await page.evaluate(async () => {
   const sector = pose('sector:go');
   const t1 = performance.now();
   r.update(graphAt(11, [newAgent]));
-  await sleep(450 - (performance.now() - t1));
+  await sleep(200 - (performance.now() - t1));
   out.arriving = { ...pose('agent:new'), sector };
+  const beside = others();
   await sleep(2500);
   out.arrived = pose('agent:new');
+  out.arrivalShift = maxShift(beside, others());
   r.destroy();
 
   // Reduced motion: removals and arrivals are instant.
@@ -228,8 +230,8 @@ check(
   results.afterLeave,
 );
 check(
-  'the rest ease into the space gently (< 25 px)',
-  results.settleShift < 25,
+  'nothing moves into the room it leaves (others move < 1 px)',
+  results.settleShift < 1,
   results.settleShift,
 );
 const a = results.arriving;
@@ -240,10 +242,11 @@ check(
   a.opacity > 0.05 && a.opacity < 0.95 && a.scale > 0.4 && a.scale < 1,
   a,
 );
-check('mid-arrival: between its parent and its place', dParent > 3 && dFinal > 3, {
+check('mid-arrival: already at its place, beside its sector', dParent > 3 && dFinal < 1, {
   dParent,
   dFinal,
 });
+check('an arrival moves no other node (< 1 px)', results.arrivalShift < 1, results.arrivalShift);
 check(
   'arrived: whole',
   results.arrived.opacity === 1 && results.arrived.scale === 1,

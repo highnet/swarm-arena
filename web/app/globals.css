@@ -513,7 +513,10 @@ a {
 .chess-play coords {
   font-family: var(--font-mono);
   font-size: 10px;
-  color: var(--fg-3);
+  /* Chessground dims coordinates to 80%; on the board squares fg-3 then fell to 2.7:1.
+     Full-strength ink keeps them AA (about 7.5:1 on either square, in both themes). */
+  color: var(--fg);
+  opacity: 1;
 }
 
 /* Panels let the board scene behind the page show through faintly, so the parallax reads
@@ -636,4 +639,17 @@ a {
 
 .no-scrollbar {
   scrollbar-width: none;
+}
+
+/* The homepage backdrop (#234): quiet under the text column, gone before the next chapter. */
+.home-backdrop-mask {
+  mask-image:
+    linear-gradient(to bottom, black 65%, transparent),
+    linear-gradient(to right, rgb(0 0 0 / 0.25) 20%, black 80%);
+  mask-composite: intersect;
+}
+@media (width < 48rem) {
+  .home-backdrop-mask {
+    mask-image: linear-gradient(to bottom, black 20%, transparent 50%);
+  }
 }

@@ -117,7 +117,8 @@ const PlayGame = ({ game, wasmUrl, engineLabel }: PlayGameProps) => {
 
   return (
     <div data-slot="play-game" className="grid gap-6 lg:grid-cols-[minmax(0,34rem)_minmax(0,1fr)]">
-      <div className="min-w-0">
+      {/* Clip sideways only: chessground sets its file labels a hair past the board's edge. */}
+      <div className="min-w-0 overflow-x-clip">
         {chess ? (
           <ChessPlayBoard
             fen={chess.fen}

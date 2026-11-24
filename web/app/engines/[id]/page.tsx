@@ -1,51 +1,55 @@
 import { Suspense } from 'react';
 import type { Metadata } from 'next';
-import { pageMeta } from '@/lib/site';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import {
-  BookOpen,
-  CircleDashed,
-  CircleDot,
-  CircleSlash,
-  Code2,
-  Gamepad2,
-  GitBranch,
-  GitMerge,
-  ListOrdered,
-  ListTodo,
-  ScrollText,
-  Swords,
-  TrendingUp,
-  GitPullRequest,
-} from 'lucide-react';
-import { agentName, type GameId, type Task } from '@arena/shared';
+import { CircleDashed, CircleDot, CircleSlash, GitMerge, GitPullRequest } from 'lucide-react';
+import { agentName, type GameId, type Match, type Task } from '@arena/shared';
 import { BoardFeed } from '@/components/arena/BoardFeed';
 import { EngineLogo } from '@/components/arena/EngineLogo';
-import { EngineTabs } from '@/components/arena/EngineTabs';
-import { NextSteps, engineSteps } from '@/components/arena/NextSteps';
 import { Lineage } from '@/components/arena/Lineage';
+import { NextSteps, engineSteps } from '@/components/arena/NextSteps';
+import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { ProgressChart } from '@/components/arena/ProgressChart';
 import { SourceViewer } from '@/components/arena/SourceViewer';
-import { TrackLadder } from '@/components/arena/TrackLadder';
-import { Badge } from '@/components/ui/Badge';
-import { Panel } from '@/components/ui/Panel';
 import { buttonVariants } from '@/components/ui/Button';
+import { Disclosure } from '@/components/ui/Disclosure';
+import { FullBleed } from '@/components/ui/FullBleed';
+import { Panel } from '@/components/ui/Panel';
+import { Section } from '@/components/ui/Section';
+import { SectionHeading } from '@/components/ui/SectionHeading';
+import { SectionNav, type SectionNavItem } from '@/components/ui/SectionNav';
+import { TextLink } from '@/components/ui/TextLink';
 import { Typography } from '@/components/ui/Typography';
-import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { getSnapshot } from '@/lib/data';
-import { rungHref, taskHref } from '@/lib/routes';
 import { lineage, newestFirst, snapshotNow, trackSummaries } from '@/lib/derive';
 import { formatDay, formatElo, formatTime } from '@/lib/format';
 import { getPlaybook } from '@/lib/playbook';
+import { matchHref, rungHref, taskHref } from '@/lib/routes';
+import { pageMeta } from '@/lib/site';
 import { getEngineSource } from '@/lib/source';
-import { SHORT_NAME, TRACK_ORDER } from '@/lib/tracks';
+import { ENGINE_FACTS, SHORT_NAME, TRACK_ORDER } from '@/lib/tracks';
+import { cn } from '@/lib/utils';
 
 type EnginePageProps = {
   params: Promise<{ id: string }>;
 };
 
 const REPO_URL = process.env.NEXT_PUBLIC_REPO_URL ?? 'https://github.com/highnet/swarm-arena';
+
+/** How many rows a long list shows before the rest go behind a disclosure. */
+const FIRST_MATCHES = 8;
+const FIRST_TASKS = 6;
+const FIRST_LOG = 6;
+
+const CHAPTERS: SectionNavItem[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'climb', label: 'The climb' },
+  { id: 'versions', label: 'Versions' },
+  { id: 'matches', label: 'Matches' },
+  { id: 'playbook', label: 'Playbook' },
+  { id: 'source', label: 'Source' },
+  { id: 'work', label: 'The work' },
+];
 
 export const generateStaticParams = async () => TRACK_ORDER.map((id) => ({ id }));
 
@@ -59,41 +63,116 @@ export const generateMetadata = async ({ params }: EnginePageProps): Promise<Met
   );
 };
 
-const TASK_TONE = {
-  open: 'outline',
-  claimed: 'neutral',
-  review: 'neutral',
-  landed: 'good',
-  dead: 'critical',
-} as const;
-const TASK_ICON = {
-  open: CircleDashed,
-  claimed: CircleDot,
-  review: GitPullRequest,
-  landed: GitMerge,
-  dead: CircleSlash,
-} as const;
-const TASK_LABEL = {
-  open: 'open',
-  claimed: 'in progress',
-  review: 'in review',
-  landed: 'shipped',
-  dead: 'buried',
+/** Task status as an icon and a word; green and red only for shipped and buried. */
+const TASK_STATUS = {
+  open: { icon: CircleDashed, label: 'open', tone: 'text-fg-3' },
+  claimed: { icon: CircleDot, label: 'in progress', tone: 'text-fg-2' },
+  review: { icon: GitPullRequest, label: 'in review', tone: 'text-fg-2' },
+  landed: { icon: GitMerge, label: 'shipped', tone: 'text-good-text' },
+  dead: { icon: CircleSlash, label: 'buried', tone: 'text-critical-text' },
 } as const;
 
-type TaskBadgeProps = {
+type TaskStatusProps = {
   status: Task['status'];
 };
 
-const TaskBadge = ({ status }: TaskBadgeProps) => {
-  const Icon = TASK_ICON[status];
+const TaskStatus = ({ status }: TaskStatusProps) => {
+  const { icon: Icon, label, tone } = TASK_STATUS[status];
   return (
-    <Badge tone={TASK_TONE[status]}>
-      <Icon className="size-3" aria-hidden="true" />
-      {TASK_LABEL[status]}
-    </Badge>
+    <span className={cn('inline-flex shrink-0 items-center gap-1.5 text-[13px]', tone)}>
+      <Icon className="size-3.5" aria-hidden="true" />
+      {label}
+    </span>
   );
 };
+
+type TaskRowsProps = {
+  tasks: Task[];
+};
+
+const TaskRows = ({ tasks }: TaskRowsProps) => (
+  <ol className="divide-y divide-line border-y border-line">
+    {tasks.map((t) => (
+      <li key={t.id} className="flex flex-wrap items-start justify-between gap-x-6 gap-y-2 py-5">
+        <div className="min-w-0 flex-1">
+          <Link
+            href={taskHref(t.id)}
+            className="text-[15px] text-fg text-pretty underline-offset-4 hover:underline"
+          >
+            {t.title}
+          </Link>
+          <p className="mt-1 text-[13px] text-fg-3">
+            {t.claimed_by ? agentName(t.claimed_by) : 'unclaimed'} · {formatDay(t.created_at)}
+          </p>
+        </div>
+        <TaskStatus status={t.status} />
+      </li>
+    ))}
+  </ol>
+);
+
+const TH = 'px-4 py-3 font-medium';
+const TH_NUM = 'px-4 py-3 text-right font-medium';
+
+type MatchRowsProps = {
+  matches: Match[];
+  caption: string;
+};
+
+const MatchRows = ({ matches, caption }: MatchRowsProps) => (
+  <div className="relative overflow-x-auto">
+    <table className="w-full min-w-[40rem] text-[15px]">
+      <caption className="sr-only">{caption}</caption>
+      <thead>
+        <tr className="border-b border-line-strong text-left text-[13px] text-fg-3">
+          <th scope="col" className={TH}>
+            Finished (UTC)
+          </th>
+          <th scope="col" className={TH}>
+            Version
+          </th>
+          <th scope="col" className={TH}>
+            Opponent
+          </th>
+          <th scope="col" className={TH_NUM}>
+            W–L–D
+          </th>
+          <th scope="col" className={TH_NUM}>
+            Performance
+          </th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-line">
+        {matches.map((m) => (
+          <tr key={m.id}>
+            <td className="px-4 py-4 font-mono text-[13px] tabular text-fg-3">
+              {m.finished_at
+                ? `${formatDay(m.finished_at)} ${formatTime(m.finished_at)}`
+                : 'running'}
+            </td>
+            <td className="px-4 py-4 font-mono tabular text-fg">
+              <Link href={matchHref(m.id)} className="underline-offset-4 hover:underline">
+                {m.engine_version}
+              </Link>
+            </td>
+            <td className="px-4 py-4 text-fg-2">
+              {m.opponent}{' '}
+              <span className="font-mono text-[13px] tabular text-fg-3">
+                ({formatElo(m.opponent_elo)})
+              </span>
+            </td>
+            <td className="px-4 py-4 text-right font-mono tabular text-fg">
+              {m.wins}–{m.losses}–{m.draws}
+            </td>
+            <td className="px-4 py-4 text-right font-mono tabular text-fg">
+              {formatElo(m.elo)} <span className="text-fg-3">± {Math.round(m.elo_error)}</span>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+);
 
 const EngineContent = async ({ params }: EnginePageProps) => {
   const { id } = await params;
@@ -109,6 +188,7 @@ const EngineContent = async ({ params }: EnginePageProps) => {
   const tasks = s.tasks
     .filter((t) => t.track_id === track.id)
     .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const records = newestFirst(s.records.filter((r) => r.track_id === track.id));
   const points = s.elo
     .filter((e) => e.track_id === track.id)
     .sort((a, b) => a.at.localeCompare(b.at))
@@ -117,256 +197,303 @@ const EngineContent = async ({ params }: EnginePageProps) => {
   const { nodes, beforeFirst } = lineage(s, track.id);
   const playbook = await getPlaybook(track.id);
   const source = await getEngineSource(track.id);
+  const facts = ENGINE_FACTS[track.id];
+  const cleared = track.rungs.filter((r) => r.cleared_at).length;
 
   return (
-    <main className="mx-auto w-full max-w-[90rem] px-4 pb-16 pt-6 sm:px-6">
-      <EngineTabs current={track.id} view="overview" />
-      <div className="pb-5 pt-5">
-        <div className="flex items-center gap-3">
-          <EngineLogo game={track.id} slot={track.colorSlot} size="lg" />
-          <Typography variant="pageTitle">{track.name}</Typography>
-          {track.atWork && (
-            <span className="inline-flex items-center gap-1.5 text-xs text-good-text">
-              <span className="size-1.5 animate-pulse-dot rounded-full bg-good" />
-              agent at work
+    <main className="flex w-full flex-col">
+      <SectionNav items={CHAPTERS} />
+
+      {/* 1 · Overview: what this engine is, where it stands, one primary action. */}
+      <Section id="overview" labelledBy="engine-title" space="roomy">
+        <SectionHeading
+          level="page"
+          space="none"
+          id="engine-title"
+          title={
+            <span className="inline-flex items-center gap-4 sm:gap-5">
+              <EngineLogo game={track.id} slot={track.colorSlot} size="lg" />
+              {track.name}
             </span>
-          )}
-        </div>
-        <Typography variant="lede" className="mt-1">
-          {track.version
-            ? `${track.version}, rated ${formatElo(track.elo)}.`
-            : 'No version rated yet.'}{' '}
-          {track.pastLadder || !track.nextRung ? (
-            'Every opponent on the ladder is beaten; each new version now has to beat the last.'
-          ) : (
-            <>
-              Next opponent:{' '}
-              <Link href={rungHref(track.nextRung)} className="text-fg hover:underline">
-                {track.nextRung.label}
-              </Link>{' '}
-              ({formatElo(track.nextRung.elo)}).
-            </>
-          )}
-        </Typography>
-        <div className="mt-4 flex flex-wrap items-center gap-2">
+          }
+          intro={
+            track.pastLadder || !track.nextRung ? (
+              'Every opponent on its ladder is beaten; each new version now has to beat the last.'
+            ) : (
+              <>
+                {cleared} of {track.rungs.length} opponents beaten. Next:{' '}
+                <Link
+                  href={rungHref(track.nextRung)}
+                  className="text-fg underline decoration-line-strong underline-offset-4 hover:decoration-fg"
+                >
+                  {track.nextRung.label}
+                </Link>
+                , rated <span className="font-mono tabular">{formatElo(track.nextRung.elo)}</span>.
+              </>
+            )
+          }
+        />
+        <dl className="mt-12 flex flex-wrap items-end gap-x-16 gap-y-6">
+          <div>
+            <dt className="text-[13px] text-fg-3">Rating</dt>
+            <dd className="mt-1 font-mono text-5xl font-medium tabular tracking-tight text-fg sm:text-6xl">
+              {formatElo(track.elo)}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[13px] text-fg-3">Version</dt>
+            <dd className="mt-1 font-mono text-2xl tabular text-fg-2">{track.version ?? '—'}</dd>
+          </div>
+          <div>
+            <dt className="text-[13px] text-fg-3">Built on</dt>
+            <dd className="mt-1 text-[15px] text-fg-2">
+              {facts.rules} rules · vs {facts.opponents}
+              {track.atWork && (
+                <span className="ml-3 inline-flex items-center gap-1.5">
+                  <span className="size-1.5 rounded-full bg-good" aria-hidden="true" />
+                  agent at work
+                </span>
+              )}
+            </dd>
+          </div>
+        </dl>
+        <div className="mt-12 flex flex-wrap items-center gap-x-8 gap-y-4">
           <Link
             href={`/engines/${track.id}/play`}
-            className={buttonVariants({ variant: 'primary' })}
+            className={buttonVariants({ variant: 'primary', className: 'h-11 px-5 text-[15px]' })}
           >
-            <Gamepad2 className="size-4" aria-hidden="true" />
             Play against it
           </Link>
-          <Link
-            href={`/games?engine=${track.id}`}
-            className={buttonVariants({ variant: 'secondary' })}
-          >
-            <Swords className="size-4" aria-hidden="true" />
-            Watch its games
-          </Link>
-          <Link
-            href={`/skills/${track.id}-playbook`}
-            className={buttonVariants({ variant: 'ghost' })}
-          >
-            <BookOpen className="size-4" aria-hidden="true" />
-            Read the playbook
-          </Link>
+          <TextLink href={`/games?engine=${track.id}`}>Watch its games</TextLink>
+          <TextLink href={`/skills/${track.id}-playbook`}>Read the playbook</TextLink>
         </div>
-      </div>
+      </Section>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_23rem]">
-        <Panel icon={TrendingUp} title="Rating by version">
-          <div className="px-2 pt-3 sm:px-3">
-            <ProgressChart
-              series={[{ id: track.id, name: SHORT_NAME[track.id], slot: track.colorSlot, points }]}
-              start={Date.parse(s.run.started_at)}
-              end={Date.parse(snapshotNow(s))}
-              height={260}
-            />
-          </div>
-          <div className="border-t border-line">
-            <TrackLadder tracks={[track]} />
-          </div>
-        </Panel>
-        <Panel icon={ListOrdered} title="Ladder">
-          <ol className="divide-y divide-line">
+      {/* 2 · The climb: rating by version, then the ladder rung by rung. */}
+      <Section id="climb" labelledBy="climb-title" tone="band" space="roomy">
+        <SectionHeading
+          id="climb-title"
+          title="The climb"
+          intro="The rating version by version, from the referee's games. A step up means a new version beat what came before it."
+        />
+        <FullBleed>
+          <ProgressChart
+            series={[{ id: track.id, name: SHORT_NAME[track.id], slot: track.colorSlot, points }]}
+            start={Date.parse(s.run.started_at)}
+            end={Date.parse(snapshotNow(s))}
+            height={360}
+          />
+        </FullBleed>
+        <div className="mt-24 grid gap-10 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:gap-20">
+          <SectionHeading
+            id="ladder-title"
+            level="sub"
+            space="none"
+            title="The ladder"
+            intro="Reference opponents, strongest at the top. Each rung opens its matches."
+          />
+          <ol aria-labelledby="ladder-title" className="divide-y divide-line border-y border-line">
             {[...track.rungs].reverse().map((r) => (
-              <li key={r.id} className="flex items-center gap-3 px-4 py-2.5">
-                <span className="w-12 font-mono text-xs tabular text-fg-3">{formatElo(r.elo)}</span>
+              <li key={r.id} className="grid grid-cols-[4rem_1fr_auto] items-baseline gap-x-4 py-4">
+                <span className="font-mono text-[13px] tabular text-fg-3">{formatElo(r.elo)}</span>
                 <Link
                   href={rungHref(r)}
-                  className="min-w-0 flex-1 text-[13px] text-fg hover:underline"
+                  className="min-w-0 text-[15px] text-fg underline-offset-4 hover:underline"
                 >
                   {r.label}
                 </Link>
-                {r.cleared_at ? (
+                {r.cleared_at && r.cleared_by_match ? (
                   <Link
-                    href={`/matches/${r.cleared_by_match}`}
-                    className="text-xs text-good-text hover:underline"
+                    href={matchHref(r.cleared_by_match)}
+                    className="text-[13px] text-good-text underline-offset-4 hover:underline"
                   >
                     beaten {formatDay(r.cleared_at)}
                   </Link>
                 ) : (
-                  <span className="text-xs text-fg-3">ahead</span>
+                  <span className="text-[13px] text-fg-3">ahead</span>
                 )}
               </li>
             ))}
           </ol>
-        </Panel>
-      </div>
+        </div>
+      </Section>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-[23rem_minmax(0,1fr)]">
-        <Panel icon={GitBranch} title="Lineage">
-          <Lineage
-            nodes={nodes}
-            beforeFirst={beforeFirst}
-            track={track.id}
-            slot={track.colorSlot}
+      {/* 3 · Versions: what shipped, and the ideas that died trying to beat each one. */}
+      <Section id="versions" labelledBy="versions-title">
+        <div className="grid gap-12 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:gap-20">
+          <SectionHeading
+            id="versions-title"
+            space="none"
+            title="Versions"
+            intro="Every version that shipped, newest first, with the ideas that failed to beat it struck through beneath it."
+            action={<TextLink href="/versions">All engines&apos; versions</TextLink>}
           />
-        </Panel>
-        <Panel
-          icon={BookOpen}
-          title="Playbook"
-          actions={
-            <Typography variant="meta" as="span">
-              kept by the swarm beside the engine
-            </Typography>
-          }
-        >
-          {playbook ? (
-            <div className="grid gap-6 p-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
-              <div
-                className="playbook min-w-0"
-                dangerouslySetInnerHTML={{ __html: playbook.html }}
+          <div className="-mx-4 min-w-0">
+            <Lineage
+              nodes={nodes}
+              beforeFirst={beforeFirst}
+              track={track.id}
+              slot={track.colorSlot}
+            />
+          </div>
+        </div>
+      </Section>
+
+      {/* 4 · Matches: the evidence, as one full-width table. */}
+      <Section id="matches" labelledBy="matches-title" tone="band">
+        <SectionHeading
+          id="matches-title"
+          title="Matches"
+          intro="Every match the referee played for this engine, newest first. Each opens its games."
+          action={<TextLink href={`/games?engine=${track.id}`}>Every game</TextLink>}
+        />
+        <FullBleed>
+          {matches.length === 0 ? (
+            <Typography variant="intro">No matches played yet.</Typography>
+          ) : (
+            <>
+              <MatchRows
+                matches={matches.slice(0, FIRST_MATCHES)}
+                caption={`${track.name}: the latest matches`}
               />
-              <div className="min-w-0">
-                <Typography variant="label" as="h3">
-                  Results log
-                </Typography>
-                {playbook.log.length ? (
-                  <ol className="mt-2 space-y-1.5">
-                    {playbook.log.slice(0, 20).map((l) => (
-                      <li key={l} className="font-mono text-[11px] leading-5 text-fg-2">
+              {matches.length > FIRST_MATCHES && (
+                <Disclosure
+                  className="mt-8"
+                  summary={`The ${matches.length - FIRST_MATCHES} earlier matches`}
+                >
+                  <MatchRows
+                    matches={matches.slice(FIRST_MATCHES)}
+                    caption={`${track.name}: earlier matches`}
+                  />
+                </Disclosure>
+              )}
+            </>
+          )}
+        </FullBleed>
+      </Section>
+
+      {/* 5 · Playbook: the verdicts first, the whole notebook one click away. */}
+      <Section id="playbook" labelledBy="playbook-title">
+        <SectionHeading
+          id="playbook-title"
+          title="Playbook"
+          intro="The notebook the swarm keeps beside the engine: what it is built from, what worked, and what failed and why."
+          action={
+            <TextLink href={`/skills/${track.id}-playbook`}>The playbook on its own page</TextLink>
+          }
+        />
+        {playbook ? (
+          <div className="grid gap-12 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:gap-20">
+            <div className="min-w-0">
+              <SectionHeading id="log-title" level="sub" space="none" title="Results log" />
+              {playbook.log.length ? (
+                <>
+                  <ol aria-labelledby="log-title" className="mt-6 space-y-3">
+                    {playbook.log.slice(0, FIRST_LOG).map((l) => (
+                      <li key={l} className="font-mono text-[13px] leading-6 text-fg-2">
                         {l}
                       </li>
                     ))}
                   </ol>
-                ) : (
-                  <Typography variant="meta" as="p" className="mt-2">
-                    No verdicts yet.
-                  </Typography>
-                )}
-              </div>
+                  {playbook.log.length > FIRST_LOG && (
+                    <Disclosure
+                      className="mt-6"
+                      summary={`${Math.min(playbook.log.length, 20) - FIRST_LOG} more verdicts`}
+                    >
+                      <ol className="space-y-3">
+                        {playbook.log.slice(FIRST_LOG, 20).map((l) => (
+                          <li key={l} className="font-mono text-[13px] leading-6 text-fg-2">
+                            {l}
+                          </li>
+                        ))}
+                      </ol>
+                    </Disclosure>
+                  )}
+                </>
+              ) : (
+                <p className="mt-6 text-[15px] text-fg-2">No verdicts yet.</p>
+              )}
             </div>
-          ) : (
-            <Typography variant="small" className="px-4 py-6">
-              No playbook yet.
-            </Typography>
-          )}
-        </Panel>
-      </div>
+            <div className="min-w-0">
+              <Disclosure variant="row" summary="The playbook in full">
+                <div
+                  className="playbook max-w-prose min-w-0"
+                  dangerouslySetInnerHTML={{ __html: playbook.html }}
+                />
+              </Disclosure>
+            </div>
+          </div>
+        ) : (
+          <Typography variant="intro">No playbook yet.</Typography>
+        )}
+      </Section>
 
-      <Panel
-        id="source"
-        icon={Code2}
-        title="Source"
-        className="mt-4"
-        actions={
-          <Typography variant="meta" as="span">
-            engines/{track.id} on main · written by the swarm
-          </Typography>
-        }
-      >
-        <SourceViewer files={source} repoUrl={REPO_URL} />
-      </Panel>
+      {/* 6 · Source: the engine as it stands on main (an interactive unit, so a card). */}
+      <Section id="source" labelledBy="source-title" tone="band">
+        <SectionHeading
+          id="source-title"
+          title="Source"
+          intro={
+            <>
+              <span className="font-mono">engines/{track.id}</span> on main, as the swarm left it.
+              Pick a file to read it.
+            </>
+          }
+        />
+        <FullBleed>
+          <Panel>
+            <SourceViewer files={source} repoUrl={REPO_URL} />
+          </Panel>
+        </FullBleed>
+      </Section>
 
-      <Panel icon={Swords} title="Matches" className="mt-4" bodyClassName="overflow-x-auto">
-        <table className="w-full min-w-[40rem] text-[13px]">
-          <thead>
-            <tr className="border-b border-line text-left text-xs text-fg-3">
-              <th className="px-4 py-2 font-medium">Finished (UTC)</th>
-              <th className="px-4 py-2 font-medium">Version</th>
-              <th className="px-4 py-2 font-medium">Opponent</th>
-              <th className="px-4 py-2 text-right font-medium">W–L–D</th>
-              <th className="px-4 py-2 text-right font-medium">Performance</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-line">
-            {matches.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-4 py-6 text-[13px] text-fg-3">
-                  No matches played yet.
-                </td>
-              </tr>
+      {/* 7 · The work behind it: tasks, then the full board on request. */}
+      <Section id="work" labelledBy="work-title">
+        <SectionHeading
+          id="work-title"
+          title="The work"
+          intro="The tasks agents claimed for this engine, newest first, and every record they left on the board."
+        />
+        {tasks.length === 0 ? (
+          <Typography variant="intro">No tasks yet.</Typography>
+        ) : (
+          <>
+            <TaskRows tasks={tasks.slice(0, FIRST_TASKS)} />
+            {tasks.length > FIRST_TASKS && (
+              <Disclosure
+                className="mt-8"
+                summary={`The ${tasks.length - FIRST_TASKS} earlier tasks`}
+              >
+                <TaskRows tasks={tasks.slice(FIRST_TASKS)} />
+              </Disclosure>
             )}
-            {matches.map((m) => (
-              <tr key={m.id} className="hover:bg-panel-raised">
-                <td className="px-4 py-2 font-mono text-xs tabular text-fg-3">
-                  {m.finished_at
-                    ? `${formatDay(m.finished_at)} ${formatTime(m.finished_at)}`
-                    : 'running'}
-                </td>
-                <td className="px-4 py-2 font-mono text-xs text-fg">
-                  <Link href={`/matches/${m.id}`} className="hover:underline">
-                    {m.engine_version}
-                  </Link>
-                </td>
-                <td className="px-4 py-2 text-fg-2">
-                  {m.opponent}{' '}
-                  <span className="font-mono text-xs text-fg-3">({formatElo(m.opponent_elo)})</span>
-                </td>
-                <td className="px-4 py-2 text-right font-mono tabular text-fg">
-                  {m.wins}–{m.losses}–{m.draws}
-                </td>
-                <td className="px-4 py-2 text-right font-mono tabular text-fg">
-                  {formatElo(m.elo)} <span className="text-fg-3">± {Math.round(m.elo_error)}</span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Panel>
+          </>
+        )}
+        <Disclosure
+          className="mt-16"
+          variant="row"
+          summary={`The board: ${records.length} records about ${SHORT_NAME[track.id]}`}
+        >
+          <Panel>
+            <BoardFeed records={records} slots={slots} seats={seats} scoped />
+          </Panel>
+        </Disclosure>
+      </Section>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_23rem]">
-        <Panel icon={ScrollText} title="Board">
-          <BoardFeed
-            records={newestFirst(s.records.filter((r) => r.track_id === track.id))}
-            slots={slots}
-            seats={seats}
-            scoped
-          />
-        </Panel>
-        <Panel icon={ListTodo} title="Tasks">
-          {tasks.length === 0 && (
-            <Typography variant="small" className="px-4 py-6">
-              No tasks yet.
-            </Typography>
-          )}
-          <ol className="divide-y divide-line">
-            {tasks.map((t) => (
-              <li key={t.id} className="px-4 py-2.5">
-                <div className="flex items-start justify-between gap-2">
-                  <Link href={taskHref(t.id)} className="hover:underline">
-                    <Typography variant="small" color="primary" as="span">
-                      {t.title}
-                    </Typography>
-                  </Link>
-                  <TaskBadge status={t.status} />
-                </div>
-                <Typography variant="meta" as="p" className="mt-0.5">
-                  {t.claimed_by ? agentName(t.claimed_by) : 'unclaimed'} · {formatDay(t.created_at)}
-                </Typography>
-              </li>
-            ))}
-          </ol>
-        </Panel>
-      </div>
-      <NextSteps links={[...engineSteps(track.id).slice(1), 'versions', 'concepts']} />
+      {/* 8 · Where to go next. */}
+      <Section id="more" labelledBy="next-steps-title" tone="band" space="compact">
+        <NextSteps
+          variant="list"
+          title="Further reading"
+          links={[...engineSteps(track.id).slice(1), 'versions', 'concepts']}
+        />
+      </Section>
     </main>
   );
 };
 
 const EnginePage = ({ params }: EnginePageProps) => (
-  <Suspense fallback={<PageSkeleton className="max-w-[90rem] px-4 pt-6 sm:px-6" />}>
+  <Suspense fallback={<PageSkeleton />}>
     <EngineContent params={params} />
   </Suspense>
 );
