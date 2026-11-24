@@ -181,6 +181,52 @@ Move into "Architecture now" only once the referee passes it. A rebuild of #44's
 - Not tried: probing the table inside the exact solver (~10 empties up), the issue's optional
   part; measure it separately.
 
+## Candidate (not shipped): transposition table inside the exact solver (task #160)
+
+Move into "Architecture now" only once the referee passes it.
+
+- `SolveTt` in `main.rs`, **separate from the midgame `Tt`** so a final margin is never read as a
+  heuristic score or the reverse: 2^18 slots × 16 B = 4 MB (`key` u64 from the same `tt_key`,
+  `lo`/`hi` i8 = proven bounds on the exact final disc margin, `mv` u8 best move or 64,
+  `empties` u8). Buckets of two: a preferred slot (most empties = largest subtree) and an
+  always-replace slot; an entry with more empties than the current root is unreachable and
+  yields. No generations: bounds on a final margin never go stale, so the table lives for the
+  whole game (`thread_local`, cleared by `game`) and each move's solve reuses the last one's.
+- **Use** in `Solver::solve` at nodes with ≥ `SOLVE_TT_MIN` = 6 empties: return at once on
+  `lo >= beta`, `hi <= alpha` or `lo == hi` (any depth: the values are exact); otherwise the
+  stored move goes first. The window is *not* narrowed by the stored bounds (keeps fail-soft
+  results valid bounds on the caller's window). Store after the child loop, only if not stopped:
+  `best <= alpha0` → (−64, best), `best >= beta` → (best, 64), else exact; bounds intersect with
+  any already held for the key. The root (`solve_root`) does not probe/store itself.
+- **Threshold sweep** (`solve_report`, 8 positions, nodes at 14 / 15 / 16 / 17 empties): MIN 14
+  1.37 M / 4.96 M / 8.74 M / 36.0 M (= no table); 12: 1.37 / 4.65 / 7.95 / 31.4; 10: 1.28 /
+  4.11 / 6.77 / 27.0; 8: 1.11 / 3.53 / 5.83 / 22.7; 7: 1.04 / 3.29 / 5.43 / 20.7; **6: 0.96 /
+  3.04 / 5.07 / 19.2**; 5: 0.90 / 2.87 / 4.81 / 18.2; 4: 0.84 / 2.72 / 4.57 / 17.2. Lower is
+  better in nodes all the way down; wall time is flat between 4 and 6, so 6 (= `SHALLOW`, where
+  fastest-first ordering stops). The spec's "from about 10 up" guess left half the gain unused.
+- Solve-time table, 48 seeded positions per count (`SOLVE_REPORT_COUNT=48`, median / max ms,
+  within 100 / within 140 ms = the go-200 solve window, nodes), no table → table:
+
+  | empties | no table (v0.6) | with table |
+  | --- | --- | --- |
+  | 14 | 19.4 / 99.2, 48/48, 48/48, 11.4 M | 11.7 / 56.2, 48/48, 48/48, 7.2 M (−37%) |
+  | 15 | 52.5 / 478.3, 42/48, 44/48, 36.0 M | 36.4 / 256.7, 43/48, 47/48, 21.4 M (−41%) |
+  | 16 | 93.5 / 1159.8, 25/48, 29/48, 80.2 M | 61.7 / 473.9, 32/48, 41/48, 43.7 M (−45%) |
+
+  So 15 empties now fits (47/48 inside 140 ms; the one overrun still plays its partial root
+  result or the midgame move) and 16 does not (41/48): **`SOLVE_EMPTIES` raised 14 → 15**.
+  The report's table is fresh per position; in a game it also carries the previous move's work.
+- Local `arena versus othello` vs main v0.6 (balanced suite, `go 200`; not referee evidence):
+  table at N = 14: **+27 −30 =3 (seed 160014)**; N = 15: **+38 −38 =4 (seed 160015)**; N = 16:
+  +38 −40 =2 (seed 160015). Flat. At N = 14 both sides solve the same positions exactly, so the
+  speedup only frees unused time. At 15-16 empties v0.6's midgame search already reaches depth
+  10-12 in its 120 ms, close to the end of the game with a disc-count terminal, so one more
+  exact ply rarely changes the move. **Expect this to be neutral on the gate**; its value is
+  the headroom (a win/loss/draw solve, or N scaled with the site's 0.5-3 s budgets).
+- Tests: `solver_table_gives_the_same_results_as_no_table` (8-14 empties, ~60 seeds each, one
+  table shared across all positions as across a game's moves: same root score, the chosen move
+  scores it, and fail-low / fail-high / exact agree with the plain solver on four windows).
+
 ## Ideas worth trying
 
 - The #44 transposition table is rebuilt on v0.5 as task #153 (Candidate note above).
@@ -191,8 +237,8 @@ Move into "Architecture now" only once the referee passes it. A rebuild of #44's
   one, repeats of the same setting differed by ±10 games out of 40. `arena versus` has seeded
   openings since #104 (quote its seed); `arena play` still has none.
 - Evaluation: edge patterns (an edge-configuration table), interior stability, parity.
-- Endgame solver follow-ups (#94's plain solver at N = 14, resubmitted in #112): a small TT inside the
-  solve (from ~10 empties up; transpositions are common late); scale N with the budget (each
+- Endgame solver follow-ups (#94's plain solver at N = 14, resubmitted in #112): the TT inside
+  the solve is task #160 (Candidate note above; it pays from 6 empties up, not 10); scale N with the budget (each
   empty ~3×: N 15 at ~0.6 s, 16 at ~1.8 s, the site's 0.5-3 s); a win/loss/draw null-window
   solve (-1, 1) one or two empties beyond N, since only the result counts for the rating;
   start the solve one or two empties early and keep its partial root result; cheaper child
