@@ -21,7 +21,6 @@ const EXPAND_AT: u32 = 2;
 /// The tree stops growing at this many nodes (about 50 MB); search continues with playouts.
 const MAX_NODES: usize = 2_000_000;
 
-#[derive(Clone, Copy)]
 struct Node {
     /// The move that led here.
     mv: u8,
@@ -50,133 +49,10 @@ pub struct Outcome {
     pub playouts: u64,
     /// Win rate of `best` for the side to move.
     pub winrate: f32,
-    /// Visits the root already held when this search started (inherited by tree reuse).
-    pub inherited: u32,
-}
-
-/// A search tree and the position at its root. Kept between moves so the next search can start
-/// from the subtree of the position actually reached (`advance`).
-pub struct Tree {
-    nodes: Vec<Node>,
-    root: Board,
-}
-
-impl Tree {
-    /// A fresh tree over `root` whose root children are `root_moves` (non-empty).
-    pub fn new(root: &Board, root_moves: &[u8], rng: &mut Rng) -> Tree {
-        let mut nodes: Vec<Node> = Vec::with_capacity(1 << 16);
-        nodes.push(Node::new(PASS));
-        add_children(&mut nodes, 0, root_moves, rng);
-        Tree { nodes, root: root.clone() }
-    }
-
-    /// Visits of the root node.
-    #[cfg(test)]
-    pub fn root_visits(&self) -> u32 {
-        self.nodes[0].visits
-    }
-
-    /// Visits of the node reached by `moves` from the root, if the tree holds it.
-    #[cfg(test)]
-    pub fn visits_after(&self, moves: &[u8]) -> Option<u32> {
-        let mut at = 0;
-        for &m in moves {
-            at = self.child(at, m)?;
-        }
-        Some(self.nodes[at].visits)
-    }
-
-    /// The root's children's moves, in arena order.
-    #[cfg(test)]
-    pub fn root_children(&self) -> Vec<u8> {
-        let p = &self.nodes[0];
-        (p.first as usize..p.first as usize + p.children as usize).map(|c| self.nodes[c].mv).collect()
-    }
-
-    /// The most-visited root child and its most-visited child.
-    #[cfg(test)]
-    pub fn principal_pair(&self) -> (u8, u8, u32) {
-        let most = |n: usize| {
-            let p = &self.nodes[n];
-            (p.first as usize..p.first as usize + p.children as usize).max_by_key(|&c| self.nodes[c].visits).unwrap()
-        };
-        let a = most(0);
-        let b = most(a);
-        (self.nodes[a].mv, self.nodes[b].mv, self.nodes[b].visits)
-    }
-
-    fn child(&self, parent: usize, mv: u8) -> Option<usize> {
-        let p = &self.nodes[parent];
-        if !p.expanded {
-            return None;
-        }
-        (p.first as usize..p.first as usize + p.children as usize).find(|&c| self.nodes[c].mv == mv)
-    }
-
-    /// Re-roots the tree at the node reached by playing `moves` from its root, keeping that
-    /// subtree's visits, wins and AMAF statistics and dropping the rest (the arena is compacted).
-    /// `actual` is the real position now and `root_moves` its legal root moves from the
-    /// goban/superko oracle: root children the oracle rejects are pruned, oracle moves the tree
-    /// lacks are added unvisited. None (start fresh) when a move is not in the tree, the node
-    /// reached was never expanded, or its board differs from `actual`.
-    pub fn advance(self, moves: &[u8], actual: &Board, root_moves: &[u8]) -> Option<Tree> {
-        if moves.is_empty() {
-            return None;
-        }
-        let mut board = self.root.clone();
-        let mut at = 0usize;
-        for &m in moves {
-            at = self.child(at, m)?;
-            board.play(m);
-        }
-        if !self.nodes[at].expanded || board.cell != actual.cell || board.to_move != actual.to_move {
-            return None;
-        }
-        let old = self.nodes;
-        let mut nodes: Vec<Node> = Vec::with_capacity(old.len().max(1 << 16));
-        // (new index, old index) of nodes whose children still have to be copied.
-        let mut queue: Vec<(u32, u32)> = Vec::new();
-        let mut root = old[at];
-        root.mv = PASS;
-        root.first = 1;
-        nodes.push(root);
-        let o = &old[at];
-        let kids = o.first as usize..o.first as usize + o.children as usize;
-        for c in kids.clone() {
-            if root_moves.contains(&old[c].mv) {
-                queue.push((nodes.len() as u32, c as u32));
-                nodes.push(old[c]);
-            }
-        }
-        for &m in root_moves {
-            if !kids.clone().any(|c| old[c].mv == m) {
-                nodes.push(Node::new(m));
-            }
-        }
-        nodes[0].children = (nodes.len() - 1) as u16;
-        // Breadth first: each node's children are copied contiguously.
-        let mut q = 0;
-        while q < queue.len() {
-            let (ni, oi) = queue[q];
-            q += 1;
-            let on = old[oi as usize];
-            if !on.expanded {
-                continue;
-            }
-            let first = nodes.len();
-            for c in on.first as usize..on.first as usize + on.children as usize {
-                queue.push((nodes.len() as u32, c as u32));
-                nodes.push(old[c]);
-            }
-            nodes[ni as usize].first = first as u32;
-        }
-        Some(Tree { nodes, root: actual.clone() })
-    }
 }
 
 /// Searches from `root` until `deadline` and returns the most-visited of `root_moves`.
 /// `root_moves` must be non-empty.
-#[cfg(test)]
 pub fn search(root: &Board, root_moves: &[u8], deadline: Instant, rng: &mut Rng) -> Outcome {
     search_limited(root, root_moves, Some(deadline), u64::MAX, rng)
 }
@@ -184,16 +60,9 @@ pub fn search(root: &Board, root_moves: &[u8], deadline: Instant, rng: &mut Rng)
 /// As `search`, but stops after `max_playouts` simulations too. With no deadline the result
 /// depends only on the position, the moves and the RNG: the offline book generator uses this.
 pub fn search_limited(root: &Board, root_moves: &[u8], deadline: Option<Instant>, max_playouts: u64, rng: &mut Rng) -> Outcome {
-    let mut tree = Tree::new(root, root_moves, rng);
-    search_tree(&mut tree, deadline, max_playouts, rng)
-}
-
-/// Grows `tree` until `deadline` or `max_playouts` more simulations and returns the
-/// most-visited root child.
-pub fn search_tree(tree: &mut Tree, deadline: Option<Instant>, max_playouts: u64, rng: &mut Rng) -> Outcome {
-    let inherited = tree.nodes[0].visits;
-    let root = &tree.root;
-    let nodes = &mut tree.nodes;
+    let mut nodes: Vec<Node> = Vec::with_capacity(1 << 16);
+    nodes.push(Node::new(PASS));
+    add_children(&mut nodes, 0, root_moves, rng);
 
     let mut path: Vec<u32> = Vec::with_capacity(64);
     let mut moves: Vec<u8> = Vec::with_capacity(NN);
@@ -217,7 +86,7 @@ pub fn search_tree(tree: &mut Tree, deadline: Option<Instant>, max_playouts: u64
         let mut node = 0usize;
         // Selection.
         while nodes[node].expanded && board.passes < 2 {
-            let child = select(nodes, node);
+            let child = select(&nodes, node);
             board.play(nodes[child].mv);
             seq.push(nodes[child].mv);
             node = child;
@@ -229,8 +98,8 @@ pub fn search_tree(tree: &mut Tree, deadline: Option<Instant>, max_playouts: u64
             if moves.is_empty() {
                 moves.push(PASS);
             }
-            add_children(nodes, node, &moves, rng);
-            let child = select(nodes, node);
+            add_children(&mut nodes, node, &moves, rng);
+            let child = select(&nodes, node);
             board.play(nodes[child].mv);
             seq.push(nodes[child].mv);
             node = child;
@@ -249,7 +118,7 @@ pub fn search_tree(tree: &mut Tree, deadline: Option<Instant>, max_playouts: u64
             }
             mover = opponent(mover);
         }
-        amaf_update(nodes, &path, &seq, root.to_move, black_wins);
+        amaf_update(&mut nodes, &path, &seq, root.to_move, black_wins);
         playouts += 1;
     }
 
@@ -261,7 +130,7 @@ pub fn search_tree(tree: &mut Tree, deadline: Option<Instant>, max_playouts: u64
         }
     }
     let b = &nodes[best];
-    Outcome { best: b.mv, playouts, winrate: if b.visits > 0 { b.wins / b.visits as f32 } else { 0.5 }, inherited }
+    Outcome { best: b.mv, playouts, winrate: if b.visits > 0 { b.wins / b.visits as f32 } else { 0.5 } }
 }
 
 /// Appends `moves` as children of `parent` in random order.

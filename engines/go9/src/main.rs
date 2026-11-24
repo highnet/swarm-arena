@@ -224,47 +224,12 @@ fn root_moves(pos: &Position, flat: &Board) -> Vec<u8> {
         .collect()
 }
 
-/// The last search's tree and the game record at its root, kept between `go` calls so the
-/// next search can start from the subtree of the position actually reached.
-#[derive(Default)]
-struct Reuse {
-    saved: Option<(Vec<String>, search::Tree)>,
-    /// Root visits inherited and playouts run by the last search (None: no search ran).
-    last: Option<(u32, u64)>,
-}
-
-impl Reuse {
-    /// The tree for `moves`: the saved one re-rooted at the position reached, when `moves`
-    /// extends its game record and every move since is in the tree; otherwise a fresh one.
-    fn tree_for(&mut self, moves: &[String], flat: &Board, legal: &[u8], rng: &mut Rng) -> search::Tree {
-        if let Some((at, tree)) = self.saved.take() {
-            if moves.len() > at.len() && moves[..at.len()] == at[..] {
-                let since: Option<Vec<u8>> = moves[at.len()..]
-                    .iter()
-                    .map(|m| parse_move(m).map(|c| c.map_or(board::PASS, |c| c.0 * N as u8 + c.1)))
-                    .collect();
-                if let Some(t) = since.and_then(|since| tree.advance(&since, flat, legal)) {
-                    return t;
-                }
-            }
-        }
-        search::Tree::new(flat, legal, rng)
-    }
-}
-
-/// Pick a move for the side to move, given the moves so far, without tree reuse.
-#[cfg(test)]
-fn choose(moves: &[String], budget_ms: u64) -> Option<String> {
-    choose_with(moves, budget_ms, &mut Reuse::default())
-}
-
 /// Pick a move for the side to move, given the moves so far.
 /// Passes when the opponent just passed and the board already wins on area, or when no
-/// non-eye legal move remains. Otherwise runs UCT until ~70% of the budget, starting from the
-/// reused subtree when `reuse` holds one for this position, and plays the most-visited root move.
-fn choose_with(moves: &[String], budget_ms: u64, reuse: &mut Reuse) -> Option<String> {
+/// non-eye legal move remains. Otherwise runs UCT until ~70% of the budget and plays the
+/// most-visited root move.
+fn choose(moves: &[String], budget_ms: u64) -> Option<String> {
     let start = Instant::now();
-    reuse.last = None;
     let pos = Position::from_moves(moves);
     let me = pos.turn();
     let now = cells(pos.game.goban());
@@ -273,7 +238,6 @@ fn choose_with(moves: &[String], budget_ms: u64, reuse: &mut Reuse) -> Option<St
         let s = area_score(&now);
         let winning = if me == Color::Black { s > 0.0 } else { s < 0.0 };
         if winning {
-            reuse.saved = None;
             return Some("pass".into());
         }
     }
@@ -281,25 +245,19 @@ fn choose_with(moves: &[String], budget_ms: u64, reuse: &mut Reuse) -> Option<St
     let flat = flat_board(&pos);
     let legal = root_moves(&pos, &flat);
     if legal.is_empty() {
-        reuse.saved = None;
         return Some("pass".into());
     }
     if legal.len() == 1 {
-        reuse.saved = None;
         return Some(format_move(to_coord(legal[0])));
     }
     if let Some(m) = book_move(moves, &flat).filter(|m| legal.contains(m)) {
-        reuse.saved = None;
         eprintln!("info book {}", format_move(to_coord(m)));
         return Some(format_move(to_coord(m)));
     }
     let mut rng = seeded_rng(moves);
     let deadline = start + Duration::from_millis(budget_ms * 7 / 10);
-    let mut tree = reuse.tree_for(moves, &flat, &legal, &mut rng);
-    let out = search::search_tree(&mut tree, Some(deadline), u64::MAX, &mut rng);
-    reuse.saved = Some((moves.to_vec(), tree));
-    reuse.last = Some((out.inherited, out.playouts));
-    eprintln!("info playouts {} reused {} winrate {:.3}", out.playouts, out.inherited, out.winrate);
+    let out = search::search(&flat, &legal, deadline, &mut rng);
+    eprintln!("info playouts {} winrate {:.3}", out.playouts, out.winrate);
     Some(format_move(to_coord(out.best)))
 }
 
@@ -396,20 +354,17 @@ fn to_coord(p: u8) -> Coord {
 }
 
 /// Handles one protocol line, returning the reply to print (if any) and whether to quit.
-fn handle(line: &str, moves: &mut Vec<String>, reuse: &mut Reuse) -> (Option<String>, bool) {
+fn handle(line: &str, moves: &mut Vec<String>) -> (Option<String>, bool) {
     let mut parts = line.split_whitespace();
     match parts.next() {
-        Some("game") => {
-            reuse.saved = None;
-            (Some("ready".into()), false)
-        }
+        Some("game") => (Some("ready".into()), false),
         Some("position") => {
             *moves = parts.map(String::from).collect();
             (None, false)
         }
         Some("go") => {
             let budget = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1000);
-            let mv = choose_with(moves, budget, reuse).unwrap_or_else(|| "pass".into());
+            let mv = choose(moves, budget).unwrap_or_else(|| "pass".into());
             (Some(format!("bestmove {mv}")), false)
         }
         Some("quit") => (None, true),
@@ -426,10 +381,9 @@ fn main() {
     let stdin = io::stdin();
     let mut out = io::stdout();
     let mut moves = Vec::new();
-    let mut reuse = Reuse::default();
     for line in stdin.lock().lines() {
         let Ok(line) = line else { break };
-        let (reply, quit) = handle(&line, &mut moves, &mut reuse);
+        let (reply, quit) = handle(&line, &mut moves);
         if let Some(r) = reply {
             writeln!(out, "{r}").ok();
             out.flush().ok();
@@ -456,14 +410,13 @@ mod tests {
     #[test]
     fn handshake_and_position() {
         let mut moves = Vec::new();
-        let mut r = Reuse::default();
-        assert_eq!(handle("game go9", &mut moves, &mut r).0.as_deref(), Some("ready"));
-        handle("position e5 c3", &mut moves, &mut r);
+        assert_eq!(handle("game go9", &mut moves).0.as_deref(), Some("ready"));
+        handle("position e5 c3", &mut moves);
         assert_eq!(moves, vec!["e5", "c3"]);
-        let reply = handle("go 100", &mut moves, &mut r).0.unwrap();
+        let reply = handle("go 100", &mut moves).0.unwrap();
         let m = reply.strip_prefix("bestmove ").unwrap();
         assert!(m != "e5" && m != "c3" && parse_move(m).is_some());
-        assert!(handle("quit", &mut moves, &mut r).1);
+        assert!(handle("quit", &mut moves).1);
     }
 
     #[test]
@@ -569,11 +522,9 @@ mod tests {
     fn self_play_at_200ms_stays_legal() {
         for game in 0..20 {
             let mut moves: Vec<String> = Vec::new();
-            // One reuse cache per side, as two engine processes would keep them.
-            let mut reuse = [Reuse::default(), Reuse::default()];
             for _ in 0..200 {
                 let t = Instant::now();
-                let m = choose_with(&moves, 200, &mut reuse[moves.len() % 2]).unwrap();
+                let m = choose(&moves, 200).unwrap();
                 assert!(t.elapsed() < Duration::from_millis(200), "game {game}: slow reply");
                 let p = Position::from_moves(&moves);
                 if m != "pass" {
@@ -741,151 +692,6 @@ mod tests {
         let long = mv("e5 c3 g7 c7 g3");
         let pos = Position::from_moves(&long);
         assert_eq!(book_move(&long, &flat_board(&pos)), None);
-    }
-
-    /// A searched tree over `moves` (beyond the book), with its flat board and root moves.
-    fn searched(moves: &[String], playouts: u64) -> search::Tree {
-        let pos = Position::from_moves(moves);
-        let flat = flat_board(&pos);
-        let legal = root_moves(&pos, &flat);
-        let mut rng = Rng(154);
-        let mut tree = search::Tree::new(&flat, &legal, &mut rng);
-        search::search_tree(&mut tree, None, playouts, &mut rng);
-        tree
-    }
-
-    fn after(moves: &[String], extra: &[u8]) -> Vec<String> {
-        let mut v = moves.to_vec();
-        v.extend(extra.iter().map(|&p| format_move(to_coord(p))));
-        v
-    }
-
-    /// Re-rooting after our move and the reply keeps the grandchild's visits, and its root
-    /// children are exactly the oracle's moves: one the oracle rejects is pruned.
-    #[test]
-    fn reroot_keeps_the_grandchild() {
-        let moves = mv("e5 c3 g7 c7 g3 d5");
-        let tree = searched(&moves, 20_000);
-        let (a, b, visits) = tree.principal_pair();
-        assert!(visits > 100, "grandchild has only {visits} visits");
-        let next = after(&moves, &[a, b]);
-        let pos = Position::from_moves(&next);
-        let flat = flat_board(&pos);
-        let mut legal = root_moves(&pos, &flat);
-        // Pretend the oracle rejects the grandchild's most-visited child.
-        let dropped = legal.iter().copied().max_by_key(|&m| tree.visits_after(&[a, b, m]).unwrap_or(0)).unwrap();
-        assert!(tree.visits_after(&[a, b, dropped]).unwrap_or(0) > 0);
-        legal.retain(|&m| m != dropped);
-        let first = legal[0];
-        let first_visits = tree.visits_after(&[a, b, first]);
-        let re = tree.advance(&[a, b], &flat, &legal).expect("re-root");
-        assert_eq!(re.root_visits(), visits);
-        assert_eq!(re.visits_after(&[dropped]), None);
-        assert_eq!(re.visits_after(&[first]), first_visits);
-        let mut kids = re.root_children();
-        kids.sort();
-        let mut want = legal.clone();
-        want.sort();
-        assert_eq!(kids, want);
-        // And the re-rooted tree searches on.
-        let mut re = re;
-        let mut rng = Rng(1);
-        let out = search::search_tree(&mut re, None, 500, &mut rng);
-        assert_eq!(out.inherited, visits);
-        assert!(legal.contains(&out.best));
-        assert_eq!(re.root_visits(), visits + 500);
-    }
-
-    /// A reply the tree never expanded, a history that does not extend the saved one, or a new
-    /// game all start fresh.
-    #[test]
-    fn unexpected_reply_starts_fresh() {
-        let moves = mv("e5 c3 g7 c7 g3 d5");
-        let tree = searched(&moves, 5_000);
-        let (a, _, _) = tree.principal_pair();
-        let pos_a = Position::from_moves(&after(&moves, &[a]));
-        let rare = root_moves(&pos_a, &flat_board(&pos_a))
-            .into_iter()
-            .find(|&m| tree.visits_after(&[a, m]).unwrap_or(0) < 2)
-            .expect("an unexplored reply");
-        let next = after(&moves, &[a, rare]);
-        let pos = Position::from_moves(&next);
-        let flat = flat_board(&pos);
-        let legal = root_moves(&pos, &flat);
-        let mut rng = Rng(3);
-        let mut reuse = Reuse { last: None, saved: Some((moves.clone(), tree)) };
-        assert_eq!(reuse.tree_for(&next, &flat, &legal, &mut rng).root_visits(), 0);
-
-        // The expected reply is reused through the same entry point.
-        let tree = searched(&moves, 5_000);
-        let (a, b, visits) = tree.principal_pair();
-        let next = after(&moves, &[a, b]);
-        let pos = Position::from_moves(&next);
-        let flat = flat_board(&pos);
-        let legal = root_moves(&pos, &flat);
-        let mut reuse = Reuse { last: None, saved: Some((moves.clone(), tree)) };
-        assert_eq!(reuse.tree_for(&next, &flat, &legal, &mut rng).root_visits(), visits);
-
-        // A different history (not an extension of the saved one) is fresh.
-        let other = mv("e5 c3 g7 c7 g3 d6");
-        let pos = Position::from_moves(&other);
-        let flat = flat_board(&pos);
-        let legal = root_moves(&pos, &flat);
-        let mut reuse = Reuse { last: None, saved: Some((moves.clone(), searched(&moves, 2_000))) };
-        assert_eq!(reuse.tree_for(&other, &flat, &legal, &mut rng).root_visits(), 0);
-
-        // `game` drops the saved tree.
-        let (mut ms, mut r) = (Vec::new(), Reuse { last: None, saved: Some((moves.clone(), searched(&moves, 100))) });
-        handle("game go9", &mut ms, &mut r);
-        assert!(r.saved.is_none());
-    }
-
-    /// Self-play at go 200 with and without tree reuse: mean root visits inherited per searched
-    /// move and mean playouts per move (cargo test --release reuse_report -- --ignored --nocapture).
-    #[test]
-    #[ignore]
-    fn reuse_report() {
-        for reuse_on in [false, true] {
-            // (ply, inherited, playouts) per searched move.
-            let mut rows: Vec<(usize, u64, u64)> = Vec::new();
-            for _game in 0..4 {
-                let mut moves: Vec<String> = Vec::new();
-                let mut reuse = [Reuse::default(), Reuse::default()];
-                for _ in 0..160 {
-                    let r = &mut reuse[moves.len() % 2];
-                    if !reuse_on {
-                        r.saved = None;
-                    }
-                    let m = choose_with(&moves, 200, r).unwrap();
-                    if let Some((inh, n)) = r.last {
-                        rows.push((moves.len(), inh as u64, n));
-                    }
-                    moves.push(m);
-                    let n = moves.len();
-                    if n >= 2 && moves[n - 1] == "pass" && moves[n - 2] == "pass" {
-                        break;
-                    }
-                }
-            }
-            let tag = if reuse_on { "on " } else { "off" };
-            for (name, lo, hi) in [("plies 0-39", 0, 40), ("plies 40+", 40, usize::MAX), ("all", 0, usize::MAX)] {
-                let sel: Vec<_> = rows.iter().filter(|r| r.0 >= lo && r.0 < hi).collect();
-                let med = |f: &dyn Fn(&(usize, u64, u64)) -> u64| {
-                    let mut v: Vec<u64> = sel.iter().map(|r| f(r)).collect();
-                    v.sort();
-                    v.get(v.len() / 2).copied().unwrap_or(0)
-                };
-                let reused = sel.iter().filter(|r| r.1 > 0).count();
-                println!(
-                    "reuse {tag} {name}: {} moves, {} with a reused tree, median inherited {}, median playouts {}, median root visits {}",
-                    sel.len(),
-                    reused,
-                    med(&|r| r.1),
-                    med(&|r| r.2),
-                    med(&|r| r.1 + r.2)
-                );
-            }
-        }
     }
 
     /// Prints playouts per second on the empty board (cargo test --release -- --nocapture).

@@ -1,0 +1,1 @@
+- 2026-11-24 · **tree reuse** · Go 9×9 · buried: Referee error: Error: gnugo-8 timeout in game 2 on 4 attempts in a row: aborting the match (Error: timeout) · MCTS tree reuse between moves: keep the subtree of the position actually reached
