@@ -58,10 +58,14 @@ import { ReplayScrubber } from './ReplayScrubber';
 import { agentHref } from './seats';
 import { SwarmNodeOverlay, type NodeRating } from './SwarmNodeOverlay';
 
-/** Lines in the ticker; older ones drop off. */
-const TICKER = 5;
 /** Match bursts whose game tally the ticker remembers; the oldest are forgotten first. */
 const GROUP_CAP = 50;
+/**
+ * The ticker shows one line, the latest event. A line stays up at least this long before the next
+ * replaces it, so a burst (a catch-up, a replay, a run of games) never flickers: what arrives in
+ * the meantime folds into the newest, counted as "+N".
+ */
+const TICKER_HOLD_MS = 1000;
 
 /**
  * When this page load first showed the graph. Coming back to the fleet page later in the same
@@ -222,6 +226,68 @@ const PipelineBar = ({ stages }: PipelineBarProps) => {
 
 type Hover = { node: SwarmNode; x: number; y: number; width: number };
 type Tick = SwarmFlow & { key: string; source: 'live' | 'replay'; line: string };
+/** The one line on show, the line it replaced (leaving), and how many events it folded in. */
+type TickerState = { now: Tick; leaving: Tick | null; more: number };
+
+type TickerLineProps = {
+  tick: Tick;
+  color?: string;
+  /** Events that arrived while the previous line was held, folded into this one. */
+  more?: number;
+  /** The line being replaced: it fades out over the new one, then reports itself gone. */
+  leaving?: boolean;
+  onGone?: () => void;
+};
+
+const TickerLine = ({ tick: t, color, more = 0, leaving = false, onGone }: TickerLineProps) => {
+  const Row = leaving ? 'div' : 'li';
+  return (
+    <Row
+      data-slot={leaving ? 'swarm-ticker-leaving' : 'swarm-ticker-line'}
+      data-key={t.key}
+      aria-hidden={leaving || undefined}
+      onAnimationEnd={leaving ? onGone : undefined}
+      className={cn(
+        'flex items-center gap-2 truncate rounded-md border border-line bg-panel-raised/90 px-2 py-1 text-xs shadow-md backdrop-blur-sm',
+        leaving
+          ? 'absolute bottom-0 left-0 z-1 max-w-full animate-ticker-out motion-reduce:hidden'
+          : 'animate-record-in motion-reduce:animate-none',
+        t.kind === 'merge' && 'border-good/60',
+      )}
+    >
+      <span
+        className="size-2 shrink-0 rounded-full"
+        style={{ background: color }}
+        aria-hidden="true"
+      />
+      <span
+        className={cn(
+          'shrink-0 font-mono text-[10px] uppercase tracking-[0.15em]',
+          t.kind === 'merge' && 'text-good-text',
+          t.kind === 'reject' && 'text-critical-text',
+          t.kind !== 'merge' && t.kind !== 'reject' && 'text-fg-3',
+        )}
+      >
+        {FLOW_VERB[t.kind]}
+      </span>
+      <span className="truncate text-fg-2">{t.line}</span>
+      {more > 0 && (
+        <span
+          data-slot="swarm-ticker-more"
+          className="shrink-0 font-mono text-[10px] text-fg-3"
+          title={`${more} more event${more === 1 ? '' : 's'} arrived meanwhile`}
+        >
+          +{more}
+        </span>
+      )}
+      {t.source === 'live' && (
+        <span className="ml-auto shrink-0 font-mono text-[10px] text-fg-3" aria-hidden="true">
+          {ago(t.at)}
+        </span>
+      )}
+    </Row>
+  );
+};
 
 type NodeCardProps = {
   node: SwarmNode;
@@ -654,7 +720,15 @@ const SwarmGraph = ({
   );
 
   const [hover, setHover] = useState<Hover | null>(null);
-  const [ticker, setTicker] = useState<Tick[]>([]);
+  const [ticker, setTicker] = useState<TickerState | null>(null);
+  /** The newest event waiting for the shown line's hold to end, and how many it stands for. */
+  const tickerQueue = useRef({
+    shownKey: '',
+    shownAt: -Infinity,
+    next: null as Tick | null,
+    more: 0,
+    timer: 0,
+  });
   const groups = useRef(new Map<string, GroupTally>());
   const [replay, setReplay] = useState<SwarmReplayState | null>(null);
   const [replayPlan, setReplayPlan] = useState<SwarmReplayPlan | null>(null);
@@ -686,6 +760,40 @@ const SwarmGraph = ({
     const el = host.current;
     if (!el) return;
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const q = tickerQueue.current;
+    const showTick = (next: Tick, more: number) => {
+      if (next.key === q.shownKey) {
+        // A burst's own line (one match) updates in place, with no hand-over.
+        setTicker((cur) => cur && { ...cur, now: next, more: cur.more + more });
+        return;
+      }
+      q.shownKey = next.key;
+      q.shownAt = performance.now();
+      setTicker((cur) => ({ now: next, leaving: cur?.now ?? null, more }));
+    };
+    const flushTick = () => {
+      const { next, more } = q;
+      q.next = null;
+      q.more = 0;
+      q.timer = 0;
+      if (next) showTick(next, more);
+    };
+    /** The latest event onto the ticker: at once, or as soon as the shown line's hold ends. */
+    const offerTick = (next: Tick) => {
+      if (q.timer) {
+        // Waiting out the hold: the newest takes the queue's place, the one it replaces is counted.
+        if (q.next && q.next.key !== next.key) q.more++;
+        q.next = next;
+        return;
+      }
+      const waited = performance.now() - q.shownAt;
+      if (next.key === q.shownKey || waited >= TICKER_HOLD_MS) {
+        showTick(next, 0);
+        return;
+      }
+      q.next = next;
+      q.timer = window.setTimeout(flushTick, TICKER_HOLD_MS - waited);
+    };
     const r = createSwarmGraph(el, {
       title: 'Agents and the sectors of the codebase they are working in',
       reducedMotion: reduced,
@@ -757,9 +865,7 @@ const SwarmGraph = ({
           if (g.games > 1)
             line = `${flow.group.title}: ${g.games} games, ${g.win}–${g.loss}${g.draw ? `–${g.draw}` : ''}`;
         }
-        setTicker((t) =>
-          [{ ...flow, source, key, line }, ...t.filter((x) => x.key !== key)].slice(0, TICKER),
-        );
+        offerTick({ ...flow, source, key, line });
       },
       onReplay: (state) => {
         setReplay(state);
@@ -777,6 +883,9 @@ const SwarmGraph = ({
     return () => {
       timers.forEach(clearTimeout);
       timers.clear();
+      clearTimeout(q.timer);
+      q.timer = 0;
+      q.next = null;
       r.destroy();
       renderer.current = null;
     };
@@ -869,7 +978,10 @@ const SwarmGraph = ({
       isMilestone: replayMilestone,
     });
     if (!plan.flows.length) return;
-    setTicker([]);
+    const q = tickerQueue.current;
+    clearTimeout(q.timer);
+    Object.assign(q, { shownKey: '', shownAt: -Infinity, next: null, more: 0, timer: 0 });
+    setTicker(null);
     groups.current.clear();
     // The renderer reports the old replay stopping first; the new plan must land after that.
     renderer.current?.replay(plan);
@@ -1109,45 +1221,27 @@ const SwarmGraph = ({
           </div>
         )}
 
-        {ticker.length > 0 && (
-          <ol
-            className="pointer-events-none absolute bottom-3 left-3 max-w-[min(22rem,calc(100%-1.5rem))] space-y-1"
-            aria-live="polite"
-          >
-            {ticker.map((t, i) => (
-              <li
-                key={t.key}
-                className={cn(
-                  'flex items-center gap-2 truncate rounded-md border border-line bg-panel-raised/90 px-2 py-1 text-xs shadow-md backdrop-blur-sm transition-opacity duration-500 animate-record-in motion-reduce:animate-none',
-                  i === 0 && t.kind === 'merge' && 'border-good/60',
-                  i > 0 && 'opacity-80',
-                  i > 2 && 'opacity-45',
-                )}
-              >
-                <span
-                  className="size-2 shrink-0 rounded-full"
-                  style={{ background: flowColor(t) }}
-                  aria-hidden="true"
-                />
-                <span
-                  className={cn(
-                    'shrink-0 font-mono text-[10px] uppercase tracking-[0.15em]',
-                    t.kind === 'merge' && 'text-good-text',
-                    t.kind === 'reject' && 'text-critical-text',
-                    t.kind !== 'merge' && t.kind !== 'reject' && 'text-fg-3',
-                  )}
-                >
-                  {FLOW_VERB[t.kind]}
-                </span>
-                <span className="truncate text-fg-2">{t.line}</span>
-                {t.source === 'live' && (
-                  <span className="ml-auto shrink-0 font-mono text-[10px] text-fg-3">
-                    {ago(t.at)}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ol>
+        {ticker && (
+          <div className="pointer-events-none absolute bottom-3 left-3 max-w-[min(22rem,calc(100%-1.5rem))]">
+            {/* The line it replaced leaves on top of it, so the hand-over never moves anything. */}
+            {ticker.leaving && (
+              <TickerLine
+                key={`leaving-${ticker.leaving.key}`}
+                tick={ticker.leaving}
+                color={flowColor(ticker.leaving)}
+                leaving
+                onGone={() => setTicker((t) => t && { ...t, leaving: null })}
+              />
+            )}
+            <ol aria-live="polite" aria-atomic="true">
+              <TickerLine
+                key={ticker.now.key}
+                tick={ticker.now}
+                color={flowColor(ticker.now)}
+                more={ticker.more}
+              />
+            </ol>
+          </div>
         )}
 
         {hover && (
