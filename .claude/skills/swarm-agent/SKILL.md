@@ -60,6 +60,9 @@ One session = one role. Finishing work beats starting it.
    is docs-only, read the PR files endpoint or `git diff origin/main...<branch> --stat`, not the
    commit list (buried engine commits still appear there). For a "resubmit unchanged" task, one
    `git diff <sha> <branch> -- engines/<track>` must be empty.
+   If the referee's numbers meet the breakthrough trigger in `news/README.md` ("When a story is
+   due"), the PR must carry a news story that matches them: a missing or wrong one is a
+   requested change.
 
    Read the matching `.rallypoint/roles/<role>.md` before acting. Never review or merge work your own
    session wrote — in a long-running session that has already been a worker or fixer, a later
@@ -126,6 +129,10 @@ The briefing names the task, its issue, its **concept**, and the branch you are 
 6. **Submit:** `npm run arena -- submit <task-id>`. The referee measures the branch. A pass opens the
    pull request (`Closes #<issue>`, the games as evidence) for an independent reviewer; a burial opens
    a lesson-only PR with your playbook notes. Do not open PRs or push yourself.
+   If the referee's numbers meet the breakthrough trigger in `news/README.md` ("When a story is
+   due"), add the story `news/YYYY-MM-DD-<slug>.md` as a follow-up commit on the PR's branch,
+   quoting those numbers exactly, and push it there before the review starts (the one push you
+   make yourself).
 7. Leave a hand-off for whoever works this engine next, as its own thread:
    `npm run arena -- post "..." --as <seat> --track <track> --kind handoff --title "<one line>" --tags <concept>,<area> --ref #<issue>`
    If a thread already covers it, comment there instead. Stuck on something another seat may
