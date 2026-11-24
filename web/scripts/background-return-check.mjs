@@ -13,6 +13,9 @@
  *   3. reduced motion: hidden, the same changes, shown again: the catch-up does not play, the
  *      final state lands at once (the graph has no catch-up bar within a second).
  *
+ * The particle layer is off throughout (headless WebGL is software-rendered); the idle page's
+ * long tasks are printed next to the return's for scale.
+ *
  * Run: node web/scripts/background-return-check.mjs [base-url] (default http://localhost:3000;
  * needs Playwright's Chromium). Exits 1 on a failed check.
  */
@@ -493,6 +496,9 @@ const open = async (browser, opts = {}) => {
   page.on('pageerror', (e) => errors.push(String(e)));
   if (opts.clock) await page.clock.install();
   await page.addInitScript(installFeed, LINES);
+  // The particle layer off: headless Chromium draws WebGL in software (SwiftShader), which costs
+  // more per frame than any GPU and would measure the emulator, not the catch-up.
+  await page.addInitScript(() => window.localStorage.setItem('swarm-graph-effects', 'off'));
   await page.goto(`${base}/fleet`, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('[data-slot="swarm-graph"]');
   await page.waitForTimeout(4_000);
@@ -502,6 +508,20 @@ const open = async (browser, opts = {}) => {
   const cdp = await context.newCDPSession(page);
   await cdp.send('HeapProfiler.enable');
   return { context, page, cdp, errors };
+};
+
+/** The page's long tasks (ms) while `during` runs. */
+const longTasks = async (page, during) => {
+  await page.evaluate(() => {
+    window.__long = [];
+    window.__longObs?.disconnect();
+    window.__longObs = new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) window.__long.push(Math.round(e.duration));
+    });
+    window.__longObs.observe({ type: 'longtask' });
+  });
+  await during();
+  return page.evaluate(() => window.__long);
 };
 
 /** Feed `count` changes in batches, yielding between them as a real stream would. */
@@ -527,23 +547,20 @@ try {
   {
     const { context, page, cdp, errors } = await open(browser);
     const before = await heapMb(cdp);
+    // For scale: the long tasks of the same page, visible and fed nothing, over the same span.
+    const idle = await longTasks(page, () => page.waitForTimeout(8_000));
     await page.evaluate(setHidden, true);
     await feed(page, HIDDEN_CHANGES, () => page.waitForTimeout(5));
     const hiddenHeap = await heapMb(cdp);
-    await page.evaluate(() => {
-      window.__long = [];
-      new PerformanceObserver((list) => {
-        for (const e of list.getEntries()) window.__long.push(Math.round(e.duration));
-      }).observe({ type: 'longtask' });
-    });
-    await page.evaluate(setHidden, false);
     // The catch-up lasts at most CATCH_UP_MS (5 s) plus its slack; keep watching past it.
-    await page.waitForTimeout(8_000);
-    const long = await page.evaluate(() => window.__long);
+    const long = await longTasks(page, async () => {
+      await page.evaluate(setHidden, false);
+      await page.waitForTimeout(8_000);
+    });
     const after = await heapMb(cdp);
     const worst = long.length ? Math.max(...long) : 0;
     console.log(
-      `hidden: heap ${before.toFixed(1)} MB before, ${hiddenHeap.toFixed(1)} MB hidden after ${HIDDEN_CHANGES} changes, ${after.toFixed(1)} MB after the catch-up; long tasks after return: [${long.join(', ')}] ms`,
+      `hidden: heap ${before.toFixed(1)} MB before, ${hiddenHeap.toFixed(1)} MB hidden after ${HIDDEN_CHANGES} changes, ${after.toFixed(1)} MB after the catch-up; long tasks after return: [${long.join(', ')}] ms (idle page: [${idle.join(', ')}] ms)`,
     );
     check(
       worst <= LONG_TASK_MS,
