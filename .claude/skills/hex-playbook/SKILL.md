@@ -155,6 +155,11 @@ Not in "Architecture now" until the referee passes it.
   raised from 2M to **16M nodes** (at 2M the tree stops growing after ~35k playouts), seed
   from the position and `--seed 1`. ~1.7 s per position on this machine, ~50 min for 7 321
   positions on 4 cores. No clock in the search, so the file is reproducible from the command.
+- **Local measurement:** 40 games vs main (v0.5) at 200 ms from the referee's suite (seed 7,
+  20 pairs, each pair from its own entry): **19–21**, i.e. no measurable change. Expected: the
+  book replaces one move per game as Black with an 8× longer search of the same engine, and
+  the gate's 2-ply starts leave White out of book. Book moves concentrate on the short
+  diagonal (e7 665, f6 577, d8 494, g5 433, h4 354 of 7 321).
 - **Hit rate in gate games:** one in-book ply per game as Black (its first move, ply 3), none
   as White (first out-of-book ply: its first move, ply 4; as Black, its second move, ply 5).
 
