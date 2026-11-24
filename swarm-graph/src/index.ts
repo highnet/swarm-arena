@@ -4,3 +4,4 @@ export * from './replay';
 export * from './intro';
 export * from './effects';
 export * from './beams';
+export * from './lifecycle';

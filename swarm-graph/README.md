@@ -50,8 +50,21 @@ It follows the protocol. **Nothing reaches the integration branch except a merge
 - `replay()` plays the whole event history back, growing each sector from zero.
 - Progress is drawn so it can be followed: a sector's ring fills with its merged work (solid) and
   work in flight (faint); an open branch or pull request's ring shows its stage (branch, in review,
-  approved). Effort numbers count up, nodes pop when work reaches them, and a merge throws a burst
-  of sparks with a `+N merged` tag. `totals.stages` gives every work item by stage for a progress bar.
+  approved). Nodes pop when work reaches them, and a merge throws a burst of sparks with a
+  `+N merged` tag. `totals.stages` gives every work item by stage for a progress bar.
+- The number inside a sector is the host's `count` (`SwarmSector.count`: merged pull requests,
+  landed versions, all-time), labelled under the sector's name with its recent part
+  (`merged · 3 today`). It never comes from the events a view was given, so it does not move with a
+  filter or a replay. A sector with no count shows no number.
+- Dead nodes leave. With `buildSwarmGraph(input, { lifetimes: LIFETIMES.live, now })`, an agent
+  that is not working leaves 10 minutes after its last activity, merged work an hour after it
+  merged, and a branch nobody holds an hour after its last activity; sectors, the hub, issues and
+  open pull requests stay. A node spends its last minutes `fading` (drawn 30% dimmer). The thresholds
+  are one table, `LIFETIMES`. The renderer fades a leaving node out (opacity to 0, radius to 60%,
+  label first, edges with it, over about 1.8 s, staggered) before it leaves the simulation, and a
+  new node grows out of its parent and glides to its place (about 1.3 s, staggered); see
+  `lifecycle.ts`. Both are instant with `reducedMotion`. `node scripts/lifecycle-check.mjs` checks
+  them in Chromium.
 
 ## Using it
 

@@ -132,6 +132,59 @@ export const getRallypoint = async (): Promise<RallypointState> => {
   }
 };
 
+/** One merged pull request: enough to count merged work per sector, all-time and recent. */
+export type MergedPull = { number: number; title: string; mergedAt: string };
+
+/** Pages of closed pull requests read at most (100 each). */
+const MERGED_PAGES = 10;
+
+type RawPull = {
+  number: number;
+  title: string;
+  merged_at: string | null;
+  labels: { name: string }[];
+};
+
+/**
+ * Every merged pull request, all-time: what the fleet graph's sector numbers count. Paged once
+ * every 15 minutes. A failed read throws inside the cache, so it is never cached and the last good
+ * list keeps serving; callers get `null` only when there has never been one.
+ */
+const readMergedPulls = async (): Promise<MergedPull[]> => {
+  'use cache';
+  cacheTag(GITHUB_TAG);
+  cacheLife({ stale: 300, revalidate: 900, expire: 86_400 });
+  const out: MergedPull[] = [];
+  for (let page = 1; page <= MERGED_PAGES; page++) {
+    const res = await fetch(
+      `https://api.github.com/repos/${REPO}/pulls?state=closed&per_page=100&page=${page}`,
+      {
+        headers: {
+          accept: 'application/vnd.github+json',
+          'x-github-api-version': '2022-11-28',
+          ...(token() ? { authorization: `Bearer ${token()}` } : {}),
+        },
+      },
+    );
+    if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
+    const raw = (await res.json()) as RawPull[];
+    for (const p of raw)
+      if (p.merged_at && !p.labels.some((l) => l.name.startsWith('autorelease:')))
+        out.push({ number: p.number, title: p.title, mergedAt: p.merged_at });
+    if (raw.length < 100) break;
+  }
+  return out;
+};
+
+export const getMergedPulls = async (): Promise<MergedPull[] | null> => {
+  try {
+    return await readMergedPulls();
+  } catch (e) {
+    console.error('rallypoint: merged pull requests could not be read', e);
+    return null;
+  }
+};
+
 export const STAGES: { id: RpStage; label: string; hint: string }[] = [
   { id: 'backlog', label: 'Backlog', hint: 'Open issues any worker may claim' },
   { id: 'claimed', label: 'Claimed', hint: 'Reserved by a worker session' },
