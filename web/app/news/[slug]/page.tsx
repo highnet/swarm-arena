@@ -4,8 +4,10 @@ import { notFound } from 'next/navigation';
 import { ArrowRight, ArrowUpRight, BadgeCheck } from 'lucide-react';
 import type { GameId } from '@arena/shared';
 import { EngineChip } from '@/components/arena/SidePanels';
-import { Badge } from '@/components/ui/Badge';
-import { Panel } from '@/components/ui/Panel';
+import { ReadingProgress } from '@/components/ui/ReadingProgress';
+import { Section } from '@/components/ui/Section';
+import { SectionHeading } from '@/components/ui/SectionHeading';
+import { TextLink } from '@/components/ui/TextLink';
 import { Typography } from '@/components/ui/Typography';
 import { getSnapshot } from '@/lib/data';
 import { formatDay, formatTime } from '@/lib/format';
@@ -35,18 +37,19 @@ type EvidenceLinkProps = {
   external?: boolean;
 };
 
+/** One record behind the story, as a hairline row: what it is on the left, the link on the right. */
 const EvidenceLink = ({ href, label, value, external }: EvidenceLinkProps) => {
   const Icon = external ? ArrowUpRight : ArrowRight;
   const body = (
     <>
-      <span className="text-xs text-fg-3">{label}</span>
-      <span className="flex items-center gap-1 text-[13px] text-fg">
-        <span className="truncate">{value}</span>
-        <Icon className="size-3 shrink-0 text-fg-3" aria-hidden="true" />
+      <span className="text-[13px] text-fg-3">{label}</span>
+      <span className="inline-flex items-center gap-1.5 text-[17px] text-fg underline-offset-4 group-hover:underline">
+        {value}
+        <Icon className="size-4 shrink-0 text-fg-3" aria-hidden="true" />
       </span>
     </>
   );
-  const className = 'flex flex-col gap-0.5 bg-panel px-4 py-3 hover:bg-panel-raised';
+  const className = 'group grid gap-1 py-6 sm:grid-cols-[10rem_minmax(0,1fr)] sm:items-baseline';
   return external ? (
     <a href={href} target="_blank" rel="noreferrer" className={className}>
       {body}
@@ -98,81 +101,91 @@ const StoryPage = async ({ params }: StoryPageProps) => {
   ];
 
   return (
-    <main className="mx-auto w-full max-w-2xl px-4 pb-16 pt-8 sm:px-6">
-      <article>
-        <header>
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge tone="good">
-              <BadgeCheck className="size-3" aria-hidden="true" />
+    <main className="flex w-full flex-col">
+      <ReadingProgress placement="bar" />
+
+      {/* 1 · The story: headline, standfirst, byline, then the text at a reading measure. */}
+      <Section id="story" labelledBy="story-title" space="roomy">
+        <article className="mx-auto w-full max-w-[38em]">
+          <header>
+            <p className="inline-flex items-center gap-1.5 text-[13px] font-medium text-good-text">
+              <BadgeCheck className="size-4" aria-hidden="true" />
               Refereed
-            </Badge>
-            {a.engine && <EngineChip track={a.engine} slots={slots} />}
-            {a.version && <span className="font-mono text-xs tabular text-fg-2">{a.version}</span>}
-          </div>
-          <Typography variant="pageTitle" className="mt-4 sm:text-[2rem] sm:leading-tight">
-            {a.title}
-          </Typography>
-          {a.dek && (
-            <Typography variant="lede" className="mt-3 text-base leading-7">
-              {a.dek}
-            </Typography>
-          )}
-          <Typography variant="meta" as="p" className="mt-5 border-b border-line pb-5">
-            <time dateTime={a.published}>
-              {formatDay(a.published)}, {formatTime(a.published)} UTC
-            </time>
-            <span aria-hidden="true"> · </span>
-            {a.minutes} min read
-          </Typography>
-        </header>
-        <div className="article mt-6" dangerouslySetInnerHTML={{ __html: a.html }} />
-      </article>
-
-      <section aria-labelledby="evidence" className="mt-10">
-        <Typography variant="sectionTitle" id="evidence">
-          Behind this story
-        </Typography>
-        <Typography variant="meta" as="p" className="mt-0.5">
-          The numbers above come from these records. Every one can be checked.
-        </Typography>
-        <div className="mt-3 grid gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-2">
-          {evidence.map((e) => (
-            <EvidenceLink key={e.href} {...e} />
-          ))}
-        </div>
-      </section>
-
-      {more.length > 0 && (
-        <Panel
-          title="More news"
-          className="mt-10"
-          actions={
-            <Link
-              href="/news"
-              className="inline-flex items-center gap-1 text-xs text-fg-2 hover:text-fg"
+            </p>
+            <Typography
+              variant="display"
+              id="story-title"
+              className="mt-6 text-3xl sm:text-4xl lg:text-5xl"
             >
-              All stories
-              <ArrowRight className="size-3" aria-hidden="true" />
-            </Link>
-          }
-        >
-          <ol className="divide-y divide-line">
-            {more.map((n) => (
-              <li key={n.slug} className="relative px-4 py-2.5 hover:bg-panel-raised">
-                <Link
-                  href={newsHref(n.slug)}
-                  className="block text-[13px] text-fg text-pretty after:absolute after:inset-0 after:content-['']"
-                >
-                  {n.title}
-                </Link>
-                <Typography variant="meta" as="p">
-                  {n.engine && `${SHORT_NAME[n.engine]} · `}
-                  {formatDay(n.published)}, {formatTime(n.published)} UTC
-                </Typography>
-              </li>
+              {a.title}
+            </Typography>
+            {a.dek && (
+              <Typography variant="intro" className="mt-6">
+                {a.dek}
+              </Typography>
+            )}
+            <p className="mt-10 flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line pb-8 text-[13px] text-fg-3">
+              {a.engine && <EngineChip track={a.engine} slots={slots} />}
+              {a.version && <span className="font-mono tabular text-fg-2">{a.version}</span>}
+              <time dateTime={a.published} className="font-mono tabular">
+                {formatDay(a.published)}, {formatTime(a.published)} UTC
+              </time>
+              <span>{a.minutes} min read</span>
+            </p>
+          </header>
+          <div className="article mt-10" dangerouslySetInnerHTML={{ __html: a.html }} />
+        </article>
+      </Section>
+
+      {/* 2 · Where every number in the story comes from. */}
+      <Section id="evidence" labelledBy="evidence-title" tone="band">
+        <div className="mx-auto w-full max-w-[38em]">
+          <SectionHeading
+            id="evidence-title"
+            title="Behind this story"
+            intro="The numbers above come from these records. Every one can be checked."
+            space="tight"
+          />
+          <nav
+            aria-labelledby="evidence-title"
+            className="divide-y divide-line border-y border-line"
+          >
+            {evidence.map((e) => (
+              <EvidenceLink key={e.href} {...e} />
             ))}
-          </ol>
-        </Panel>
+          </nav>
+        </div>
+      </Section>
+
+      {/* 3 · What to read next. */}
+      {more.length > 0 && (
+        <Section id="more" labelledBy="more-title" space="compact">
+          <div className="mx-auto w-full max-w-[38em]">
+            <SectionHeading
+              id="more-title"
+              level="sub"
+              title="More news"
+              space="tight"
+              action={<TextLink href="/news">All stories</TextLink>}
+            />
+            <ol className="divide-y divide-line border-y border-line">
+              {more.map((n) => (
+                <li key={n.slug} className="relative py-6">
+                  <Link
+                    href={newsHref(n.slug)}
+                    className="block text-[17px] font-medium leading-7 text-fg text-pretty underline-offset-4 after:absolute after:inset-0 after:content-[''] hover:underline"
+                  >
+                    {n.title}
+                  </Link>
+                  <Typography variant="meta" as="p" className="mt-1 text-[13px]">
+                    {n.engine && `${SHORT_NAME[n.engine]} · `}
+                    {formatDay(n.published)}, {formatTime(n.published)} UTC
+                  </Typography>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </Section>
       )}
     </main>
   );
