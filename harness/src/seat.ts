@@ -41,7 +41,15 @@ import {
 } from "./config";
 import { arenaEngine, killAll } from "./engine";
 import { withVerdict } from "./verdict";
-import { gateShortfall, needsRungBaseline, type Rating } from "./gate";
+import {
+  describeSprt,
+  GATE_SPRT,
+  gateShortfall,
+  needsRungBaseline,
+  sprtState,
+  sprtVerdict,
+  type Rating,
+} from "./gate";
 import { gateRung, isMatchAborted, runMatch, type MatchAborted } from "./match";
 import { reference } from "./references";
 import { openingsNote } from "./openings";
@@ -687,16 +695,19 @@ export const prepare = async () => {
 };
 
 /**
- * A submit whose match the referee aborted because the reference kept failing (#164). That
- * measured the reference's process, not the candidate, so it is no verdict: the engine code stays
- * on the branch, no lesson pull request is opened, the task keeps its claim and status, and no
- * rating is written. The worker resubmits once the reference is healthy.
+ * A submit with no verdict. Either the referee aborted a match because the reference kept failing
+ * (#164), which measured the reference's process, not the candidate; or the gate's sequential
+ * test reached its game cap undecided (#195), which says the change is too close to main to tell
+ * at that cost. Neither is a burial: the engine code stays on the branch, no lesson pull request
+ * is opened, the task keeps its claim and status, and no rating is written. The worker may
+ * resubmit (fresh openings), strengthen the change first, or release the task.
  */
 export const inconclusive = async (
   task: Pick<Task, "id" | "track_id" | "title"> & {
     issue?: number | null;
   },
-  aborted: MatchAborted,
+  aborted: Pick<MatchAborted, "matchId" | "reason">,
+  kind: "reference" | "undecided" = "reference",
 ) => {
   // The claim outlives this session: a later one resumes it under the same agent id (#177).
   const holder = task.issue
@@ -706,11 +717,21 @@ export const inconclusive = async (
   const resume = task.issue
     ? ` If this session ends first, a new one resumes the claim with \`npm run arena -- next --role worker ${task.track_id} --issue ${task.issue} --agent-id ${agentId}\`, then resubmits.`
     : "";
-  const why = `inconclusive: reference failure (${aborted.reason}). No verdict: the engine change stays on the branch and the task keeps its claim; resubmit with \`npm run arena -- submit ${task.id}\`.${resume}`;
+  const cause =
+    kind === "reference"
+      ? `reference failure (${aborted.reason})`
+      : `the sequential test against main reached its cap undecided (${aborted.reason})`;
+  const next =
+    kind === "reference"
+      ? `resubmit with \`npm run arena -- submit ${task.id}\``
+      : `resubmit with \`npm run arena -- submit ${task.id}\` (fresh openings), strengthen the change first, or release the task; an inconclusive idea is not a failed one`;
+  const why = `inconclusive: ${cause}. No verdict: the engine change stays on the branch and the task keeps its claim; ${next}.${resume}`;
   await progress(
     task,
     "referee",
-    "Inconclusive: reference failure, not a burial.",
+    kind === "reference"
+      ? "Inconclusive: reference failure, not a burial."
+      : "Inconclusive: too close to main to decide at the cap, not a burial.",
     why,
     aborted.matchId,
   ).catch(() => undefined);
@@ -875,40 +896,107 @@ export const submit = async (taskId: string) => {
     // suite entries, or random lines without a suite), so deterministic engines meet a different
     // position each pair and the run can be replayed.
     const openingSeed = newOpeningSeed();
+    const prev = t.current_elo;
+    const mainLabel = `${t.name} ${t.current_version ?? "current"}`;
+
+    // The decision (#195): a sequential test on the head-to-head with the version on main, same
+    // openings, colours swapped in each pair, played in this submit. It stops as soon as the
+    // evidence is clear; reaching the cap undecided is inconclusive, not a burial. No stored
+    // rating is a yardstick: it is the sample that won its own gate (the winner's curse).
+    let decided: { line: string; matchId: string } | null = null;
+    let h2hGate: Awaited<ReturnType<typeof runMatch>> | null = null;
+    if (t.current_version) {
+      const previous = await currentVersion(task.track_id, mainLabel);
+      const h2h = await runMatch({
+        track: task.track_id,
+        candidate,
+        candidateVersion: version,
+        opponent: previous,
+        opponentLabel: mainLabel,
+        opponentElo: prev ?? 0,
+        pairs: GATE_SPRT.maxPairs,
+        referenceOpponent: false,
+        purpose: "gate",
+        taskId: task.id,
+        openingSeed,
+        stop: (ps) => sprtVerdict(ps) !== "continue",
+      });
+      await previous.close?.();
+      const games = h2h.result.wins + h2h.result.draws + h2h.result.losses;
+      const wld = `${h2h.result.wins}–${h2h.result.losses}–${h2h.result.draws}`;
+      if (h2h.forfeits.length) {
+        await candidate.close?.();
+        return await bury(
+          `Forfeited ${h2h.forfeits.length} games against ${t.current_version}.`,
+          h2h.matchId,
+        );
+      }
+      const state = sprtState(h2h.pairScores);
+      const verdict = sprtVerdict(h2h.pairScores);
+      const line = `${version} vs ${mainLabel} (main): ${wld} (W–L–D) over ${games} games, openings from seed \`${openingSeed}\`; sequential test: ${describeSprt(state)}. Games: https://swarm-arena-race.vercel.app/matches/${h2h.matchId}`;
+      await progress(
+        task,
+        "referee",
+        `Head to head with ${t.current_version}: ${verdict === "pass" ? "decided gain" : verdict === "fail" ? "decided no gain" : "inconclusive at the cap"} (${wld} W–L–D).`,
+        describeSprt(state),
+        h2h.matchId,
+      );
+      if (verdict === "fail") {
+        await candidate.close?.();
+        return await bury(
+          gateShortfall({ verdict, state, currentVersion: t.current_version })!,
+          h2h.matchId,
+        );
+      }
+      if (verdict !== "pass") {
+        await candidate.close?.();
+        return await inconclusive(
+          task,
+          { matchId: h2h.matchId, reason: describeSprt(state) },
+          "undecided",
+        );
+      }
+      decided = { line, matchId: h2h.matchId };
+      if (!rung) h2hGate = h2h;
+    }
+
+    // The rating: against the first uncleared rung, for the curve and for clearing rungs. It is
+    // reported, not compared. Past the top of the ladder the head-to-head above is the gate match.
+    if (!rung && !h2hGate)
+      throw new Error("no rung to rate against and no version on main");
     const opponent = rung
       ? await reference(rung.opponent, task.track_id, MOVE_MS, seed)
-      : await currentVersion(task.track_id, t.current_version ?? "current");
-    const gate = await runMatch({
-      track: task.track_id,
-      candidate,
-      candidateVersion: version,
-      opponent,
-      opponentLabel: rung ? rung.label : `${t.name} ${t.current_version}`,
-      opponentElo: rung ? rung.elo : (t.current_elo ?? 0),
-      pairs: GATE_PAIRS,
-      referenceOpponent: rung !== null,
-      purpose: "gate",
-      taskId: task.id,
-      openingSeed,
-    });
-    await opponent.close?.();
-
-    const prev = t.current_elo;
+      : null;
+    const gate =
+      h2hGate ??
+      (await runMatch({
+        track: task.track_id,
+        candidate,
+        candidateVersion: version,
+        opponent: opponent!,
+        opponentLabel: rung!.label,
+        opponentElo: rung!.elo,
+        pairs: GATE_PAIRS,
+        referenceOpponent: true,
+        purpose: "gate",
+        taskId: task.id,
+        openingSeed,
+      }));
+    await opponent?.close?.();
+    await candidate.close?.();
     if (gate.forfeits.length) {
-      await candidate.close?.();
       return await bury(
         `Forfeited ${gate.forfeits.length} gate games.`,
         gate.matchId,
       );
     }
-    // The stored rating may come from an easier rung than the candidate just played. Ratings
-    // against different opponents are not comparable, so rate main (built from main, as the
-    // head-to-head does) on the same rung with the same pairs, and hold the candidate to that.
+    // The stored rating may come from an easier rung than the candidate just played. For the
+    // curve to compare like with like, main (built from main) is rated on the same rung with the
+    // same openings. Reported only: the head-to-head above decided.
     let sameRung: Rating | null = null;
     let sameRungMatch: string | null = null;
     if (rung && t.current_version && needsRungBaseline(rung.elo, prev)) {
-      const label = `${t.name} ${t.current_version}`;
-      const main = await currentVersion(task.track_id, label);
+      const main = await currentVersion(task.track_id, mainLabel);
       const yardstick = await reference(
         rung.opponent,
         task.track_id,
@@ -939,58 +1027,9 @@ export const submit = async (taskId: string) => {
         baseline.matchId,
       );
     }
-    const shortfall = gateShortfall({
-      candidate: gate.est,
-      currentElo: prev,
-      sameRung,
-      rungLabel: rung?.label ?? null,
-      currentVersion: t.current_version,
-    });
-    if (shortfall) {
-      await candidate.close?.();
-      return await bury(shortfall, gate.matchId);
-    }
-
-    // Head to head with the version it would replace (built from main). A new version must not
-    // lose to its predecessor, whatever the ladder says. Past the ladder this was the gate itself.
-    let headToHead = rung
-      ? "none: no version on main yet."
-      : "the gate above was played against the version on main.";
-    if (rung && t.current_version) {
-      const label = `${t.name} ${t.current_version}`;
-      const previous = await currentVersion(task.track_id, label);
-      const h2h = await runMatch({
-        track: task.track_id,
-        candidate,
-        candidateVersion: version,
-        opponent: previous,
-        opponentLabel: label,
-        opponentElo: prev ?? 0,
-        pairs: Math.max(2, Math.round(GATE_PAIRS / 2)),
-        referenceOpponent: false,
-        purpose: "gate",
-        taskId: task.id,
-        openingSeed,
-      });
-      await previous.close?.();
-      await candidate.close?.();
-      const games = h2h.result.wins + h2h.result.draws + h2h.result.losses;
-      const wld = `${h2h.result.wins}–${h2h.result.losses}–${h2h.result.draws}`;
-      headToHead = `${version} vs ${label} (main): ${wld} (W–L–D) over ${games} games, openings from seed \`${openingSeed}\`. Games: https://swarm-arena-race.vercel.app/matches/${h2h.matchId}`;
-      if (h2h.forfeits.length)
-        return await bury(
-          `Forfeited ${h2h.forfeits.length} games against ${t.current_version}.`,
-          h2h.matchId,
-        );
-      if (h2h.result.score < games / 2) {
-        return await bury(
-          `Rated higher on the ladder but lost to ${t.current_version} head to head (${wld} W–L–D, opening seed ${openingSeed}).`,
-          h2h.matchId,
-        );
-      }
-    } else {
-      await candidate.close?.();
-    }
+    const headToHead = decided
+      ? decided.line
+      : "none: no version on main yet, so the rating gate alone applies (a first version always passes).";
 
     // Deliver: the crate, its playbook and the browser build go to review as one pull request.
     const yard = sameRung ? sameRung.elo : prev;
@@ -1051,9 +1090,9 @@ export const submit = async (taskId: string) => {
         body: `${closes}
 
 ## Referee
-- Gate: ${version} vs ${result.opponent}: ${gate.result.wins}–${gate.result.losses}–${gate.result.draws}, rated **${result.elo} ± ${result.error}** (${delta}).${sameRung ? `\n- Yardstick: ${t.current_version}'s stored ${Math.round(prev ?? 0)} came from another rung, so main was re-rated vs ${result.opponent}: **${Math.round(sameRung.elo)} ± ${Math.round(sameRung.error)}**.` : ""}
-- Head-to-head: ${headToHead}
-- Checks passed: no outside help, build and tests, browser build (wasm32-wasip1), smoke test, head-to-head with the version on main.
+- Decision (head-to-head with main, sequential test): ${headToHead}
+- Rating (reported, not compared): ${version} vs ${result.opponent}: ${gate.result.wins}–${gate.result.losses}–${gate.result.draws}, rated **${result.elo} ± ${result.error}** (${delta}).${sameRung ? `\n- Yardstick: ${t.current_version}'s stored ${Math.round(prev ?? 0)} came from another rung, so main was re-rated vs ${result.opponent}: **${Math.round(sameRung.elo)} ± ${Math.round(sameRung.error)}**.` : ""}
+- Checks passed: no outside help, build and tests, browser build (wasm32-wasip1), smoke test, sequential head-to-head with the version on main.
 - Games: https://swarm-arena-race.vercel.app/matches/${gate.matchId}
 - Openings: ${openingsNote(task.track_id, gate.result, openingSeed)}
 

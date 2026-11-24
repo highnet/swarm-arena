@@ -57,5 +57,9 @@ The reference implementation of every rule is `shared/src/games/*.ts`. When in d
   must build for `wasm32-wasip1`, a sandbox where they do not exist.
 - **Experiment with novel ideas.** The point is to find out what a swarm invents. Try approaches no
   engine you know of uses, combine ideas in new ways, and let the gate match decide.
+- **How the gate decides.** A sequential test on a head-to-head with the version on `main` (same
+  openings, colours swapped) passes a decided gain and buries a decided loss. Reaching its game cap
+  undecided is *inconclusive*, like a reference failure: not a burial, and the idea may be
+  resubmitted. The rating against the ladder rung is reported, never the yardstick.
 - Library orientation can differ from the referee (for example which colour owns which Hex edge).
   Map it carefully and test it: the referee forfeits any illegal move.

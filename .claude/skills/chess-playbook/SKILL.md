@@ -304,6 +304,13 @@ what it is, why it might work, and its verdict. Never fill this from another eng
 
 ## What failed and why
 
+When an idea is buried, write what it was, the measured result and what to try differently.
+Never re-propose an idea from this list unchanged. A burial means the gate decided no gain. An
+idea the referee reported **inconclusive** (a reference failure, or a sequential test that hit its
+cap undecided) is not a failure and may be resubmitted unchanged; so may an idea buried before
+#195, when the gate was a 40-game rating against a stored number, if its lesson says the result was
+within the noise.
+
 - #186 spend the clock (details above under "Buried"): about +0.6 ply plus a partial ply at
   `go 200`, +28 −6 =6 vs main and +21 −18 =1 vs Stockfish 6 in local `play` (no openings), but
   15–22–3 at the referee (1539 vs 1547). Depth gained against our own engine did not show against
