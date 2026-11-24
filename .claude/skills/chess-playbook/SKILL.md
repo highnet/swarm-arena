@@ -235,6 +235,8 @@ Moves into "Architecture now" only if the referee passes it.
   449k → 489k (+9%), d6 time 167 → 235–248 ms; `go 200` (120/60 ms) node rate 3181 → ~2640 knps
   (−17%); depths start d8 → d7–8, Italian d8 → d7, QGD d7 → d6, Kiwipete d6 = d6, rook ending
   d11 → d12. Iterating role bitboards with `attacks::*` instead of `role_at` saved ~nothing.
+- Local `arena versus chess` vs main (v0.9): +19 −13 =8 over 40 games, 200 ms (seed 1403148398).
+  So the evaluation gain outweighs the −17% node rate (about a ply lost in some positions).
 
 ## Ideas worth trying
 
