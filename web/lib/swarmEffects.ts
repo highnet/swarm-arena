@@ -262,6 +262,14 @@ const canWebGL = () => {
 };
 
 /** Resolves any CSS colour (a `var(--series-1)` token, oklch, hex) to sRGB 0–1, cached. */
+/** How bright a beam's tail is against its sector colour (additive): faint, big moments less so. */
+const BEAM_TAIL = 0.4;
+const BIG_BEAM_TAIL = 0.65;
+/** Bloom strength between milestones: low, so ordinary beams barely glow. */
+const BLOOM_BASE = 0.3;
+/** One reused colour for beam tails, so the frame loop allocates nothing. */
+const beamTint: Rgb = { r: 0, g: 0, b: 0 };
+
 const colorResolver = (host: HTMLElement) => {
   const probe = document.createElement('span');
   probe.style.display = 'none';
@@ -579,10 +587,16 @@ export const createSwarmEffects = (
     pointer.y += ((follow ? pointer.ty : 0) - pointer.y) * 0.06;
     pointUniforms.uParallax.value.set(pointer.x * 6, pointer.y * 6);
 
-    // Comet trails behind every spark in flight.
+    // A short fading tail behind each beam in flight (the graph only reports reserved beams,
+    // at most a couple at once). Dimmed under additive blending, so only big moments glow.
     if (q.trails)
-      graph.eachSpark((x, y, css, size, spark) => {
-        if (spark || Math.random() < 0.25) emitComet(pool, x, y, colors.resolve(css), size);
+      graph.eachSpark((x, y, css, size, big) => {
+        const c = colors.resolve(css);
+        const k = big ? BIG_BEAM_TAIL : BEAM_TAIL;
+        beamTint.r = c.r * k;
+        beamTint.g = c.g * k;
+        beamTint.b = c.b * k;
+        emitComet(pool, x, y, beamTint, size * 0.6);
       });
 
     // Who is where: live agents per sector, for the lights and the sparkles.
@@ -620,7 +634,8 @@ export const createSwarmEffects = (
     pulse = Math.max(0, pulse - dt / 380);
     const post = mode === 'full' && q.post;
     bloom.enabled = post && q.bloom && !light;
-    bloom.strength = 0.8 + pulse * 0.6;
+    // Bloom stays low between moments so beams read as quiet lines; milestones lift it.
+    bloom.strength = BLOOM_BASE + pulse * 0.9;
     rgbShift.enabled = post && pulse > 0.02;
     rgbShift.uniforms.amount.value = 0.0028 * pulse * pulse;
     rgbShift.uniforms.angle.value = now * 0.001;

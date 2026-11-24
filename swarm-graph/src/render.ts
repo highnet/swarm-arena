@@ -30,6 +30,7 @@ import {
   type SwarmReplayPlan,
   type SwarmReplaySnapshot,
 } from './replay';
+import { beamTier, createBeamGate } from './beams';
 
 export type SwarmGraphTheme = {
   fg: string;
@@ -168,9 +169,13 @@ export type SwarmGraphRenderer = {
   viewport: () => SwarmViewport;
   /** Every node with its position this frame. */
   eachNode: (fn: (node: SwarmNodeView) => void) => void;
-  /** Every spark in flight: its head this frame, colour and size. */
+  /**
+   * Every beam in flight: its head this frame, colour and size. `big` marks the few beams that
+   * carry a big moment (a merge, a rung cleared, a rating jump): the only ones allowed to glow.
+   * Ambient effort streams are not beams and are not reported.
+   */
   eachSpark: (
-    fn: (x: number, y: number, color: string, size: number, spark: boolean) => void,
+    fn: (x: number, y: number, color: string, size: number, big: boolean) => void,
   ) => void;
   /** A node's position and radius this frame, or null. */
   nodeAt: (id: string) => SwarmNodeView | null;
@@ -238,6 +243,10 @@ type Particle = {
   color: string;
   size: number;
   spark: boolean;
+  /** A big moment's beam: a touch brighter, and the only one with a glow. */
+  big?: boolean;
+  /** The beam's colour, desaturated a little so it reads as a hint of movement. */
+  tone?: string;
   onArrive?: () => void;
 };
 
@@ -264,8 +273,19 @@ const AMBIENT_MS = 1500;
 const RIPPLE_MS = 900;
 const BURST_MS = 1100;
 const FLOAT_MS = 1600;
-/** Head-to-tail length of a spark's comet trail, as a fraction of the link. */
-const TRAIL = 0.22;
+/** Head-to-tail length of a beam's short fading tail, as a fraction of the link. */
+const TRAIL = 0.1;
+/** A beam's line width at 1× zoom, px: thin, so beams never cover labels. */
+const BEAM_WIDTH = 1.25;
+const BIG_BEAM_WIDTH = 1.6;
+/** A beam's head radius: no larger than a small node dot. */
+const BEAM_HEAD = 1.8;
+const BIG_BEAM_HEAD = 2.4;
+/** Peak opacity; a beam fades out over the last third of its flight. */
+const BEAM_ALPHA = 0.42;
+const BIG_BEAM_ALPHA = 0.6;
+/** Opacity over a beam's flight `t` ∈ [0, 1]: full, then fading over the last third. */
+const beamFade = (t: number) => (t < 2 / 3 ? 1 : Math.max(0, (1 - t) * 3));
 
 /** How far along the protocol an open work item is, for the arc around it. */
 const STAGE_PROGRESS: Partial<Record<SwarmStage, number>> = {
@@ -445,7 +465,7 @@ export const createSwarmGraph = (
     .attr('fill', 'none')
     .attr('stroke-linecap', 'round')
     .attr('pointer-events', 'none');
-  const gParticles = root.append('g').attr('pointer-events', 'none');
+  const gParticles = root.append('g').attr('class', 'sg-beams').attr('pointer-events', 'none');
   const gNodes = root.append('g');
   const gBursts = root.append('g').attr('pointer-events', 'none');
   const gFloaters = root.append('g').attr('pointer-events', 'none');
@@ -505,6 +525,8 @@ export const createSwarmGraph = (
     shownAt: number;
   };
   let run: ReplayRun | null = null;
+  /** The beam budget: live, replay and catch-up all draw from it (see `./beams`). */
+  const beams = createBeamGate();
   type IntroRun = {
     plan: IntroPlan;
     start: number;
@@ -1423,7 +1445,19 @@ export const createSwarmGraph = (
     const last = path[path.length - 1];
     const emit = (kind: SwarmEffectKind, node: SimNode, c: string) =>
       options.onEffect?.({ kind, nodeId: node.id, color: c, delta: flow.delta, source, flow });
+    const tier = beamTier(flow, effect);
+    const step = STEP_MS[flow.kind] ?? 850;
+    // Ask the beam budget before anything moves: routine events never beam, and a burst or a
+    // crowded moment folds into one beam with a count.
+    const offer =
+      motion && tier !== 'none'
+        ? beams.offer(`${flow.sector ?? ''}|${flow.kind}`, now, step * (path.length - 1))
+        : null;
+    /** Events this beam carries by the time it lands (a burst folds in while it flies). */
+    const carried = () => (offer?.fire ? beams.count(offer.id) : 1);
+    const times = (n: number) => (n > 1 ? ` ×${n}` : '');
     const land = () => {
+      const n = carried();
       if (effect) emit(effect, last, effect === 'bury' && coloured ? colorOf(coloured) : color);
       if (effect === 'bury') {
         ripple(last, color, performance.now());
@@ -1434,11 +1468,16 @@ export const createSwarmGraph = (
       ripple(last, color, performance.now(), flow.kind === 'merge');
       pop(last, flow.kind === 'merge' ? 1.6 : 0.7);
       if (flow.kind === 'merge') {
-        celebrate(last, color, 18, `+${flow.weight} merged`);
+        celebrate(last, color, 18, n > 1 ? `${n} merged` : `+${flow.weight} merged`);
         const hub = graph ? nodeById.get(graph.hubId) : undefined;
         if (hub) pop(hub, 0.8);
       } else if (flow.kind === 'milestone')
-        celebrate(last, color, 10, effect === 'rung' ? 'rung cleared' : 'milestone');
+        celebrate(
+          last,
+          color,
+          10,
+          `${effect === 'rung' ? 'rung cleared' : 'milestone'}${times(n)}`,
+        );
       else if (flow.kind === 'rating' && flow.delta) {
         pop(last, flow.delta > 0 ? 1.4 : 0.6);
         celebrate(
@@ -1447,14 +1486,23 @@ export const createSwarmGraph = (
           flow.delta > 0 ? 10 : 0,
           `${flow.delta > 0 ? '+' : ''}${flow.delta}`,
         );
-      } else if (flow.kind === 'reject') celebrate(last, color, 0, 'changes asked');
+      } else if (flow.kind === 'reject') celebrate(last, color, 0, `changes asked${times(n)}`);
+      else if (n > 1) celebrate(last, color, 0, `×${n}`);
     };
     options.onFlow?.(flow, source);
     if (!motion) {
       land();
       return;
     }
-    const step = STEP_MS[flow.kind] ?? 850;
+    if (!offer?.fire) {
+      // No beam: a routine event, or one folded into a beam already flying (or the next one).
+      // A soft pulse on its node at most; a big moment over the cap keeps a quiet ripple.
+      pop(last, 0.25);
+      if (tier === 'big') ripple(last, color, now);
+      return;
+    }
+    const big = tier === 'big';
+    const tone = `color-mix(in srgb, ${color} 72%, ${theme.fgMuted})`;
     for (let i = 0; i < path.length - 1; i++) {
       const final = i === path.length - 2;
       const via = path[i + 1];
@@ -1464,7 +1512,9 @@ export const createSwarmGraph = (
           to: via,
           duration: step,
           color,
-          size: 3.2 + Math.min(3, flow.weight),
+          tone,
+          big,
+          size: big ? BIG_BEAM_HEAD : BEAM_HEAD,
           spark: true,
           delay: i * step,
           onArrive: final
@@ -1516,7 +1566,7 @@ export const createSwarmGraph = (
           to: l.target,
           duration: 1100,
           color: colorOf(l.source),
-          size: 2.2,
+          size: 1.4,
           spark: false,
         },
         now,
@@ -1563,9 +1613,10 @@ export const createSwarmGraph = (
         }
         d3.select(this)
           .attr('d', `M${pts.join('L')}`)
-          .style('stroke', p.color)
-          .attr('stroke-width', p.size * 1.3)
-          .attr('stroke-opacity', 0.35);
+          .style('stroke', p.tone ?? p.color)
+          .attr('stroke-width', p.big ? BIG_BEAM_WIDTH : BEAM_WIDTH)
+          .attr('stroke-linecap', 'round')
+          .attr('stroke-opacity', (p.big ? BIG_BEAM_ALPHA : BEAM_ALPHA) * 0.8 * beamFade(t));
       });
     gParticles
       .selectAll<SVGCircleElement, Particle>('circle')
@@ -1579,9 +1630,15 @@ export const createSwarmGraph = (
           .attr('cx', pos.x)
           .attr('cy', pos.y)
           .attr('r', p.size * (p.spark ? 1 : 0.6 + 0.4 * Math.sin(Math.PI * t)))
-          .style('fill', p.color)
-          .attr('fill-opacity', p.spark ? 1 : 0.85)
-          .attr('filter', p.spark ? glowUrl : null);
+          .style('fill', p.tone ?? p.color)
+          .attr(
+            'fill-opacity',
+            p.spark
+              ? (p.big ? BIG_BEAM_ALPHA : BEAM_ALPHA) * beamFade(t)
+              : 0.3 * Math.sin(Math.PI * t),
+          )
+          // Only big moments glow; every other beam is a quiet line.
+          .attr('filter', p.big ? glowUrl : null);
       });
 
     gRipples
@@ -1930,6 +1987,7 @@ export const createSwarmGraph = (
       particles = [];
       bursts = [];
       floaters = [];
+      beams.reset();
       clearEffects();
       resize();
       renderStatic();
@@ -1996,6 +2054,7 @@ export const createSwarmGraph = (
     particles = [];
     bursts = [];
     floaters = [];
+    beams.reset();
     clearEffects();
     showSnapshot(r.snap);
     emitReplay();
@@ -2040,14 +2099,14 @@ export const createSwarmGraph = (
     for (const n of nodeById.values()) fn(n);
   };
   const eachSpark = (
-    fn: (x: number, y: number, color: string, size: number, spark: boolean) => void,
+    fn: (x: number, y: number, color: string, size: number, big: boolean) => void,
   ) => {
     const now = performance.now();
     for (const p of particles) {
-      if (now < p.start) continue;
+      if (now < p.start || !p.spark) continue;
       const t = Math.max(0, Math.min(1, (now - p.start) / p.duration));
       const pos = pointAt(p.from, p.to, d3.easeCubicInOut(t));
-      fn(pos.x, pos.y, p.color, p.size, p.spark);
+      fn(pos.x, pos.y, p.color, p.size, Boolean(p.big));
     }
   };
   const nodeAt = (id: string) => nodeById.get(id) ?? null;

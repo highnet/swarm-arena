@@ -12,7 +12,8 @@
     "./render": "./src/render.ts",
     "./replay": "./src/replay.ts",
     "./intro": "./src/intro.ts",
-    "./effects": "./src/effects.ts"
+    "./effects": "./src/effects.ts",
+    "./beams": "./src/beams.ts"
   },
   "sideEffects": false,
   "scripts": {
