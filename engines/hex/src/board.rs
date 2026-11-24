@@ -235,7 +235,14 @@ pub const FILL_INFERIOR: bool = false;
 const SLOT_OFF: [i32; 6] = [-11, -10, 1, 11, 10, -1];
 /// Cells whose neighbour in each slot is on the board, as far as columns go (rows fall off the
 /// shifts by themselves).
-const SLOT_COLS: [u128; 6] = [ALL, ALL & !RIGHT, ALL & !RIGHT, ALL, ALL & !LEFT, ALL & !LEFT];
+const SLOT_COLS: [u128; 6] = [
+    ALL,
+    ALL & !RIGHT,
+    ALL & !RIGHT,
+    ALL,
+    ALL & !LEFT,
+    ALL & !LEFT,
+];
 /// Cells whose slot is off the board on a Black edge.
 const SLOT_EDGE_BLACK: [u128; 6] = [TOP, TOP, 0, BOTTOM, BOTTOM, 0];
 /// Cells whose slot is off the board on a White edge.
@@ -306,7 +313,7 @@ fn pairs_forward(s: &[u128; 6], empty: u128) -> [u128; 3] {
 }
 
 /// Complete local dead-cell test (#180). Off: only four consecutive slots of one colour (#95).
-pub const DEAD_COMPLETE: bool = true;
+pub const DEAD_COMPLETE: bool = false;
 
 /// The 15 ways to pick four slots in cyclic order.
 const QUADS: [[usize; 4]; 15] = [
@@ -612,7 +619,10 @@ mod tests {
             let mut out = [(0u8, 0u8); 364];
             assert_eq!(bridges(black, 0, &mut out), 1, "offset ({dr}, {dc})");
             let carrier = 1u128 << out[0].0 | 1u128 << out[0].1;
-            assert_eq!(carrier, grow(1u128 << centre) & grow(1u128 << other) & !black);
+            assert_eq!(
+                carrier,
+                grow(1u128 << centre) & grow(1u128 << other) & !black
+            );
             assert_eq!(bridges(0, black, &mut out), 1, "White, offset ({dr}, {dc})");
         }
         // Brute force over every pair of cells: a bridge is two non-adjacent cells with exactly
@@ -684,16 +694,20 @@ mod tests {
                     if on_board {
                         // The slot is that neighbour, a neighbour in hexgame too, and no edge.
                         assert_eq!(i + SLOT_OFF[d], nr * 11 + nc);
-                        assert!(lib.contains(&CoordsOrEdge::Coords(Coords::new(nr as u8, nc as u8))));
-                        assert!(bit(all_black[d]) && bit(all_white[d]), "({r}, {c}) slot {d}");
+                        assert!(
+                            lib.contains(&CoordsOrEdge::Coords(Coords::new(nr as u8, nc as u8)))
+                        );
+                        assert!(
+                            bit(all_black[d]) && bit(all_white[d]),
+                            "({r}, {c}) slot {d}"
+                        );
                         assert!(!bit(no_stones_black[d]) && !bit(no_stones_white[d]));
                     } else {
                         // Off the board: exactly one owner, and an edge hexgame says it touches.
                         let (b, w) = (bit(no_stones_black[d]), bit(no_stones_white[d]));
                         assert!(b != w, "({r}, {c}) slot {d}");
                         let edge_ok = if b {
-                            lib.contains(&CoordsOrEdge::Edge(Edge::Top))
-                                && nr < 0
+                            lib.contains(&CoordsOrEdge::Edge(Edge::Top)) && nr < 0
                                 || lib.contains(&CoordsOrEdge::Edge(Edge::Bottom)) && nr > 10
                         } else {
                             lib.contains(&CoordsOrEdge::Edge(Edge::Left)) && nc < 0
@@ -729,7 +743,12 @@ mod tests {
         // Four consecutive White ones (g6, f7, e7, e6).
         assert!(is_dead(0, stones(&[(5, 6), (6, 5), (6, 4), (5, 4)]), 5, 5));
         // Mixed colours never make a run.
-        assert!(!is_dead(stones(&[(4, 5), (4, 6)]), stones(&[(5, 6), (6, 5)]), 5, 5));
+        assert!(!is_dead(
+            stones(&[(4, 5), (4, 6)]),
+            stones(&[(5, 6), (6, 5)]),
+            5,
+            5
+        ));
         // Top edge f1: the edge is two Black slots, so g1 and f2 Black kill it; White ones not.
         assert!(is_dead(stones(&[(0, 6), (1, 5)]), 0, 0, 5));
         assert!(!is_dead(0, stones(&[(0, 6), (1, 5)]), 0, 5));
@@ -745,7 +764,10 @@ mod tests {
         assert!(is_dead(0, stones(&[(0, 1), (1, 0)]), 0, 0));
         // b1 Black and a2 White (B B B W W W with the edges), or b1 alone (B B B · W W): each
         // side already touches its edge, so a1 is dead by the complete test only.
-        assert_eq!(is_dead(stones(&[(0, 1)]), stones(&[(1, 0)]), 0, 0), DEAD_COMPLETE);
+        assert_eq!(
+            is_dead(stones(&[(0, 1)]), stones(&[(1, 0)]), 0, 0),
+            DEAD_COMPLETE
+        );
         assert_eq!(is_dead(stones(&[(0, 1)]), 0, 0, 0), DEAD_COMPLETE);
         // Interior f6 with a single Black neighbour is never dead.
         assert!(!is_dead(stones(&[(4, 5)]), 0, 5, 5));
@@ -815,14 +837,23 @@ mod tests {
         assert_eq!(is_dead(b3, stones(&[(6, 4), (5, 4)]), 5, 5), DEAD_COMPLETE);
         assert!(!is_dead(b3, stones(&[(6, 5), (5, 4)]), 5, 5));
         // Two and two with an empty slot between on both sides: B B · W W ·.
-        assert_eq!(is_dead(stones(&[(4, 5), (4, 6)]), stones(&[(6, 5), (6, 4)]), 5, 5), DEAD_COMPLETE);
+        assert_eq!(
+            is_dead(stones(&[(4, 5), (4, 6)]), stones(&[(6, 5), (6, 4)]), 5, 5),
+            DEAD_COMPLETE
+        );
         // Three and three.
-        assert_eq!(is_dead(b3, stones(&[(6, 5), (6, 4), (5, 4)]), 5, 5), DEAD_COMPLETE);
+        assert_eq!(
+            is_dead(b3, stones(&[(6, 5), (6, 4), (5, 4)]), 5, 5),
+            DEAD_COMPLETE
+        );
         // Three Black alone: alive.
         assert!(!is_dead(b3, 0, 5, 5));
         // Top edge f1 (two Black edge slots), with f2 White and e1... e2? f1's slots: edge, edge,
         // g1, f2, e2, e1. g1 Black and f2 e2 White, e1 empty: B B B W W ·.
-        assert_eq!(is_dead(stones(&[(0, 6)]), stones(&[(1, 5), (1, 4)]), 0, 5), DEAD_COMPLETE);
+        assert_eq!(
+            is_dead(stones(&[(0, 6)]), stones(&[(1, 5), (1, 4)]), 0, 5),
+            DEAD_COMPLETE
+        );
     }
 
     #[test]
@@ -835,7 +866,10 @@ mod tests {
             if m == 0 || m == 63 {
                 return true;
             }
-            (0..6).filter(|&i| m >> i & 1 == 1 && m >> ((i + 5) % 6) & 1 == 0).count() == 1
+            (0..6)
+                .filter(|&i| m >> i & 1 == 1 && m >> ((i + 5) % 6) & 1 == 0)
+                .count()
+                == 1
         };
         let mut new_dead = 0;
         for code in 0..729u32 {
@@ -949,14 +983,26 @@ mod tests {
         let inf = inferior(stones(&[(1, 4)]), 0);
         assert_eq!(inf.captured[0], stones(&[(0, 4), (0, 5)]));
         // Bottom: e10 captures e11 and d11.
-        assert_eq!(inferior(stones(&[(9, 4)]), 0).captured[0], stones(&[(10, 4), (10, 3)]));
+        assert_eq!(
+            inferior(stones(&[(9, 4)]), 0).captured[0],
+            stones(&[(10, 4), (10, 3)])
+        );
         // White's second column: b5 captures a5 and a6, j5 captures k5 and k4.
-        assert_eq!(inferior(0, stones(&[(4, 1)])).captured[1], stones(&[(4, 0), (5, 0)]));
-        assert_eq!(inferior(0, stones(&[(4, 9)])).captured[1], stones(&[(4, 10), (3, 10)]));
+        assert_eq!(
+            inferior(0, stones(&[(4, 1)])).captured[1],
+            stones(&[(4, 0), (5, 0)])
+        );
+        assert_eq!(
+            inferior(0, stones(&[(4, 9)])).captured[1],
+            stones(&[(4, 10), (3, 10)])
+        );
         // The same stone of the other colour captures nothing.
         assert_eq!(inferior(0, stones(&[(1, 4)])).captured, [0, 0]);
         // A filled cell breaks the pair.
-        assert_eq!(inferior(stones(&[(1, 4)]), stones(&[(0, 5)])).captured[0], 0);
+        assert_eq!(
+            inferior(stones(&[(1, 4)]), stones(&[(0, 5)])).captured[0],
+            0
+        );
         // Corner: b2 for Black takes a1? a1–b1 needs a1's run (top, top, b1, a2): a2 Black.
         let inf = inferior(stones(&[(1, 0)]), 0);
         assert_ne!(inf.captured[0] & at(0, 0), 0);
@@ -1008,5 +1054,4 @@ mod tests {
             assert_eq!(f & w, 0, "never takes White's stones");
         }
     }
-
 }

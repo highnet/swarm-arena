@@ -42,8 +42,9 @@ pub fn dominated(black: u128, white: u128, black_to_move: bool, keep: u128) -> u
 }
 
 /// The cells a node with this position gets children on: every empty cell, minus (with
-/// [`PRUNE_EXPANSION`]) the dead cells and the pairs the opponent captured. Never empty while
-/// a cell is empty.
+/// [`PRUNE_EXPANSION`]) the dead cells and the pairs the opponent captured, and (with
+/// [`PRUNE_VULNERABLE`]) the mover's vulnerable cells whose killer stays. Never empty while a
+/// cell is empty.
 pub fn candidates(black: u128, white: u128, black_to_move: bool) -> u128 {
     let empty = ALL & !(black | white);
     if !PRUNE_EXPANSION {
@@ -124,7 +125,12 @@ pub fn search(
     let mut rng = Rng::new(seed);
     let mut nodes: Vec<Node> = Vec::with_capacity(1 << 16);
     nodes.push(Node::new(u8::MAX));
-    expand(&mut nodes, 0, candidates(black, white, black_to_move), &mut rng);
+    expand(
+        &mut nodes,
+        0,
+        candidates(black, white, black_to_move),
+        &mut rng,
+    );
 
     let mut path: Vec<u32> = Vec::with_capacity(128);
     let mut playouts = 0u32;
@@ -314,7 +320,7 @@ mod tests {
         assert_eq!(stats(1), (1, 1, 1, 1)); // Black 0: on the path, owned, won
         assert_eq!(stats(2), (0, 0, 0, 0)); // Black 1: White owns cell 1
         assert_eq!(stats(3), (0, 0, 1, 1)); // Black 2: owned by Black, won
-        // Under "Black 0" the children are White's: White owns 1 (lost), not 2.
+                                            // Under "Black 0" the children are White's: White owns 1 (lost), not 2.
         assert_eq!(stats(4), (1, 0, 1, 0)); // White 1: on the path, owned, lost
         assert_eq!(stats(5), (0, 0, 0, 0)); // White 2: Black owns cell 2
     }
@@ -337,23 +343,22 @@ mod tests {
 
     #[test]
     fn vulnerable_cells_leave_their_killer_behind() {
-        // Black f5 g5 g6 around f6 (slots 0, 1, 2), White f7 (slot 3). A White stone on e7
-        // (slot 4) makes f6 dead (B B B W W ·), so Black's f6 is dominated by Black's e7.
-        let black = [49, 50, 61].iter().fold(0u128, |m, &i| m | 1u128 << i);
-        let white = 1u128 << 71;
-        let (f6, e7) = (1u128 << 60, 1u128 << 70);
-        let empty = ALL & !(black | white);
-        let v = board::vulnerable(black, white, true);
-        assert_ne!(v[4] & f6, 0);
-        let d = dominated(black, white, true, empty);
+        // White f7 e7 e6 around f6 (slots 3, 4, 5). A White stone on g6 (slot 2) makes four
+        // White slots in a row, so f6 dies: Black's f6 is dominated by Black's g6.
+        let white = [71, 70, 59].iter().fold(0u128, |m, &i| m | 1u128 << i);
+        let (f6, g6) = (1u128 << 60, 1u128 << 61);
+        let empty = ALL & !white;
+        let v = board::vulnerable(0, white, true);
+        assert_ne!(v[2] & f6, 0);
+        let d = dominated(0, white, true, empty);
         assert_ne!(d & f6, 0);
-        assert_eq!(d & e7, 0);
-        // No pair of cells prunes each other: every dominated cell has a kept killer.
-        assert_eq!(d & !empty, 0);
+        assert_eq!(d & g6, 0);
+        // For White to move, f6 is not vulnerable to that (a Black g6 kills nothing).
+        assert_eq!(board::vulnerable(0, white, false)[2] & f6, 0);
         if PRUNE_VULNERABLE {
-            let c = candidates(black, white, true);
+            let c = candidates(0, white, true);
             assert_eq!(c & f6, 0);
-            assert_ne!(c & e7, 0);
+            assert_ne!(c & g6, 0);
         }
     }
 
@@ -383,5 +388,4 @@ mod tests {
         let out = search(black, 0, false, Limit::Playouts(2000), 3).unwrap();
         assert_eq!((e1 | f1 | f6) >> out.mv & 1, 0);
     }
-
 }
