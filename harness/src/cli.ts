@@ -298,8 +298,12 @@ Run \`git checkout --detach origin/main\` (or \`npm run arena -- prepare\`, whic
       console.log(
         "review" in result
           ? `Passed: ${result.version} rated ${result.elo}. Pull request #${result.review} waits for an independent reviewer.`
-          : `Buried: ${result.why}`,
+          : "inconclusive" in result
+            ? `Inconclusive: ${result.why}`
+            : `Buried: ${result.why}`,
       );
+      // Not a pass and not a burial: a script must not read it as either.
+      if ("inconclusive" in result) process.exitCode = 3;
       return;
     }
     case "messages": {
