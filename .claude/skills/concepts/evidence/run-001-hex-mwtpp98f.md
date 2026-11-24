@@ -1,0 +1,1 @@
+- 2026-11-24 · **opening book** · Hex 11×11 · buried: Rated 2664 ± 110, not above 2734. · Self-generated opening book: the engine's own long MCTS runs over the first moves, probed instantly

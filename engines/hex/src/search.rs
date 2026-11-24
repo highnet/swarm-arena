@@ -96,19 +96,6 @@ pub fn search(
     limit: Limit,
     seed: u64,
 ) -> Option<Outcome> {
-    search_capped(black, white, black_to_move, limit, seed, MAX_NODES)
-}
-
-/// [`search`] with its own tree cap (the offline book generator runs far longer than a game
-/// and would fill the game's 2M nodes in a few tens of thousands of playouts).
-pub fn search_capped(
-    black: u128,
-    white: u128,
-    black_to_move: bool,
-    limit: Limit,
-    seed: u64,
-    max_nodes: usize,
-) -> Option<Outcome> {
     let empties = ALL & !(black | white);
     if empties == 0 {
         return None;
@@ -135,7 +122,7 @@ pub fn search_capped(
         loop {
             let node = nodes[id as usize];
             if !node.expanded {
-                if node.visits + 1 >= EXPAND_AT && nodes.len() + 121 <= max_nodes {
+                if node.visits + 1 >= EXPAND_AT && nodes.len() + 121 <= MAX_NODES {
                     if ALL & !(b | w) != 0 {
                         expand(&mut nodes, id, candidates(b, w, btm), &mut rng);
                         continue;
