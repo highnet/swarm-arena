@@ -1,6 +1,7 @@
 import {
   drawFromSuite,
   GAMES,
+  isReferenceFailure,
   performanceElo,
   playMatch,
   type GameId,
@@ -10,7 +11,14 @@ import {
   type Rung,
 } from "@arena/shared";
 import { now, post } from "./board";
-import { LIVE_MS, log, MOVE_MS, MOVE_SLACK_MS, RUN_ID } from "./config";
+import {
+  LIVE_MS,
+  log,
+  MOVE_MS,
+  MOVE_SLACK_MS,
+  REFERENCE_MOVE_MS,
+  RUN_ID,
+} from "./config";
 import { liveStream, type LiveGame } from "./live";
 import { getStore } from "./store";
 import { loadSuite, suiteName } from "./openings";
@@ -20,6 +28,26 @@ import { loadSuite, suiteName } from "./openings";
  * A reference forfeit is not a result (#131); past this the match aborts with an error.
  */
 export const REFERENCE_REPLAYS = 3;
+
+/**
+ * A match the referee aborted because the reference kept failing (#164). It has no result: the
+ * games played so far stay stored as evidence, but no rating is computed or posted, and a submit
+ * that meets one reports "inconclusive", never a burial.
+ */
+export class MatchAborted extends Error {
+  override readonly name = "MatchAborted";
+  constructor(
+    readonly matchId: string,
+    readonly opponentLabel: string,
+    readonly reason: string,
+  ) {
+    super(`match ${matchId} vs ${opponentLabel} aborted: ${reason}`);
+  }
+}
+
+export const isMatchAborted = (e: unknown): e is MatchAborted =>
+  e instanceof MatchAborted ||
+  (e instanceof Error && e.name === "MatchAborted");
 
 export type MatchSpec = {
   track: GameId;
@@ -147,7 +175,8 @@ export const runMatch = async (spec: MatchSpec) => {
       finished?.end();
     }
   };
-  const result = await playMatch(
+  const reference = spec.referenceOpponent !== false;
+  const played = playMatch(
     GAMES[spec.track],
     spec.candidate,
     spec.opponent,
@@ -156,8 +185,11 @@ export const runMatch = async (spec: MatchSpec) => {
       moveTimeMs: MOVE_MS + MOVE_SLACK_MS,
       openingSeed: spec.openingSeed,
       openingSuite: suite,
-      replayOpponentFailures:
-        spec.referenceOpponent === false ? 0 : REFERENCE_REPLAYS,
+      replayOpponentFailures: reference ? REFERENCE_REPLAYS : 0,
+      // A fixed-level reference has no clock: give it time it can meet (REFERENCE_MOVE_MS).
+      opponentMoveTimeMs: reference
+        ? Math.max(REFERENCE_MOVE_MS, MOVE_MS + MOVE_SLACK_MS)
+        : undefined,
       onGameStart: (i, attempt, opening) => {
         current?.end();
         current = live.start(
@@ -186,6 +218,37 @@ export const runMatch = async (spec: MatchSpec) => {
     // Bounded: a hung store cannot hold the match open.
     await live.flush(2000);
   });
+  let result: Awaited<typeof played>;
+  try {
+    result = await played;
+  } catch (e) {
+    if (!isReferenceFailure(e)) throw e;
+    // The reference failed, not the candidate: close the row with the games that did finish and
+    // no rating (elo stays 0, no match_verdict), and say so on the board.
+    await db
+      .update(
+        "matches",
+        { id },
+        {
+          wins: tally.w,
+          draws: tally.d,
+          losses: tally.l,
+          finished_at: now(),
+        },
+      )
+      .catch(() => undefined);
+    const reason = `${spec.opponentLabel} ${e.termination} in game ${e.game} on ${e.attempts} attempts in a row`;
+    log(`match ${id} aborted, inconclusive: ${reason}`);
+    if (spec.taskId)
+      await post("progress", {
+        track_id: spec.track,
+        agent_id: "referee",
+        task_id: spec.taskId,
+        match_id: id,
+        title: `Match aborted, inconclusive: ${reason}. A reference failure, not a result: no rating.`,
+      }).catch(() => undefined);
+    throw new MatchAborted(id, spec.opponentLabel, reason);
+  }
   const voided = result.voided.map(
     (v) =>
       `game ${v.index + 1}: ${spec.opponentLabel} ${v.termination} at ${v.plies} plies`,
