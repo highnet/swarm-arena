@@ -77,6 +77,56 @@
   --animate-bar-shimmer: bar-shimmer 2.6s ease-in-out infinite;
   --animate-delta-flash: delta-flash 4s ease-out both;
   --animate-caption: caption 2.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+  /* A live engine board playing its game ply by ply (#171). */
+  --animate-stone-in: stone-in 0.24s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-piece-slide: piece-slide 0.3s cubic-bezier(0.33, 1, 0.68, 1) both;
+  --animate-piece-out: piece-out 0.3s ease-out both;
+  --animate-disc-flip-out: disc-flip-out 0.32s ease-in both;
+  --animate-disc-flip-in: disc-flip-in 0.32s ease-out both;
+  --animate-board-out: board-out 0.6s ease-in-out both;
+}
+
+@keyframes stone-in {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+
+/* From the square it left (--dx/--dy, in board units) to where it stands. */
+@keyframes piece-slide {
+  from {
+    transform: translate(var(--dx), var(--dy));
+  }
+}
+
+@keyframes piece-out {
+  to {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+}
+
+/* A disc turning over: the old face narrows to an edge, the new one opens from it. */
+@keyframes disc-flip-out {
+  50%,
+  100% {
+    transform: scaleX(0);
+  }
+}
+
+@keyframes disc-flip-in {
+  0%,
+  50% {
+    transform: scaleX(0);
+  }
+}
+
+/* The outgoing game cross-fading into the next. */
+@keyframes board-out {
+  to {
+    opacity: 0;
+  }
 }
 
 /* A rating change beside the new number: in, held, then gone. */

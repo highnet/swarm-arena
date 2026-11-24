@@ -1,9 +1,42 @@
+import { Fragment, type CSSProperties, type ReactNode } from 'react';
 import type { BoardView as BoardViewData, GameId } from '@arena/shared';
+import type { BoardMotion, CellMotion } from '@/lib/boardMotion';
 import { cn } from '@/lib/utils';
 import { ChessPiece } from './ChessPiece';
 
 const FILES = 'abcdefgh';
 const GO_COLS = 'abcdefghj';
+
+/** Scales an element about its own centre (stones, discs, pieces). */
+const ABOUT_CENTRE = 'origin-center transform-fill';
+const POP = cn(ABOUT_CENTRE, 'animate-stone-in');
+const FADE_OUT = cn(ABOUT_CENTRE, 'animate-piece-out');
+
+/** How a cell moves this ply, when the board animates its moves (#171). */
+const fxAt = (motion: BoardMotion | null | undefined, i: number): CellMotion | null =>
+  motion?.cells[i] ?? null;
+/** A moving cell gets a fresh key each ply, so its animation plays again. */
+const fxKey = (motion: BoardMotion | null | undefined, i: number) =>
+  motion?.cells[i] ? `${i}:${motion.key}` : `${i}`;
+const delayed = (ms: number): CSSProperties | undefined =>
+  ms ? { animationDelay: `${ms}ms` } : undefined;
+
+type GlideProps = {
+  x: number;
+  y: number;
+  glide: boolean;
+  children: ReactNode;
+};
+
+/** Places its children at (x, y); eases there from the last place when `glide` is on. */
+const Glide = ({ x, y, glide, children }: GlideProps) => (
+  <g
+    className={cn(glide && 'transition-transform duration-300 ease-out')}
+    style={{ transform: `translate(${x}px, ${y}px)` }}
+  >
+    {children}
+  </g>
+);
 
 type StoneProps = {
   c: string;
@@ -36,29 +69,61 @@ const LastMark = ({ x, y, r, onBlack }: LastMarkProps) => (
 
 type ChessBoardProps = {
   view: BoardViewData;
+  motion?: BoardMotion | null;
 };
 
-const ChessBoard = ({ view }: ChessBoardProps) => {
+const ChessBoard = ({ view, motion }: ChessBoardProps) => {
   const s = 40;
+  const x = (i: number) => (i % 8) * s + 16;
+  const y = (i: number) => Math.floor(i / 8) * s;
   return (
     <svg viewBox={`0 0 ${8 * s + 16} ${8 * s + 16}`} className="block h-auto w-full">
+      {view.cells.map((_, i) => (
+        <rect
+          key={i}
+          x={x(i)}
+          y={y(i)}
+          width={s}
+          height={s}
+          fill={
+            (Math.floor(i / 8) + (i % 8)) % 2 === 1 ? 'var(--square-dark)' : 'var(--square-light)'
+          }
+        />
+      ))}
+      {view.last.map((i, k) => (
+        <Glide key={k} x={x(i)} y={y(i)} glide={motion != null}>
+          <rect width={s} height={s} fill="var(--highlight)" />
+        </Glide>
+      ))}
       {view.cells.map((cell, i) => {
-        const r = Math.floor(i / 8);
-        const c = i % 8;
-        const dark = (r + c) % 2 === 1;
-        const last = view.last.includes(i);
+        const m = fxAt(motion, i);
+        const gone =
+          m?.kind === 'out'
+            ? m.piece
+            : m?.kind === 'in' || m?.kind === 'slide'
+              ? m.captured
+              : undefined;
+        const piece = cell && <ChessPiece piece={cell} x={x(i) + 1} y={y(i) + 1} size={s - 2} />;
         return (
-          <g key={i}>
-            <rect
-              x={c * s + 16}
-              y={r * s}
-              width={s}
-              height={s}
-              fill={dark ? 'var(--square-dark)' : 'var(--square-light)'}
-            />
-            {last && <rect x={c * s + 16} y={r * s} width={s} height={s} fill="var(--highlight)" />}
-            {cell && <ChessPiece piece={cell} x={c * s + 16 + 1} y={r * s + 1} size={s - 2} />}
-          </g>
+          <Fragment key={fxKey(motion, i)}>
+            {gone && (
+              <g className={FADE_OUT}>
+                <ChessPiece piece={gone} x={x(i) + 1} y={y(i) + 1} size={s - 2} />
+              </g>
+            )}
+            {piece && m?.kind === 'slide' ? (
+              <g
+                className="animate-piece-slide"
+                style={{ '--dx': `${m.dc * s}px`, '--dy': `${m.dr * s}px` } as CSSProperties}
+              >
+                {piece}
+              </g>
+            ) : piece && m?.kind === 'in' ? (
+              <g className={POP}>{piece}</g>
+            ) : (
+              piece
+            )}
+          </Fragment>
         );
       })}
       {Array.from({ length: 8 }, (_, i) => (
@@ -122,9 +187,10 @@ const Hit = ({ i, x, y, r, interaction, label }: HitProps) => {
 
 type GoBoardProps = {
   view: BoardViewData;
+  motion?: BoardMotion | null;
 } & Interaction;
 
-const GoBoard = ({ view, ...interaction }: GoBoardProps) => {
+const GoBoard = ({ view, motion, ...interaction }: GoBoardProps) => {
   const n = view.cols;
   const s = 34;
   const pad = 26;
@@ -148,19 +214,28 @@ const GoBoard = ({ view, ...interaction }: GoBoardProps) => {
           fill="oklch(0.22 0.006 265)"
         />
       ))}
-      {view.cells.map((c, i) =>
-        c ? (
-          <Stone key={i} c={c} x={pad + (i % n) * s} y={pad + Math.floor(i / n) * s} r={s * 0.46} />
-        ) : null,
-      )}
-      {view.last.map((i) => (
-        <LastMark
-          key={i}
-          x={pad + (i % n) * s}
-          y={pad + Math.floor(i / n) * s}
-          r={4}
-          onBlack={view.cells[i] === 'b'}
-        />
+      {view.cells.map((c, i) => {
+        const m = fxAt(motion, i);
+        const at = { x: pad + (i % n) * s, y: pad + Math.floor(i / n) * s, r: s * 0.46 };
+        if (m?.kind === 'out')
+          return (
+            <g key={fxKey(motion, i)} className={FADE_OUT}>
+              <Stone c={m.piece} {...at} />
+            </g>
+          );
+        if (!c) return null;
+        return m?.kind === 'in' ? (
+          <g key={fxKey(motion, i)} className={POP}>
+            <Stone c={c} {...at} />
+          </g>
+        ) : (
+          <Stone key={i} c={c} {...at} />
+        );
+      })}
+      {view.last.map((i, k) => (
+        <Glide key={k} x={pad + (i % n) * s} y={pad + Math.floor(i / n) * s} glide={motion != null}>
+          <LastMark x={0} y={0} r={4} onBlack={view.cells[i] === 'b'} />
+        </Glide>
       ))}
       {view.cells.map((_, i) => (
         <Hit
@@ -189,9 +264,10 @@ const GoBoard = ({ view, ...interaction }: GoBoardProps) => {
 
 type OthelloBoardProps = {
   view: BoardViewData;
+  motion?: BoardMotion | null;
 } & Interaction;
 
-const OthelloBoard = ({ view, ...interaction }: OthelloBoardProps) => {
+const OthelloBoard = ({ view, motion, ...interaction }: OthelloBoardProps) => {
   const s = 40;
   const pad = 16;
   return (
@@ -203,25 +279,38 @@ const OthelloBoard = ({ view, ...interaction }: OthelloBoardProps) => {
           <line x1={pad + i * s} y1={0} x2={pad + i * s} y2={8 * s} />
         </g>
       ))}
-      {view.cells.map((c, i) =>
-        c ? (
-          <Stone
-            key={i}
-            c={c}
-            x={pad + (i % 8) * s + s / 2}
-            y={Math.floor(i / 8) * s + s / 2}
-            r={s * 0.4}
-          />
-        ) : null,
-      )}
-      {view.last.map((i) => (
-        <LastMark
-          key={i}
+      {view.cells.map((c, i) => {
+        if (!c) return null;
+        const m = fxAt(motion, i);
+        const at = { x: pad + (i % 8) * s + s / 2, y: Math.floor(i / 8) * s + s / 2, r: s * 0.4 };
+        if (m?.kind === 'flip')
+          return (
+            <g key={fxKey(motion, i)}>
+              <g className={cn(ABOUT_CENTRE, 'animate-disc-flip-out')} style={delayed(m.delay)}>
+                <Stone c={m.from} {...at} />
+              </g>
+              <g className={cn(ABOUT_CENTRE, 'animate-disc-flip-in')} style={delayed(m.delay)}>
+                <Stone c={c} {...at} />
+              </g>
+            </g>
+          );
+        return m?.kind === 'in' ? (
+          <g key={fxKey(motion, i)} className={POP}>
+            <Stone c={c} {...at} />
+          </g>
+        ) : (
+          <Stone key={i} c={c} {...at} />
+        );
+      })}
+      {view.last.map((i, k) => (
+        <Glide
+          key={k}
           x={pad + (i % 8) * s + s / 2}
           y={Math.floor(i / 8) * s + s / 2}
-          r={4}
-          onBlack={view.cells[i] === 'b'}
-        />
+          glide={motion != null}
+        >
+          <LastMark x={0} y={0} r={4} onBlack={view.cells[i] === 'b'} />
+        </Glide>
       ))}
       {view.cells.map((_, i) => (
         <Hit
@@ -250,9 +339,10 @@ const OthelloBoard = ({ view, ...interaction }: OthelloBoardProps) => {
 
 type HexBoardProps = {
   view: BoardViewData;
+  motion?: BoardMotion | null;
 } & Interaction;
 
-const HexBoard = ({ view, ...interaction }: HexBoardProps) => {
+const HexBoard = ({ view, motion, ...interaction }: HexBoardProps) => {
   const n = view.cols;
   const r = 13;
   const w = Math.sqrt(3) * r;
@@ -311,21 +401,26 @@ const HexBoard = ({ view, ...interaction }: HexBoardProps) => {
         const col = i % n;
         const x = cx(row, col);
         const y = cy(row);
+        const stone = c === 'b' ? 'var(--stone-black)' : c === 'w' ? 'var(--stone-white)' : null;
+        const pops = Boolean(stone) && fxAt(motion, i)?.kind === 'in';
         return (
           <g key={i}>
             <path
               d={hexPath(x, y)}
-              fill={
-                c === 'b'
-                  ? 'var(--stone-black)'
-                  : c === 'w'
-                    ? 'var(--stone-white)'
-                    : 'var(--square-light)'
-              }
+              fill={(!pops && stone) || 'var(--square-light)'}
               stroke="var(--panel)"
               strokeWidth={1.5}
             />
-            {view.last.includes(i) && <LastMark x={x} y={y} r={3.5} onBlack={c === 'b'} />}
+            {pops && stone && (
+              <path
+                key={fxKey(motion, i)}
+                d={hexPath(x, y)}
+                fill={stone}
+                stroke="var(--panel)"
+                strokeWidth={1.5}
+                className={POP}
+              />
+            )}
             <Hit
               i={i}
               x={x}
@@ -337,6 +432,16 @@ const HexBoard = ({ view, ...interaction }: HexBoardProps) => {
           </g>
         );
       })}
+      {view.last.map((i, k) => (
+        <Glide
+          key={k}
+          x={cx(Math.floor(i / n), i % n)}
+          y={cy(Math.floor(i / n))}
+          glide={motion != null}
+        >
+          <LastMark x={0} y={0} r={3.5} onBlack={view.cells[i] === 'b'} />
+        </Glide>
+      ))}
     </svg>
   );
 };
@@ -346,20 +451,27 @@ type BoardViewProps = {
   view: BoardViewData;
   className?: string;
   label: string;
+  /**
+   * Animate the step into `view`: stones and pieces arrive, slide, flip and fade, and the
+   * last-move marker eases along (#171). Omitted, the board just draws the position.
+   */
+  motion?: BoardMotion | null;
 } & Interaction;
 
 /** Pure SVG renderer for every arena game. */
-const BoardView = ({ game, view, className, label, onCell, targets }: BoardViewProps) => (
+const BoardView = ({ game, view, className, label, onCell, targets, motion }: BoardViewProps) => (
   <figure
     data-slot="board"
     role={onCell ? 'group' : 'img'}
     aria-label={label}
     className={cn('mx-auto w-full', className)}
   >
-    {game === 'chess' && <ChessBoard view={view} />}
-    {game === 'go9' && <GoBoard view={view} onCell={onCell} targets={targets} />}
-    {game === 'othello' && <OthelloBoard view={view} onCell={onCell} targets={targets} />}
-    {game === 'hex' && <HexBoard view={view} onCell={onCell} targets={targets} />}
+    {game === 'chess' && <ChessBoard view={view} motion={motion} />}
+    {game === 'go9' && <GoBoard view={view} motion={motion} onCell={onCell} targets={targets} />}
+    {game === 'othello' && (
+      <OthelloBoard view={view} motion={motion} onCell={onCell} targets={targets} />
+    )}
+    {game === 'hex' && <HexBoard view={view} motion={motion} onCell={onCell} targets={targets} />}
   </figure>
 );
 

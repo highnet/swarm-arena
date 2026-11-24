@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   LIVE_GAME_STALE_MS,
   newestLiveGames,
@@ -12,149 +12,144 @@ import type { EngineBoardSource } from '@/components/arena/EngineBoard';
 import { onLive } from '@/lib/liveBus';
 import { gameOfRow, type EngineGame } from '@/lib/swarmEvents';
 
-/** How long a finished live game keeps its final position and result on the node. */
-export const LIVE_ENDED_MS = 4_000;
+/**
+ * How long an engine's board stays after its last live game ended with no new one started: the
+ * board loops that game meanwhile, so a run of gate games reads as one stream (#171).
+ */
+export const LIVE_LINGER_MS = 10 * 60_000;
 /** Then it fades out for this long before the board goes. */
 export const LIVE_FADE_MS = 700;
-/** How often rows are re-checked for staleness when no change arrives. */
-const STALE_CHECK_MS = 15_000;
-
-type Ended = { game: EngineBoardSource & { kind: 'ended' }; fadeAt: number; goneAt: number };
+/** Never re-check sooner than this. */
+const MIN_TICK_MS = 250;
 
 const isRow = (r: Record<string, unknown> | null): r is Record<string, unknown> & LiveGameRow =>
   Boolean(
     r && typeof r.id === 'string' && typeof r.track_id === 'string' && Array.isArray(r.moves),
   );
 
-const liveSource = (r: LiveGameRow): EngineBoardSource => ({
-  kind: 'live',
-  game: {
-    id: r.id,
-    track: r.track_id,
-    moves: r.moves,
-    opponent: r.opponent,
-    finishedAt: r.updated_at,
-    result: null,
-  },
+const gameOf = (r: LiveGameRow) => ({
+  id: r.id,
+  track: r.track_id,
+  moves: r.moves,
+  opponent: r.opponent,
+  finishedAt: r.updated_at,
 });
 
+/** The fresher of two copies of one row: out-of-order updates never step a board backwards. */
+const fresher = (a: LiveGameRow | undefined, b: LiveGameRow) => (a && a.ply > b.ply ? a : b);
+
 /**
- * The fleet graph's engine boards: only games being played right now (#163). Starts from the
- * server's `live_games` rows and follows the `live_games` Realtime channel (inserts, updates,
- * deletes), keeping the newest non-stale row per engine. A deleted row's board shows the final
- * position and result for `LIVE_ENDED_MS`, fades out, and goes. An engine with nothing live has
- * no board. Live rows bypass the catch-up playback: a board shows the game as it stands now.
+ * The fleet graph's engine boards (#163, #171). Starts from the server's `live_games` rows and
+ * follows the `live_games` Realtime channel. An engine's newest fresh row is its live game. A
+ * game ends when its row is deleted, its result arrives (a `games` insert with its id), or its
+ * row goes stale; the engine's board then shows that ended game (the board plays it out, holds
+ * the result and loops it) until a new live game starts, or for `LIVE_LINGER_MS`, after which
+ * it fades for `LIVE_FADE_MS` and goes. An engine with nothing live or recent has no board.
  */
 export const useLiveBoards = (
   initial: Partial<Record<GameId, LiveGameRow>>,
 ): Partial<Record<GameId, EngineBoardSource>> => {
-  /** Rows Realtime has written since the page loaded, by id. */
+  /** Rows Realtime has written since the page loaded, by id; a deleted row keeps its moves. */
   const [rows, setRows] = useState<Record<string, LiveGameRow>>({});
-  /** Ids Realtime deleted: a snapshot that still lists one must not bring it back. */
-  const [gone, setGone] = useState<ReadonlySet<string>>(new Set());
-  const [ended, setEnded] = useState<Partial<Record<GameId, Ended>>>({});
-  const [now, setNow] = useState(() => Date.now());
+  /** When each game ended (delete or result), by id. */
+  const [endedAt, setEndedAt] = useState<Record<string, number>>({});
   /** Finished games' results by id, from `games` inserts (they land just before the delete). */
-  const results = useRef(new Map<string, EngineGame['result']>());
-  const shown = useRef(new Map<string, LiveGameRow>());
-
-  useEffect(() => {
-    const tick = setInterval(() => setNow(Date.now()), STALE_CHECK_MS);
-    return () => clearInterval(tick);
-  }, []);
+  const [results, setResults] = useState<Record<string, EngineGame['result']>>({});
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(
     () =>
       onLive((change) => {
+        const at = Date.now();
         if (change.table === 'games' && change.new && typeof change.new.id === 'string') {
           const g = change.new as unknown as GameRow;
-          results.current.set(g.id, gameOfRow(g, undefined).result);
+          setResults((r) => ({ ...r, [g.id]: gameOfRow(g, undefined).result }));
+          setEndedAt((e) => (g.id in e ? e : { ...e, [g.id]: at }));
+          setNow(at);
           return;
         }
         if (change.table !== 'live_games') return;
-        const at = Date.now();
         setNow(at);
         if (change.eventType === 'DELETE') {
-          const old = isRow(change.old) ? change.old : null;
           const id = typeof change.old?.id === 'string' ? change.old.id : null;
           if (!id) return;
-          setGone((s) => new Set(s).add(id));
-          setRows((r) => {
-            const { [id]: _drop, ...rest } = r;
-            void _drop;
-            return rest;
-          });
-          // The full replica identity sends the deleted row; fall back to what was on screen.
-          const last = old ?? shown.current.get(id);
-          if (!last) return;
-          setEnded((e) => ({
-            ...e,
-            [last.track_id]: {
-              game: {
-                kind: 'ended',
-                game: {
-                  ...liveSource(last).game,
-                  result: results.current.get(id) ?? null,
-                },
-                fading: false,
-              },
-              fadeAt: at + LIVE_ENDED_MS,
-              goneAt: at + LIVE_ENDED_MS + LIVE_FADE_MS,
-            },
-          }));
+          setEndedAt((e) => (id in e ? e : { ...e, [id]: at }));
+          // The full replica identity sends the deleted row; otherwise the last copy stands.
+          const old = isRow(change.old) ? (change.old as LiveGameRow) : null;
+          if (old) setRows((r) => ({ ...r, [id]: fresher(r[id], old) }));
           return;
         }
         if (!isRow(change.new)) return;
         const row = change.new as LiveGameRow;
-        setRows((r) => {
-          const before = r[row.id];
-          // Out-of-order updates never step a board backwards.
-          if (before && before.ply > row.ply) return r;
-          return { ...r, [row.id]: row };
-        });
+        setRows((r) => ({ ...r, [row.id]: fresher(r[row.id], row) }));
       }),
     [],
   );
 
-  // An ended board fades, then goes: one timer for the next deadline.
-  useEffect(() => {
-    const deadlines = Object.values(ended).flatMap((e) =>
-      e ? [e.game.fading ? e.goneAt : e.fadeAt] : [],
-    );
-    if (!deadlines.length) return;
-    const wait = Math.max(0, Math.min(...deadlines) - Date.now());
-    const t = setTimeout(() => {
-      const at = Date.now();
-      setEnded((e) => {
-        const next: Partial<Record<GameId, Ended>> = {};
-        for (const [k, v] of Object.entries(e) as [GameId, Ended][]) {
-          if (at >= v.goneAt) continue;
-          next[k] = at >= v.fadeAt ? { ...v, game: { ...v.game, fading: true } } : v;
-        }
-        return next;
-      });
-    }, wait);
-    return () => clearTimeout(t);
-  }, [ended]);
-
-  const newest = useMemo(() => {
+  const { boards, next } = useMemo(() => {
     const all = new Map<string, LiveGameRow>();
-    for (const r of Object.values(initial)) if (r && !gone.has(r.id)) all.set(r.id, r);
-    for (const r of Object.values(rows)) {
-      const was = all.get(r.id);
-      if (!was || r.ply >= was.ply) all.set(r.id, r);
-    }
-    return newestLiveGames([...all.values()], now, LIVE_GAME_STALE_MS);
-  }, [initial, rows, gone, now]);
-  useEffect(() => {
-    shown.current = new Map(Object.values(newest).flatMap((r) => (r ? [[r.id, r] as const] : [])));
-  }, [newest]);
+    for (const r of Object.values(initial)) if (r) all.set(r.id, r);
+    for (const r of Object.values(rows)) all.set(r.id, fresher(all.get(r.id), r));
+    const rowsAll = [...all.values()];
+    /** When a game ended: deleted, its result in, or gone stale. */
+    const endOf = (r: LiveGameRow) =>
+      endedAt[r.id] ?? Date.parse(r.updated_at) + LIVE_GAME_STALE_MS;
 
-  return useMemo(() => {
+    const live = newestLiveGames(
+      rowsAll.filter((r) => !(r.id in endedAt)),
+      now,
+      LIVE_GAME_STALE_MS,
+    );
+    const deadlines: number[] = [];
+    for (const r of Object.values(live)) if (r) deadlines.push(endOf(r));
+
+    // Per engine, the game that ended last, while it still lingers.
+    const ended: Partial<Record<GameId, LiveGameRow>> = {};
+    for (const r of rowsAll) {
+      if (live[r.track_id] || endOf(r) > now || endOf(r) + LIVE_LINGER_MS <= now) continue;
+      const seen = ended[r.track_id];
+      if (!seen || endOf(r) > endOf(seen)) ended[r.track_id] = r;
+    }
+
     const out: Partial<Record<GameId, EngineBoardSource>> = {};
-    for (const [k, e] of Object.entries(ended) as [GameId, Ended][]) out[k] = e.game;
+    for (const [k, r] of Object.entries(ended) as [GameId, LiveGameRow][]) {
+      const goneAt = endOf(r) + LIVE_LINGER_MS;
+      deadlines.push(goneAt - LIVE_FADE_MS, goneAt);
+      out[k] = {
+        kind: 'ended',
+        game: { ...gameOf(r), result: results[r.id] ?? null },
+        fading: now >= goneAt - LIVE_FADE_MS,
+      };
+    }
     // A game being played wins over one that just ended.
-    for (const [k, r] of Object.entries(newest) as [GameId, LiveGameRow][]) out[k] = liveSource(r);
-    return out;
-  }, [newest, ended]);
+    for (const [k, r] of Object.entries(live) as [GameId, LiveGameRow][])
+      out[k] = { kind: 'live', game: { ...gameOf(r), result: null } };
+
+    const future = deadlines.filter((d) => d > now);
+    return { boards: out, next: future.length ? Math.min(...future) : null };
+  }, [initial, rows, endedAt, results, now]);
+
+  // Re-derive at the next deadline (a row going stale, a board fading or going), and drop rows
+  // that can no longer show so a long-open page does not keep every game it ever saw.
+  useEffect(() => {
+    if (next === null) return;
+    const t = setTimeout(
+      () => {
+        const at = Date.now();
+        setNow(at);
+        setRows((r) => {
+          const keep = Object.values(r).filter(
+            (row) => Date.parse(row.updated_at) + LIVE_GAME_STALE_MS + LIVE_LINGER_MS > at,
+          );
+          return keep.length === Object.keys(r).length
+            ? r
+            : Object.fromEntries(keep.map((row) => [row.id, row]));
+        });
+      },
+      Math.max(MIN_TICK_MS, next - Date.now()),
+    );
+    return () => clearTimeout(t);
+  }, [next]);
+
+  return boards;
 };
