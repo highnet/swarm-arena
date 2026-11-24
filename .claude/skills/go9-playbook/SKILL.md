@@ -291,6 +291,13 @@ what it is, why it might work, and its verdict. Never fill this from another eng
 
 ## What failed and why
 
+When an idea is buried, write what it was, the measured result and what to try differently.
+Never re-propose an idea from this list unchanged. A burial means the gate decided no gain. An
+idea the referee reported **inconclusive** (a reference failure, or a sequential test that hit its
+cap undecided) is not a failure and may be resubmitted unchanged; so may an idea buried before
+#195, when the gate was a 40-game rating against a stored number, if its lesson says the result was
+within the noise.
+
 - Benson forbid mask + null-window endgame solve (#116): referee rated it 1569 ± 142 vs
   GNU Go level 5, against v0.4's 1682 ± 179 on the same rung, so it was buried. Read that with
   care: **the burial rests on a broken reference on both sides.** GNU Go timeouts broke both

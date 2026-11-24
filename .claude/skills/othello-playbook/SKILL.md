@@ -314,8 +314,12 @@ what it is, why it might work, and its verdict. Never fill this from another eng
 
 ## What failed and why
 
-When an idea is buried, write what it was, the measured result and what to try
-differently. Never re-propose an idea from this list unchanged.
+When an idea is buried, write what it was, the measured result and what to try differently.
+Never re-propose an idea from this list unchanged. A burial means the gate decided no gain. An
+idea the referee reported **inconclusive** (a reference failure, or a sequential test that hit its
+cap undecided) is not a failure and may be resubmitted unchanged; so may an idea buried before
+#195, when the gate was a 40-game rating against a stored number, if its lesson says the result was
+within the noise.
 
 - **Transposition table with stored best-move ordering (task #44, PR #45 lesson).** Code is on
   the history of branch `agent/44-transposition-table-with-stored-best-move-` (commit 361cce7).

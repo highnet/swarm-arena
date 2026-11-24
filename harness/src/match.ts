@@ -20,6 +20,7 @@ import {
   RUN_ID,
 } from "./config";
 import { liveStream, type LiveGame } from "./live";
+import { pairScores } from "./gate";
 import { getStore } from "./store";
 import { loadSuite, suiteName } from "./openings";
 
@@ -72,6 +73,11 @@ export type MatchSpec = {
    * all its gate matches.
    */
   openingSeed?: number;
+  /**
+   * A sequential match (#195): asked after each pair with the candidate's pair scores so far
+   * (each in [0, 1]); true ends the match there. `pairs` is then the cap.
+   */
+  stop?: (pairScores: number[]) => boolean;
 };
 
 /** Play a match, store every game, and post the verdict. Returns the performance estimate. */
@@ -107,8 +113,11 @@ export const runMatch = async (spec: MatchSpec) => {
     started_at: now(),
     finished_at: null,
   });
+  const length = spec.stop
+    ? `up to ${spec.pairs * 2} games, stopping as soon as the sequential test decides`
+    : `${spec.pairs * 2} games`;
   log(
-    `match ${id}: ${spec.candidateVersion} vs ${spec.opponentLabel}, ${spec.pairs * 2} games${seedNote}`,
+    `match ${id}: ${spec.candidateVersion} vs ${spec.opponentLabel}, ${length}${seedNote}`,
   );
   if (spec.taskId) {
     const what = {
@@ -121,11 +130,13 @@ export const runMatch = async (spec: MatchSpec) => {
       agent_id: "referee",
       task_id: spec.taskId,
       match_id: id,
-      title: `${what} started: ${spec.candidateVersion} vs ${spec.opponentLabel}, ${spec.pairs * 2} games${seedNote}.`,
+      title: `${what} started: ${spec.candidateVersion} vs ${spec.opponentLabel}, ${length}${seedNote}.`,
     });
   }
   const forfeits: string[] = [];
   const tally = { w: 0, l: 0, d: 0 };
+  // The candidate's score in each game, in play order (games 2k and 2k+1 share an opening).
+  const gameScores: number[] = [];
   // Each game streams to live_games while it is played; nothing here awaits it (see live.ts).
   const live = liveStream(
     db,
@@ -206,7 +217,11 @@ export const runMatch = async (spec: MatchSpec) => {
           `  game ${i + 1}/${spec.pairs * 2}: voided, ${spec.opponentLabel} ${g.termination} at ${g.moves.length} plies (attempt ${attempt + 1}); restarted it, replaying the same opening`,
         );
       },
+      stopAfterPair: spec.stop
+        ? () => spec.stop!(pairScores(gameScores))
+        : undefined,
       onGame: (g, i) => {
+        gameScores.push(i % 2 === 0 ? g.outcome : 1 - g.outcome);
         const finished = current;
         current = null;
         stored.push(storeGame(g, i, finished));
@@ -291,7 +306,14 @@ export const runMatch = async (spec: MatchSpec) => {
       opening_entries: result.openingEntries?.map((i) => i + 1) ?? null,
     },
   });
-  return { matchId: id, est, result, forfeits, voided };
+  return {
+    matchId: id,
+    est,
+    result,
+    forfeits,
+    voided,
+    pairScores: pairScores(gameScores),
+  };
 };
 
 /**
