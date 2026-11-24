@@ -31,7 +31,7 @@ const PAGE = 50;
 const CHAPTERS: SectionNavItem[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'engines', label: 'By engine' },
-  { id: 'games', label: 'Every game' },
+  { id: 'games', label: 'Recent games' },
   { id: 'download', label: 'Download' },
 ];
 
@@ -78,11 +78,13 @@ const GamesContent = async ({ searchParams }: GamesPageProps) => {
   const formats = EXPORT_FORMATS.filter(
     (f) => !engine || !FORMAT_GAME[f] || FORMAT_GAME[f] === engine,
   );
+  // From the matches, as `counters()` counts: the snapshot's games are capped at 1,000 rows.
   const tally = TRACK_ORDER.map((id) => {
-    const games = s.games.filter((g) => g.track_id === id);
-    const won = games.filter((g) => (g.engine_first ? g.outcome : 1 - g.outcome) === 1).length;
-    const lost = games.filter((g) => (g.engine_first ? g.outcome : 1 - g.outcome) === 0).length;
-    return { id, games: games.length, won, lost, drawn: games.length - won - lost };
+    const ms = s.matches.filter((m) => m.track_id === id);
+    const won = ms.reduce((n, m) => n + m.wins, 0);
+    const lost = ms.reduce((n, m) => n + m.losses, 0);
+    const drawn = ms.reduce((n, m) => n + m.draws, 0);
+    return { id, games: won + lost + drawn, won, lost, drawn };
   });
 
   return (
@@ -151,8 +153,8 @@ const GamesContent = async ({ searchParams }: GamesPageProps) => {
       <Section id="games" labelledBy="list-title">
         <SectionHeading
           id="list-title"
-          title={engine ? `Every ${SHORT_NAME[engine]} game` : 'Every game'}
-          intro={`Newest first, ${formatInt(all.length)} in all${pages > 1 ? `, ${PAGE} to a page` : ''}. Each row opens the game's replay; the last column opens its match.`}
+          title={engine ? `Recent ${SHORT_NAME[engine]} games` : 'Recent games'}
+          intro={`The ${formatInt(all.length)} most recent, newest first${pages > 1 ? `, ${PAGE} to a page` : ''}. Each row opens the game's replay; the last column opens its match.`}
           action={engine && <TextLink href={href(null)}>All four engines</TextLink>}
         />
         {shown.length === 0 ? (

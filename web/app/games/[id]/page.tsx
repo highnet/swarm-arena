@@ -12,7 +12,7 @@ import { SectionHeading } from '@/components/ui/SectionHeading';
 import { SectionNav, type SectionNavItem } from '@/components/ui/SectionNav';
 import { TextLink } from '@/components/ui/TextLink';
 import { Typography } from '@/components/ui/Typography';
-import { getGame, getSnapshot } from '@/lib/data';
+import { getGame, getMatchGames, getSnapshot } from '@/lib/data';
 import { formatDay, formatElo, formatTime } from '@/lib/format';
 import { moveNotation } from '@/lib/gameExport';
 import { gameHref, matchHref } from '@/lib/routes';
@@ -77,9 +77,10 @@ const GameContent = async (props: GamePageProps) => {
       : score === 0
         ? `${opponent} beat ${engine}`
         : `${engine} and ${opponent} drew`;
-  const siblings = s.games
-    .filter((g) => g.match_id === game.match_id)
-    .sort((a, b) => a.finished_at.localeCompare(b.finished_at));
+  // The match's own games (cached per match, #222): the snapshot's games are capped at 1,000 rows.
+  const siblings = (
+    match ? await getMatchGames(match.id, Boolean(match.finished_at)) : [game]
+  ).sort((a, b) => a.finished_at.localeCompare(b.finished_at));
   const at = siblings.findIndex((g) => g.id === game.id);
   const prev = at > 0 ? siblings[at - 1] : null;
   const next = at >= 0 && at < siblings.length - 1 ? siblings[at + 1] : null;
