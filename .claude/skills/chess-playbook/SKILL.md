@@ -182,8 +182,9 @@ Moves into "Architecture now" only if the referee passes it.
   high history, and PVS/aspiration windows at the root (the root is still full-window).
 - Counter-move table (quiet reply to the opponent's last move) and history-gravity updates
   (penalise quiets that were searched before the cut move), once quiet ordering ships at all.
-- Opening variety for local testing: `arena versus` plays deterministic engines from the start
-  position, so 20 games are a few repeated lines. In #87, main vs main went +3 −3 =2 with Black
+- Opening variety for local testing (done in #104: `arena versus` now starts each pair from a
+  seeded opening and prints the seed; quote it with the result). Before that it played
+  deterministic engines from the start position, so 20 games were a few repeated lines. In #87, main vs main went +3 −3 =2 with Black
   winning nearly every game, and the candidate (which reaches depth 6 at the start and opens
   e2e4 where main opens d2d4 at depth 5) went +2 −16 =2 and +1 −16 =3 while playing identical
   moves at fixed depth. A local verdict needs randomised opening plies before it means anything.

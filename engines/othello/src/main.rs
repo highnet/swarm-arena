@@ -2,6 +2,8 @@
 //! Rules: the `othello` crate. Search and evaluation: written by the swarm.
 //! Protocol and library policy: ../PROTOCOL.md.
 
+mod book;
+
 use othello::Game;
 use std::io::{self, BufRead, Write};
 use std::time::{Duration, Instant};
@@ -478,6 +480,10 @@ fn solve_root(g: &Game, order: &[usize], s: &mut Solver) -> (Option<(usize, i32)
 /// The move to play: below `SOLVE_EMPTIES` a short midgame search gives a fallback move and the
 /// root order, then the exact solve takes the rest of the budget.
 fn best_move(g: &Game, budget_ms: u64) -> usize {
+    // Self-generated opening book (task #109): a stored deep-search move is played instantly.
+    if let Some(m) = book::probe(g) {
+        return m;
+    }
     let empties = (!(g.get()[0] | g.get()[1])).count_ones();
     if empties > SOLVE_EMPTIES || g.available_moves().count_ones() == 1 {
         return search(g, budget_ms).0;
@@ -523,6 +529,12 @@ fn handle(line: &str, moves: &mut Vec<String>) -> (Option<String>, bool) {
 }
 
 fn main() {
+    // Offline book generator (`book/generate.sh`); never used during a game.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("book") {
+        book::command(&args[1..]);
+        return;
+    }
     let stdin = io::stdin();
     let mut out = io::stdout();
     let mut moves = Vec::new();

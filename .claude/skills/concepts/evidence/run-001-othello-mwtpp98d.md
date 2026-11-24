@@ -1,0 +1,1 @@
+- 2026-11-24 · **opening book** · Othello · v0.5 rated 1274 (+81 vs v0.4 on the same rung) · Self-generated opening book: the engine's own long searches over the first moves, probed instantly

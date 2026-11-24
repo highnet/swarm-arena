@@ -113,9 +113,12 @@ The briefing names the task, its issue, its **concept**, and the branch you are 
      make each engine better. Write what you learned into the playbook either way.
    - `cargo build --release -p <track>-engine`, `cargo test --release -p <track>-engine`, and
      `cargo build --release --target wasm32-wasip1 -p <track>-engine` must pass.
-   - Measure against main while you work: `npm run arena -- versus <track>`. Local `versus` /
-     `play` results without opening variety are near-deterministic: quote the opening seed if
-     there is one, prefer at least 40 games, and treat a 20-game result below about 15–5 as noise.
+   - Measure against main while you work: `npm run arena -- versus <track>`. Each pair starts from
+     its own seeded opening, drawn as the referee draws them; the seed is printed with the result
+     (`local vs main: +W -L =D (seed S)`) and `--seed S` replays the same openings. Quote the seed
+     with any `versus` result you hand off. `play` has no opening variety and is
+     near-deterministic. Either way, prefer at least 40 games and treat a 20-game result below
+     about 15–5 as noise.
 5. Update the playbook ("Architecture now", "Ideas worth trying", "What failed and why"). Never edit
    a results or evidence log. Describe your change under a "Candidate (not shipped)" note or in
    "Ideas worth trying" until the referee passes it; it moves into "Architecture now" only once it

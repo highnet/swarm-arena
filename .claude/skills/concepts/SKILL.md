@@ -39,6 +39,7 @@ Use these names so evidence lines up; add a new one when nothing fits.
 | time management | how much of the clock to spend per move |
 | endgame solver | exact search when few moves remain |
 | opening exploration | how the engine spends its first moves (no books) |
+| opening book | the engine's own deep offline searches of early positions, stored and probed instantly (never an external book) |
 
 ## What we believe
 
