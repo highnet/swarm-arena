@@ -128,7 +128,38 @@ Negamax alpha-beta with iterative deepening (`engines/chess/src/main.rs`):
   middlegame +239 for b2b4 — horizon optimism. Quiescence costs one ply of nominal depth and buys
   honest leaf scores. `arena versus chess` vs main (v0.2, no quiescence): +7 -2 =1.
 
+## Candidate (not shipped): self-generated opening book (#108)
+
+Moves into "Architecture now" only if the referee passes it.
+
+- `src/book.rs`: `book/book.bin` (10-byte records: u64 Zobrist key, u16 move code, sorted)
+  embedded with `include_bytes!` and probed by binary search before `search` in `go`. The stored
+  code is decoded against the legal moves (decode = validate). A book move that would repeat a
+  position already seen in the game is left to the search. Prints `info book 1` when it plays one.
+- `book/book.txt` is the source of truth (normalised FEN with counters `0 1`, UCI move, score in
+  cp for the side to move, depth); `chess-engine book pack` turns it into `book.bin`. The test
+  `every_book_move_is_legal_and_the_binary_matches_the_text` checks each move is legal, that the
+  probe returns it, and that `book.bin` is exactly `pack(book.txt)`.
+- Generator: `chess-engine book gen <shard> <shards> <depth> <reply-depth> <replies>
+  <book-moves> [resume.txt]`, run by `engines/chess/book/generate.sh` (processes, not threads:
+  the referee's source scan forbids `std::thread` anywhere in the crate). Roots: the initial
+  position + the 200 start lines of `shared/src/openings/chess.txt` (where gate games begin).
+  For each root and each colour it walks a tree: where we move, the move of a deterministic
+  fixed-depth-10 search (fresh 64 MB TT, PVS/LMR, the engine's own eval); where the opponent
+  moves, its top 3 replies (then top 2 deeper) by our own depth-6 search, which is roughly what
+  main plays at 200 ms. Three book moves per side per line (plies 4/6/8 as White, 5/7/9 as Black).
+  Mate scores are not stored. Deterministic: fixed depth, fresh table per position.
+- Built with `generate.sh 10 6 3,2 3 4`: 5,904 positions (1,965 White to move, 3,939 Black),
+  59 KB embedded, ~1–5 s per position (≈2.5 s mean with 4 shards on 4 cores), ~64 min wall in
+  all on 4 cores (it was resumed once: a 30-minute background limit killed the first run, so
+  `resume.txt` exists). The gate's 200 ms reaches depth 6–7, so a book move is ~3–4 plies deeper.
+- Hit rate and match results: see the PR evidence and the handoff thread.
+
 ## Ideas worth trying
+
+- Opening book follow-ups (#108): predict replies with the opponent's real distribution (record
+  Stockfish level 6's replies in gate games: our top-3 misses some), extend book depth on the
+  lines actually hit, or store a score-only entry to seed the TT instead of forcing the move.
 
 - TT follow-ups: store quiescence results as depth-0 entries (then probing inside `quiesce`
   pays; probing alone does not, since `quiesce` stores nothing and few qnodes are in the table);
