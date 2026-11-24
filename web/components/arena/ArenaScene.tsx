@@ -3,8 +3,8 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 
-/** Engine colours, in track order (chess, go9, othello, hex). Mirrors --series-1..4. */
-const SERIES = [0x3987e5, 0xd95926, 0x199e70, 0xc98500];
+/** Engine colours, in track order (chess, go9, othello, hex). Mirrors the dark --series-1..4. */
+const SERIES = [0x2b76aa, 0xb984af, 0x00b49b, 0xa6a159];
 
 type Board = { group: THREE.Group; depth: number; spin: number; base: THREE.Vector3 };
 

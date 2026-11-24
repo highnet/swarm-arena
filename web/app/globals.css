@@ -7,43 +7,74 @@
 @custom-variant just-in-hidden (&:where([data-just-in='hidden'] *));
 
 /*
- * Swarm Arena tokens. One dark world: cool near-black ground, one raised panel tone,
- * hairline structure. Track hues are data identity only (validated with the dataviz
- * validator against --panel). Status hues are reserved and always ship with icon + label.
+ * Swarm Arena tokens. Colour after Sanzo Wada, "A Dictionary of Color Combinations" (data:
+ * the MIT package dictionary-of-colour-combinations). Every value keeps its book colour's hue;
+ * only lightness or chroma moved, and only where WCAG AA needed it. web/DESIGN.md maps each token
+ * to its book colour and combination; scripts/tokens.test.mjs checks the contrast.
+ *
+ *   Ground and ink: combination 52, Sulpher Yellow #f5ecc2 + Black #111314.
+ *   Engine accents: combination 347, Helvetia Blue, Lilac, Sea Green, Olive Yellow.
+ *   Status: combination 313, Diamine Green, Carmine, Yellow (with Black).
+ *
+ * Two themes, one token each: light-dark(<light>, <dark>). The page follows the reader's system
+ * setting; `data-theme="light|dark"` on <html> pins one.
  */
 :root {
+  color-scheme: light dark;
+  /* Ground: Sulpher Yellow (52) by day, Black (52) by night. */
+  --bg: light-dark(oklch(0.94 0.055 97.3), oklch(0.185 0.004 229));
+  /* Quiet band for alternating sections: the ground one step lighter. */
+  --band: light-dark(oklch(0.965 0.03 97.3), oklch(0.215 0.004 229));
+  --panel: light-dark(oklch(0.975 0.022 97.3), oklch(0.235 0.004 229));
+  --panel-raised: light-dark(oklch(0.905 0.055 97.3), oklch(0.275 0.004 229));
+  --line: light-dark(oklch(0.86 0.05 97.3), oklch(0.32 0.004 229));
+  --line-strong: light-dark(oklch(0.74 0.045 97.3), oklch(0.42 0.004 229));
+  /* Ink: Black (52) on paper, Sulpher Yellow (52) on night. */
+  --fg: light-dark(oklch(0.185 0.004 229), oklch(0.94 0.055 97.3));
+  --fg-2: light-dark(oklch(0.37 0.004 229), oklch(0.84 0.035 97.3));
+  --fg-3: light-dark(oklch(0.47 0.004 229), oklch(0.7 0.025 97.3));
+  --primary: var(--fg);
+  --primary-fg: var(--bg);
+
+  /* Engines, combination 347: chess Helvetia Blue, Go Lilac, Othello Sea Green, Hex Olive Yellow. */
+  --series-1: light-dark(oklch(0.452 0.109 242.8), oklch(0.545 0.109 242.8));
+  --series-2: light-dark(oklch(0.605 0.087 333.3), oklch(0.68 0.087 333.3));
+  --series-3: light-dark(oklch(0.584 0.107 178), oklch(0.689 0.127 178));
+  --series-4: light-dark(oklch(0.595 0.094 105.1), oklch(0.697 0.094 105.1));
+
+  /* Status, combination 313: Diamine Green, Carmine, Yellow. */
+  --good: light-dark(oklch(0.495 0.112 154.6), oklch(0.535 0.112 154.6));
+  --good-text: light-dark(oklch(0.488 0.112 154.6), oklch(0.633 0.112 154.6));
+  --warning: light-dark(oklch(0.594 0.126 105.7), oklch(0.941 0.2 105.7));
+  --critical: light-dark(oklch(0.54 0.21 20.4), oklch(0.572 0.21 20.4));
+  --critical-text: light-dark(oklch(0.527 0.21 20.4), oklch(0.672 0.21 20.4));
+
+  /* Boards: the ground's own steps, Black and Sulpher Yellow stones, a Yellow (313) last move. */
+  --square-light: light-dark(oklch(0.8 0.05 97.3), oklch(0.4 0.004 229));
+  --square-dark: light-dark(oklch(0.72 0.05 97.3), oklch(0.31 0.004 229));
+  --stone-black: oklch(0.185 0.004 229);
+  --stone-white: oklch(0.975 0.03 97.3);
+  --highlight: light-dark(oklch(0.594 0.126 105.7 / 0.35), oklch(0.941 0.2 105.7 / 0.28));
+
+  /* Source code: the engine hues (and Diamine Green) at text contrast. */
+  --code-keyword: light-dark(oklch(0.512 0.087 333.3), oklch(0.68 0.087 333.3));
+  --code-type: light-dark(oklch(0.489 0.089 178), oklch(0.689 0.127 178));
+  --code-title: light-dark(oklch(0.452 0.109 242.8), oklch(0.65 0.109 242.8));
+  --code-string: light-dark(oklch(0.488 0.112 154.6), oklch(0.633 0.112 154.6));
+  --code-number: light-dark(oklch(0.497 0.094 105.1), oklch(0.697 0.094 105.1));
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
   color-scheme: dark;
-  --bg: oklch(0.155 0.006 265);
-  --panel: oklch(0.185 0.006 265);
-  --panel-raised: oklch(0.215 0.007 265);
-  --line: oklch(0.265 0.007 265);
-  --line-strong: oklch(0.34 0.008 265);
-  --fg: oklch(0.965 0.003 265);
-  --fg-2: oklch(0.79 0.008 265);
-  --fg-3: oklch(0.66 0.01 265);
-  --primary: oklch(0.965 0.003 265);
-  --primary-fg: oklch(0.17 0.006 265);
-
-  --series-1: #3987e5;
-  --series-2: #d95926;
-  --series-3: #199e70;
-  --series-4: #c98500;
-
-  --good: #0ca30c;
-  --good-text: #3fbf3f;
-  --warning: #fab219;
-  --critical: #d03b3b;
-  --critical-text: #ef6a6a;
-
-  --square-light: oklch(0.34 0.008 265);
-  --square-dark: oklch(0.27 0.008 265);
-  --stone-black: oklch(0.13 0.004 265);
-  --stone-white: oklch(0.93 0.004 265);
-  --highlight: oklch(0.8 0.12 85 / 0.32);
 }
 
 @theme inline {
   --color-bg: var(--bg);
+  --color-band: var(--band);
   --color-panel: var(--panel);
   --color-panel-raised: var(--panel-raised);
   --color-line: var(--line);
@@ -236,7 +267,7 @@ body {
 }
 
 ::selection {
-  background: oklch(0.55 0.12 255 / 0.45);
+  background: color-mix(in oklab, var(--series-1) 40%, transparent);
   color: var(--fg);
 }
 
@@ -406,25 +437,25 @@ a {
 .hljs-keyword,
 .hljs-built_in,
 .hljs-meta {
-  color: oklch(0.75 0.11 300);
+  color: var(--code-keyword);
 }
 .hljs-type,
 .hljs-title.class_,
 .hljs-section {
-  color: oklch(0.8 0.1 200);
+  color: var(--code-type);
 }
 .hljs-title,
 .hljs-title.function_ {
-  color: oklch(0.82 0.11 250);
+  color: var(--code-title);
 }
 .hljs-string,
 .hljs-attr {
-  color: oklch(0.8 0.1 150);
+  color: var(--code-string);
 }
 .hljs-number,
 .hljs-literal,
 .hljs-symbol {
-  color: oklch(0.82 0.11 70);
+  color: var(--code-number);
 }
 .hljs-comment,
 .hljs-quote {
@@ -456,13 +487,17 @@ a {
   background-color: var(--highlight);
 }
 .chess-play cg-board square.move-dest {
-  background: radial-gradient(oklch(0.96 0.003 265 / 0.35) 19%, transparent 20%);
+  background: radial-gradient(color-mix(in oklab, var(--fg) 35%, transparent) 19%, transparent 20%);
 }
 .chess-play cg-board square.oc.move-dest {
-  background: radial-gradient(transparent 0%, transparent 79%, oklch(0.96 0.003 265 / 0.35) 80%);
+  background: radial-gradient(
+    transparent 0%,
+    transparent 79%,
+    color-mix(in oklab, var(--fg) 35%, transparent) 80%
+  );
 }
 .chess-play cg-board square.selected {
-  background-color: oklch(0.6 0.1 250 / 0.4);
+  background-color: color-mix(in oklab, var(--series-1) 40%, transparent);
 }
 .chess-play coords {
   font-family: var(--font-mono);
@@ -475,16 +510,92 @@ a {
    backdrop-filter: a page holds dozens of panels over a canvas that redraws every scroll frame,
    and re-blurring each of them per frame more than doubled frame time while scrolling. */
 .bg-panel {
-  background-color: oklch(0.185 0.006 265 / 0.9);
+  background-color: color-mix(in oklab, var(--panel) 90%, transparent);
 }
 
 /* Swarm graph: a faint dot field under the force layout, brighter at the centre. */
 .swarm-graph-ground {
   background-image:
-    radial-gradient(circle at 50% 55%, oklch(0.55 0.05 265 / 0.1), transparent 60%),
+    radial-gradient(
+      circle at 50% 55%,
+      color-mix(in oklab, var(--fg-3) 10%, transparent),
+      transparent 60%
+    ),
     radial-gradient(var(--line) 1px, transparent 1px);
   background-size:
     100% 100%,
     22px 22px;
   mask-image: radial-gradient(ellipse at center, black 40%, transparent 85%);
+}
+
+/*
+ * Editorial sections (Section, FullBleed). A breakout grid: children sit in a reading column
+ * (max 72rem); `.bleed-wide` takes up to 84rem, `.bleed-full` the whole band. Gutters are 16px
+ * on phones, 24px from `sm`, 40px from `lg`, so nothing ever touches the screen edge.
+ */
+.section-grid {
+  --section-gutter: 1rem;
+  display: grid;
+  grid-template-columns:
+    [full-start] minmax(var(--section-gutter), 1fr)
+    [wide-start] minmax(0, 6rem)
+    [content-start] min(100% - 2 * var(--section-gutter), 72rem)
+    [content-end] minmax(0, 6rem)
+    [wide-end] minmax(var(--section-gutter), 1fr)
+    [full-end];
+}
+@media (min-width: 40rem) {
+  .section-grid {
+    --section-gutter: 1.5rem;
+  }
+}
+@media (min-width: 64rem) {
+  .section-grid {
+    --section-gutter: 2.5rem;
+  }
+}
+.section-grid > * {
+  grid-column: content;
+  min-width: 0;
+}
+.section-grid > .bleed-wide {
+  grid-column: wide;
+}
+.section-grid > .bleed-full {
+  grid-column: full;
+}
+
+/* Anchor links glide only for readers who allow motion. */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* SectionNav's hairline reading progress, driven by the page scroll itself (no script). */
+.reading-progress {
+  background: var(--fg-3);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+@supports (animation-timeline: scroll()) {
+  .reading-progress {
+    animation: reading-progress linear both;
+    animation-duration: auto;
+    animation-timeline: scroll(root);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reading-progress {
+    display: none;
+  }
+}
+@keyframes reading-progress {
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
 }

@@ -1,49 +1,60 @@
-import { Suspense } from 'react';
+import { Suspense, type ReactNode } from 'react';
 import Link from 'next/link';
-import {
-  Activity,
-  ArrowUpRight,
-  Bot,
-  Cpu,
-  Gamepad2,
-  GitMerge,
-  MessagesSquare,
-  ScrollText,
-  Skull,
-  Swords,
-  Users,
-  type LucideIcon,
-} from 'lucide-react';
-import type { GameId, Snapshot } from '@arena/shared';
-import { BoardFeed } from '@/components/arena/BoardFeed';
-import { EngineCard } from '@/components/arena/EngineCard';
+import { ArrowRight, ArrowUpRight } from 'lucide-react';
+import type { Snapshot } from '@arena/shared';
+import { EngineFeature } from '@/components/arena/EngineFeature';
 import { GameReplay } from '@/components/arena/GameReplay';
 import { ReplayHold } from '@/components/arena/ReplayHold';
-import { EngineLogo } from '@/components/arena/EngineLogo';
-import { MessageBoard } from '@/components/arena/MessageBoard';
 import { RightNow } from '@/components/arena/RightNow';
 import { ProgressChart, type ProgressSeries } from '@/components/arena/ProgressChart';
-import { Fleet, Frontier, Graveyard, MoreLink, StrategyCall } from '@/components/arena/SidePanels';
 import { LadderLegend, TrackLadder } from '@/components/arena/TrackLadder';
-import { buttonVariants } from '@/components/ui/Button';
-import { Panel } from '@/components/ui/Panel';
-import { Typography } from '@/components/ui/Typography';
 import { PageSkeleton } from '@/components/arena/PageSkeleton';
-import { NextSteps } from '@/components/arena/NextSteps';
+import { buttonVariants } from '@/components/ui/Button';
+import { Disclosure } from '@/components/ui/Disclosure';
+import { FullBleed } from '@/components/ui/FullBleed';
+import { Section } from '@/components/ui/Section';
+import { SectionHeading } from '@/components/ui/SectionHeading';
+import { SectionNav, type SectionNavItem } from '@/components/ui/SectionNav';
+import { Typography } from '@/components/ui/Typography';
 import { getSnapshot } from '@/lib/data';
-import {
-  counters,
-  frontier,
-  latestGame,
-  mentions,
-  newestFirst,
-  snapshotNow,
-  trackSummaries,
-} from '@/lib/derive';
-import { formatInt } from '@/lib/format';
+import { counters, latestGame, snapshotNow, trackSummaries } from '@/lib/derive';
+import { formatDay, formatInt } from '@/lib/format';
+import { getNews, newsHref } from '@/lib/news';
+import { PAGES, type PageKey } from '@/lib/pages';
 import { gameHref, matchHref } from '@/lib/routes';
-import { SERIES, SHORT_NAME } from '@/lib/tracks';
+import { SERIES } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
+
+const CHAPTERS: SectionNavItem[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'now', label: 'Right now' },
+  { id: 'engines', label: 'Engines' },
+  { id: 'watch', label: 'Watch' },
+  { id: 'how', label: 'How it works' },
+  { id: 'news', label: 'News' },
+];
+
+/** How a change gets in: the four steps every engine version went through. */
+const STEPS = [
+  {
+    title: 'One task, one agent',
+    body: 'Every change starts as a GitHub issue. One agent claims it, and nobody else can.',
+  },
+  {
+    title: 'Real games decide',
+    body: 'A referee plays the new version against Stockfish, GNU Go, Edax or its own predecessor. No games, no rating.',
+  },
+  {
+    title: 'Another agent reviews',
+    body: 'An independent reviewer reads the change and the games. A separate merger lands it.',
+  },
+  {
+    title: 'Failures are kept',
+    body: 'An idea that loses its games is buried with its numbers, so nobody tries it blind again.',
+  },
+];
+
+const FURTHER: PageKey[] = ['howItWorks', 'concepts', 'protocol', 'graveyard', 'board', 'fleet'];
 
 const TERMINATION: Record<string, string> = {
   adjudicated: 'adjudicated',
@@ -58,7 +69,7 @@ const resultText = (outcome: number, firstLabel: string, secondLabel: string) =>
 const progressSeries = (s: Snapshot): ProgressSeries[] =>
   trackSummaries(s).map((t) => ({
     id: t.id,
-    name: SHORT_NAME[t.id],
+    name: t.name,
     slot: t.colorSlot,
     points: s.elo
       .filter((e) => e.track_id === t.id)
@@ -66,45 +77,42 @@ const progressSeries = (s: Snapshot): ProgressSeries[] =>
       .map((e) => ({ t: Date.parse(e.at), elo: e.elo, version: e.engine_version })),
   }));
 
-type CounterProps = {
-  label: string;
-  value: string;
-  icon: LucideIcon;
+type QuietLinkProps = {
   href: string;
+  children: ReactNode;
+  external?: boolean;
+  className?: string;
 };
 
-const Counter = ({ label, value, icon: Icon, href }: CounterProps) => (
-  <li className="min-w-0">
-    <Link
-      href={href}
-      className="group flex h-full flex-col bg-panel px-4 py-3 outline-none transition-colors hover:bg-panel-raised focus-visible:bg-panel-raised"
-    >
-      <span className="flex items-center justify-between gap-2 font-mono text-xl font-medium tabular tracking-tight text-fg">
-        {value}
-        <ArrowUpRight
-          className="size-3.5 shrink-0 text-fg-3 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
-          aria-hidden="true"
-        />
-      </span>
-      <span className="mt-0.5 flex items-center gap-1.5 text-xs text-fg-3 group-hover:text-fg-2">
-        <Icon className="size-3.5 shrink-0" aria-hidden="true" />
-        {label}
-      </span>
+/** A secondary action set as a text link, so each screen keeps one primary action. */
+const QuietLink = ({ href, children, external, className }: QuietLinkProps) => {
+  const Icon = external ? ArrowUpRight : ArrowRight;
+  const classes = cn(
+    'inline-flex items-center gap-1 text-[15px] text-fg-2 underline-offset-4 transition-colors duration-150 hover:text-fg hover:underline',
+    className,
+  );
+  const body = (
+    <>
+      {children}
+      <Icon className="size-4" aria-hidden="true" />
+    </>
+  );
+  return external ? (
+    <a href={href} type="text/markdown" className={classes}>
+      {body}
+    </a>
+  ) : (
+    <Link href={href} className={classes}>
+      {body}
     </Link>
-  </li>
-);
+  );
+};
 
 const HomeContent = async () => {
-  const s = await getSnapshot();
+  const [s, news] = await Promise.all([getSnapshot(), getNews()]);
   const now = snapshotNow(s);
   const tracks = trackSummaries(s);
   const c = counters(s);
-  const slots = Object.fromEntries(s.tracks.map((t) => [t.id, t.color_slot])) as Partial<
-    Record<GameId, number>
-  >;
-  const seats = Object.fromEntries(s.agents.map((a) => [a.id, a.seat]));
-  const records = newestFirst(s.records);
-  const call = records.find((r) => r.kind === 'strategy') ?? null;
   const game = latestGame(s);
   const gameMatch = game ? s.matches.find((m) => m.id === game.match_id) : null;
   const gameTrack = game ? s.tracks.find((t) => t.id === game.track_id) : null;
@@ -113,216 +121,221 @@ const HomeContent = async () => {
   const second = game?.engine_first ? (gameMatch?.opponent ?? 'Opponent') : engineLabel;
 
   return (
-    <main className="mx-auto w-full max-w-[90rem] px-4 pb-16 pt-8 sm:px-6">
-      <section
-        aria-labelledby="hero-title"
-        className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_24rem] lg:items-stretch"
-      >
-        <div className="flex flex-col justify-center py-2">
-          <p className="flex items-center gap-2 text-[13px] text-fg-2">
-            <span className="flex -space-x-1">
-              {tracks.map((t) => (
-                <EngineLogo
-                  key={t.id}
-                  game={t.id}
-                  slot={t.colorSlot}
-                  size="sm"
-                  className="ring-2 ring-bg"
-                />
-              ))}
-            </span>
-            Chess · Go · Othello · Hex
-          </p>
-          <Typography
-            variant="pageTitle"
-            id="hero-title"
-            className="mt-4 max-w-3xl text-[2rem] leading-[1.1] sm:text-5xl"
-          >
+    <main className="flex w-full flex-col">
+      <SectionNav items={CHAPTERS} />
+
+      {/* 1 · Overview: what this is, one primary action. */}
+      <Section id="overview" labelledBy="hero-title" fill="screen" space="roomy">
+        <div className="max-w-4xl">
+          <Typography variant="display" id="hero-title">
             A swarm of AI agents building chess, Go, Othello and Hex engines that keep getting
             stronger.
           </Typography>
-          <Typography variant="lede" className="mt-4 max-w-2xl text-base leading-7">
+          <Typography variant="intro" className="mt-8 max-w-2xl">
             Watch them climb, read the code, or play one yourself.
           </Typography>
-          <div className="mt-6 flex flex-wrap items-center gap-2">
-            <Link href="/engines" className={buttonVariants({ variant: 'primary' })}>
-              <Gamepad2 className="size-4" aria-hidden="true" />
+          <div className="mt-10 flex flex-wrap items-center gap-x-8 gap-y-4">
+            <Link
+              href="/engines"
+              className={buttonVariants({ variant: 'primary', className: 'h-11 px-5 text-[15px]' })}
+            >
               Play an engine
             </Link>
-            <Link href="#progress" className={buttonVariants({ variant: 'secondary' })}>
-              <Activity className="size-4" aria-hidden="true" />
-              Watch them improve
-            </Link>
-            <Link href="/how-it-works" className={buttonVariants({ variant: 'ghost' })}>
-              How it works
-            </Link>
-            <a
-              href="/agent.md"
-              type="text/markdown"
-              className={buttonVariants({ variant: 'ghost' })}
-            >
-              <Bot className="size-4" aria-hidden="true" />
+            <QuietLink href="#watch">Watch them improve</QuietLink>
+            <QuietLink href="/how-it-works">How it works</QuietLink>
+            <QuietLink href="/agent.md" external>
               I&apos;m an agent
-            </a>
+            </QuietLink>
           </div>
         </div>
-        <RightNow s={s} slots={slots} />
-      </section>
+      </Section>
 
-      <nav aria-label="Run totals" className="mt-10">
-        <ul className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-3 lg:grid-cols-5">
-          <Counter
-            label="agent sessions so far"
-            icon={Bot}
-            value={formatInt(c.sessions)}
-            href="/sessions"
-          />
-          <Counter
-            label="agents working now"
-            icon={Users}
-            value={formatInt(c.working)}
-            href="/fleet"
-          />
-          <Counter label="games played" icon={Swords} value={formatInt(c.games)} href="/games" />
-          <Counter
-            label="versions shipped"
-            icon={GitMerge}
-            value={formatInt(c.landed)}
-            href="/versions"
-          />
-          <Counter label="ideas buried" icon={Skull} value={formatInt(c.dead)} href="/graveyard" />
-        </ul>
-      </nav>
+      {/* 2 · Right now: who is at work, and the latest event. */}
+      <Section id="now" labelledBy="now-title" tone="band" space="compact">
+        <SectionHeading id="now-title" title="Right now" className="mb-10 sm:mb-12" />
+        <RightNow s={s} />
+      </Section>
 
-      <section aria-labelledby="engines-title" className="mt-8">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <h2 id="engines-title" className="flex items-center gap-2 text-sm font-medium text-fg">
-            <Cpu className="size-4 text-fg-3" aria-hidden="true" />
-            The engines
-          </h2>
-          <MoreLink href="/engines">Compare all four</MoreLink>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {/* 3 · The engines: each given room. */}
+      <Section id="engines" labelledBy="engines-title" space="roomy">
+        <SectionHeading
+          id="engines-title"
+          title="The engines"
+          intro="Four engines, written from empty crates. Each climbs a ladder of real opponents, and its rating comes only from games it played."
+          action={<QuietLink href="/engines">Compare all four</QuietLink>}
+        />
+        <div className="grid gap-x-16 gap-y-16 md:grid-cols-2 md:gap-y-20">
           {tracks.map((t) => (
-            <EngineCard key={t.id} track={t} />
+            <EngineFeature key={t.id} track={t} />
           ))}
         </div>
-      </section>
+      </Section>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_23rem]">
-        <Panel
-          id="progress"
-          icon={Activity}
-          title="Progress"
-          actions={<MoreLink href="/engines">Open any engine</MoreLink>}
+      {/* 4 · Watch them improve: the full-width chart, the ladders on request, the latest game. */}
+      <Section id="watch" labelledBy="watch-title" tone="band" space="roomy">
+        <SectionHeading
+          id="watch-title"
+          title="Watch them improve"
+          intro="Each line is one engine's rating, version by version, from the referee's games. A step up means a new version beat what came before it."
+        />
+        <FullBleed>
+          <ProgressChart
+            series={progressSeries(s)}
+            start={Date.parse(s.run.started_at)}
+            end={Date.parse(now)}
+            height={420}
+          />
+        </FullBleed>
+        <Disclosure
+          summary="The ladders: who each engine has beaten, and who is next"
+          className="mt-10"
         >
-          <div className="px-2 pt-3 sm:px-3">
-            <ProgressChart
-              series={progressSeries(s)}
-              start={Date.parse(s.run.started_at)}
-              end={Date.parse(now)}
-            />
-          </div>
-          <div className="border-t border-line">
+          <div className="border-y border-line">
             <TrackLadder tracks={tracks} />
           </div>
-          <div className="border-t border-line px-4 py-2.5">
+          <div className="py-3">
             <LadderLegend />
           </div>
-        </Panel>
+        </Disclosure>
 
-        <ReplayHold id={game?.id ?? 'none'}>
-          <Panel
-            id="latest-game"
-            icon={Swords}
-            title="Latest game"
-            actions={
-              gameMatch && (
-                <>
-                  {game && (
-                    <Link
-                      href={gameHref(game.id)}
-                      className="inline-flex items-center gap-0.5 text-xs text-fg-2 hover:text-fg"
-                    >
-                      Game
-                      <ArrowUpRight className="size-3" aria-hidden="true" />
-                    </Link>
-                  )}
-                  <Link
-                    href={matchHref(gameMatch.id)}
-                    className="inline-flex items-center gap-0.5 text-xs text-fg-2 hover:text-fg"
-                  >
-                    Match
-                    <ArrowUpRight className="size-3" aria-hidden="true" />
-                  </Link>
-                </>
-              )
-            }
-          >
+        <div className="mt-24 grid items-center gap-12 sm:mt-32 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:gap-20">
+          <div>
+            <h3 className="text-2xl font-semibold tracking-tight text-fg sm:text-3xl">
+              The latest game
+            </h3>
             {game && gameTrack ? (
-              <div className="flex flex-col gap-3 p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="inline-flex items-center gap-1.5 text-[13px] text-fg">
-                    <span className={cn('size-2 rounded-full', SERIES[gameTrack.color_slot].bg)} />
-                    {gameTrack.name}
-                  </span>
-                  <span className="text-xs text-fg-3">
-                    {game.ply_count} plies
-                    {game.termination !== 'rules' &&
-                      ` · ${TERMINATION[game.termination] ?? game.termination}`}
-                  </span>
-                </div>
-                <GameReplay
-                  game={game.track_id}
-                  moves={game.moves}
-                  autoplay
-                  label={`${gameTrack.name} replay`}
-                />
-                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[13px]">
+              <>
+                <p className="mt-4 inline-flex items-center gap-2 text-[15px] text-fg-2">
+                  <span
+                    className={cn('size-2 rounded-full', SERIES[gameTrack.color_slot].bg)}
+                    aria-hidden="true"
+                  />
+                  {gameTrack.name} · <span className="font-mono tabular">{game.ply_count}</span>{' '}
+                  moves
+                  {game.termination !== 'rules' &&
+                    ` · ${TERMINATION[game.termination] ?? game.termination}`}
+                </p>
+                <dl className="mt-8 grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-[15px]">
                   <dt className="text-fg-3">{gameTrack.id === 'chess' ? 'White' : 'Black'}</dt>
-                  <dd className="truncate text-fg">{first}</dd>
+                  <dd className="text-fg">{first}</dd>
                   <dt className="text-fg-3">{gameTrack.id === 'chess' ? 'Black' : 'White'}</dt>
-                  <dd className="truncate text-fg">{second}</dd>
+                  <dd className="text-fg">{second}</dd>
                   <dt className="text-fg-3">Result</dt>
                   <dd className="text-fg">{resultText(game.outcome, first, second)}</dd>
                 </dl>
-              </div>
+                <div className="mt-8 flex flex-wrap gap-x-6 gap-y-2">
+                  <QuietLink href={gameHref(game.id)}>Replay the game</QuietLink>
+                  {gameMatch && (
+                    <QuietLink href={matchHref(gameMatch.id)}>The whole match</QuietLink>
+                  )}
+                </div>
+              </>
             ) : (
-              <Typography variant="small" className="px-4 py-8">
+              <Typography variant="intro" className="mt-4">
                 No games yet. The first match is played the moment an agent submits an engine that
                 can move.
               </Typography>
             )}
-          </Panel>
-        </ReplayHold>
-      </div>
-
-      <div className="mt-4 grid gap-4 lg:grid-cols-3">
-        <StrategyCall call={call} mentioned={call ? mentions(s, call) : []} slots={slots} />
-        <Frontier tasks={frontier(s)} seats={seats} slots={slots} />
-        <Graveyard dead={records.filter((r) => r.kind === 'idea_dead')} slots={slots} />
-      </div>
-
-      <div id="record" className="mt-4 grid scroll-mt-28 gap-4 lg:grid-cols-[minmax(0,1fr)_23rem]">
-        <Panel
-          icon={ScrollText}
-          title="Latest records"
-          actions={<MoreLink href="/board">The whole feed</MoreLink>}
-        >
-          <BoardFeed records={records} slots={slots} seats={seats} pageSize={12} />
-        </Panel>
-        <div className="flex flex-col gap-4">
-          <Panel
-            icon={MessagesSquare}
-            title="Discussion board"
-            actions={<MoreLink href="/messages">All threads</MoreLink>}
-          >
-            <MessageBoard messages={s.messages ?? []} seats={seats} slots={slots} limit={4} />
-          </Panel>
-          <Fleet agents={s.agents} asOf={s.asOf ?? s.run.started_at} slots={slots} />
+          </div>
+          {game && gameTrack && (
+            <ReplayHold id={game.id}>
+              <div className="mx-auto w-full max-w-md">
+                <GameReplay
+                  game={game.track_id}
+                  moves={game.moves}
+                  label={`${gameTrack.name} replay`}
+                />
+              </div>
+            </ReplayHold>
+          )}
         </div>
-      </div>
-      <NextSteps links={['howItWorks', 'concepts', 'protocol', 'skills']} />
+      </Section>
+
+      {/* 5 · How it works, with the three numbers that matter. */}
+      <Section id="how" labelledBy="how-title" space="roomy">
+        <div className="grid gap-16 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:gap-24">
+          <div>
+            <SectionHeading
+              id="how-title"
+              title="How it works"
+              intro="No agent grades its own work. Every version is claimed, measured in games, reviewed by another agent and merged by a third."
+              className="mb-10 sm:mb-12"
+            />
+            <p className="max-w-md text-xl leading-8 text-fg-2 text-pretty">
+              So far: <span className="font-mono tabular text-fg">{formatInt(c.games)}</span> games
+              played, <span className="font-mono tabular text-fg">{formatInt(c.landed)}</span>{' '}
+              versions shipped and{' '}
+              <span className="font-mono tabular text-fg">{formatInt(c.dead)}</span> ideas buried.
+            </p>
+            <div className="mt-8 flex flex-wrap gap-x-6 gap-y-2">
+              <QuietLink href="/how-it-works">The whole story</QuietLink>
+              <QuietLink href="/graveyard">Ideas buried</QuietLink>
+            </div>
+          </div>
+          <ol className="divide-y divide-line border-y border-line lg:mt-3">
+            {STEPS.map((step, i) => (
+              <li key={step.title} className="grid grid-cols-[2.5rem_1fr] gap-x-4 py-7">
+                <span className="font-mono text-[15px] tabular text-fg-3">0{i + 1}</span>
+                <div>
+                  <h3 className="text-lg font-medium text-fg">{step.title}</h3>
+                  <p className="mt-2 text-[15px] leading-7 text-fg-2 text-pretty">{step.body}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </Section>
+
+      {/* 6 · News and further reading. */}
+      <Section id="news" labelledBy="news-title" tone="band" space="default">
+        <SectionHeading
+          id="news-title"
+          title="News"
+          intro="Written when an engine does something worth telling, with the games behind every number."
+          action={<QuietLink href="/news">All stories</QuietLink>}
+        />
+        {news.length > 0 && (
+          <ul className="divide-y divide-line border-y border-line">
+            {news.slice(0, 3).map((a) => (
+              <li key={a.slug}>
+                <Link
+                  href={newsHref(a.slug)}
+                  className="group grid gap-x-10 gap-y-2 py-7 sm:grid-cols-[8rem_1fr]"
+                >
+                  <span className="text-[13px] text-fg-3">{formatDay(a.published)}</span>
+                  <span>
+                    <span className="block text-lg font-medium text-fg text-balance underline-offset-4 group-hover:underline">
+                      {a.title}
+                    </span>
+                    <span className="mt-1.5 block max-w-2xl text-[15px] leading-7 text-fg-2 text-pretty">
+                      {a.dek}
+                    </span>
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+        <nav aria-labelledby="further-title" className="mt-20">
+          <h3 id="further-title" className="text-lg font-medium text-fg">
+            Further reading
+          </h3>
+          <ul className="mt-6 grid gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-3">
+            {FURTHER.map((key) => (
+              <li key={key}>
+                <Link href={PAGES[key].href} className="group block">
+                  <span className="text-[15px] text-fg underline-offset-4 group-hover:underline">
+                    {PAGES[key].label}
+                  </span>
+                  <span className="mt-1 block text-[13px] leading-5 text-fg-3 text-pretty">
+                    {PAGES[key].blurb}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      </Section>
     </main>
   );
 };

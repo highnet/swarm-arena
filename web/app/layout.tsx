@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next';
-import type { ReactNode } from 'react';
+import { Suspense, type ReactNode } from 'react';
 import { Geist, Geist_Mono } from 'next/font/google';
 import { SiteFooter } from '@/components/arena/SiteFooter';
 import { SceneBackground } from '@/components/arena/SceneBackground';
@@ -51,8 +51,12 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: '#101116',
-  colorScheme: 'dark',
+  // The ground of each theme: Sulpher Yellow and Black (Wada, combination 52).
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#f5ecc2' },
+    { media: '(prefers-color-scheme: dark)', color: '#111314' },
+  ],
+  colorScheme: 'light dark',
 };
 
 type RootLayoutProps = {
@@ -81,7 +85,10 @@ const RootLayout = async ({ children }: RootLayoutProps) => {
         )}
       </head>
       <body className="flex min-h-full flex-col">
-        <SceneBackground />
+        {/* Reads the route (the homepage has no backdrop), so it waits for the request. */}
+        <Suspense fallback={null}>
+          <SceneBackground />
+        </Suspense>
         <SiteHeader
           runId={snapshot.run.id}
           working={liveAgents(snapshot.agents, snapshot.asOf ?? snapshot.run.started_at).length}

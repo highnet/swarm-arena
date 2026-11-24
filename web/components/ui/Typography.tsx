@@ -5,6 +5,14 @@ import { cn } from '@/lib/utils';
 const typographyVariants = cva('', {
   variants: {
     variant: {
+      /** The one headline of an editorial page's opening section. */
+      display:
+        'text-4xl leading-[1.08] font-semibold tracking-tight text-fg text-balance sm:text-5xl lg:text-6xl',
+      /** A chapter heading: opens one section of a long, vertical page. */
+      chapter:
+        'text-3xl leading-[1.1] font-semibold tracking-tight text-fg text-balance sm:text-5xl',
+      /** The short paragraph under a chapter heading. */
+      intro: 'text-base leading-7 text-fg-2 text-pretty sm:text-lg sm:leading-8',
       pageTitle: 'text-2xl font-semibold tracking-tight text-fg text-balance sm:text-[1.75rem]',
       lede: 'text-[15px] leading-6 text-fg-2 text-pretty',
       sectionTitle: 'text-sm font-medium text-fg',
@@ -36,6 +44,9 @@ const typographyVariants = cva('', {
 });
 
 const DEFAULT_TAG: Record<string, string> = {
+  display: 'h1',
+  chapter: 'h2',
+  intro: 'p',
   pageTitle: 'h1',
   sectionTitle: 'h2',
   lede: 'p',
