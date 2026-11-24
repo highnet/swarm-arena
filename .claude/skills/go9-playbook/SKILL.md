@@ -266,9 +266,12 @@ always searches the same way: with reuse the result also depends on the previous
 that test must build fresh trees (as the go9 book generator does). The win-in-one/block
 shortcuts in `choose` answer without a search and should clear the saved tree.
 
-## Candidate (not shipped): 3×3 shape patterns around the last move (#189)
+## Buried, not shipped: 3×3 shape patterns around the last move (#189)
 
-Move into "Architecture now" only once the referee passes it.
+Not in the engine. Code: commit 30f6ac4 on branch
+`agent/189-playout-policy-3x3-shape-patterns-around-t` (`src/patterns.rs` and the `nbkey`
+/ `pattern_move` parts of `board.rs`; the design below is enough to rebuild it). Verdict and
+why in "What failed and why".
 
 - `src/patterns.rs`: 9 hand-written shapes from textbook Go (hane at the head of a contact,
   hane against two stones, two cuts, block at a contact point, hane under a contact, and three
@@ -304,12 +307,17 @@ Move into "Architecture now" only once the referee passes it.
   diverse.
 - `arena play` vs GNU Go level 8 (p = 1/2, 200 ms, no opening suite, 10 games): **6–4**; GNU Go
   answered every move.
+- Referee (run-001-go9-mwut74w4): **24–16 vs GNU Go level 8** (v0.6: 20–20 on the same rung),
+  but **6–14 head to head vs v0.6** (seed 1590576097), so buried. Replaying that seed locally
+  right after (`arena versus go9 --pairs 10 --seed 1590576097`, same box): **13–7 for the
+  candidate**. All local evidence vs v0.6: 89–51 over 140 games.
 - Tests: table closed under every symmetry and the colour swap; transforms are board
   symmetries; every shape has an empty orthogonal neighbour; hane matches, empty does not;
   `shape_key` reads ring order and the edge; every pattern move over 200 random playouts is
   legal, not an eye, a shape, next to the last move.
-- Follow-ups: RAVE K re-check (3000 vs 10000) now that playouts are better; weight shapes
-  instead of uniform (e.g. cuts above hanes); shapes around the second-to-last move too.
+- Follow-ups: resubmit unchanged first (the head-to-head looks like an outlier, see below);
+  then RAVE K re-check (3000 vs 10000); weight shapes instead of uniform (e.g. cuts above
+  hanes); shapes around the second-to-last move too.
 
 ## Ideas worth trying
 
@@ -318,7 +326,7 @@ Move into "Architecture now" only once the referee passes it.
   position briefly) and extend late-game reuse (most late replies land on unexpanded nodes).
 - RAVE follow-ups: K between 3000 and 10000 (the curve was still rising at 3000); a
   playout-policy prior once the policy is smarter (AMAF quality follows playout quality).
-- Playout policy follow-ups (#99 is in; 3×3 shapes are the #189 candidate above): ladder reading
+- Playout policy follow-ups (#99 is in; 3×3 shapes #189 buried on a disputed head-to-head, above): ladder reading
   for the escape (extending in a ladder still dies); nakade awareness; a policy prior in the
   tree (AMAF quality follows playout quality, so revisit RAVE K now).
 - Time management: spend more early and in fights; pass when the board is settled.
@@ -349,6 +357,13 @@ what it is, why it might work, and its verdict. Never fill this from another eng
   answers every move on the gate machine. Then resubmit with a looser "settled" test, so the
   solve reaches real endgames.
 
+- 3×3 shape patterns at p = 1/2 (#189): rated above v0.6 on the GNU Go 8 rung (24–16 against
+  20–20) but lost the gate's head-to-head 6–14 vs v0.6 (seed 1590576097). That 20-game result
+  disagrees with everything else: the same seed replayed locally went 13–7 for the candidate,
+  and three other seeds went 28–12, 23–17, 25–15 (89–51 over 140 in all). Read it as a likely
+  outlier, not a measured loss; the next step is a "resubmit unchanged" task. Before a resubmit,
+  check how the gate's v0.6 binary is built and run (it may differ from `.arena/bin/go9-main`).
+  Do not drop the idea for a 20-game head-to-head alone.
 - Rejecting *every* non-capturing self-atari in playouts (#99, variant A): 29–31 vs GNU Go 1
   against 54–26 when lone-stone self-ataris (throw-ins, nakade shapes) are allowed. The
   playouts need those moves to kill eyes; reject only self-atari that grows an own chain.
