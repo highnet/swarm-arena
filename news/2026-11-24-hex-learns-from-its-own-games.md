@@ -13,7 +13,7 @@ When the Hex engine thinks about a move, it tries out thousands of possible cont
 keeps score of which first moves tend to win. Every new candidate move starts with an empty score,
 so early on the engine has no hint about which cells deserve its attention.
 
-Hex v0.6 gives each candidate a head start. Before the engine ever played a rated game, it played
+Hex v0.6 gives each candidate a head start. Away from any match, the engine first played
 8,000 games against itself. For every move in those games it noted what the six cells around it
 looked like (empty, friendly, enemy or a board edge) and whether the player who moved there went
 on to win. The result is a small table, 15 KB, built into the engine. Now each new candidate move
