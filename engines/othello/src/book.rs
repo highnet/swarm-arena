@@ -107,8 +107,54 @@ pub fn probe(g: &Game) -> Option<usize> {
 // ---------------------------------------------------------------------------------------------
 
 /// Plies played by the referee's random openings (`OPENING_PLIES.othello`): the engine first
-/// moves at ply 4 (as Black) or ply 5 (as White).
+/// moves at ply 4 (as Black) or ply 5 (as White). The book tree grows from these.
 pub const ROOT_PLIES: [u32; 2] = [4, 5];
+
+/// Plies the book covers exhaustively as leaves (no follow-ups): the referee's balanced suite
+/// (#125) plays 6-ply lines, so the engine first moves at ply 6 (Black) or 7 (White). Every
+/// canonical position at these plies is stored, whatever line led there: 1773 + 10649.
+pub const COVER_PLIES: [u32; 2] = [6, 7];
+
+/// Search depth for a cover-only position (one the tree does not reach): 11 at ply 6, 10 at
+/// ply 7 (depth 10 costs ~0.35 s per position, 11 ~1.4 s; a `go 200` search reaches 8-9).
+pub fn cover_depth(ply: u32) -> u32 {
+    if ply <= 6 { 11 } else { 10 }
+}
+
+/// Every canonical position with a legal placement at the given plies.
+pub fn layers(plies: &[u32]) -> BTreeSet<(u64, u64)> {
+    let mut out = BTreeSet::new();
+    let mut layer = vec![Game::default()];
+    for p in 0..=*plies.iter().max().unwrap() {
+        if plies.contains(&p) {
+            for g in &layer {
+                if g.available_moves() != 0 {
+                    let [me, opp] = g.get();
+                    out.insert(canonical(me, opp).0);
+                }
+            }
+        }
+        if p == *plies.iter().max().unwrap() {
+            break;
+        }
+        let mut next = Vec::new();
+        let mut seen = HashSet::new();
+        for g in &layer {
+            let mut avail = g.available_moves();
+            while avail != 0 {
+                let i = avail.trailing_zeros() as usize;
+                avail &= avail - 1;
+                let n = g.make_move(i).unwrap();
+                let [me, opp] = n.get();
+                if seen.insert(canonical(me, opp).0) {
+                    next.push(n);
+                }
+            }
+        }
+        layer = next;
+    }
+    out
+}
 
 /// Fixed-depth negamax from the root: (best move, score, nodes). Deterministic.
 pub fn fixed_depth(g: &Game, depth: u32) -> (usize, i32, u64) {
@@ -148,34 +194,7 @@ fn game(me: u64, opp: u64) -> Game {
 
 /// Every canonical position the referee's random openings can hand the engine.
 pub fn roots() -> BTreeSet<(u64, u64)> {
-    let mut out = BTreeSet::new();
-    let mut layer = vec![Game::default()];
-    for p in 0..=*ROOT_PLIES.iter().max().unwrap() {
-        if ROOT_PLIES.contains(&p) {
-            for g in &layer {
-                if g.available_moves() != 0 {
-                    let [me, opp] = g.get();
-                    out.insert(canonical(me, opp).0);
-                }
-            }
-        }
-        let mut next = Vec::new();
-        let mut seen = HashSet::new();
-        for g in &layer {
-            let mut avail = g.available_moves();
-            while avail != 0 {
-                let i = avail.trailing_zeros() as usize;
-                avail &= avail - 1;
-                let n = g.make_move(i).unwrap();
-                let [me, opp] = n.get();
-                if seen.insert(canonical(me, opp).0) {
-                    next.push(n);
-                }
-            }
-        }
-        layer = next;
-    }
-    out
+    layers(&ROOT_PLIES)
 }
 
 /// How many opponent replies the tree follows after our book move at `ply`: all of them while
@@ -199,10 +218,12 @@ pub fn book_depth(ply: u32) -> u32 {
 /// Search depth used to rank the opponent's replies.
 const REPLY_DEPTH: u32 = 6;
 
-/// Walks the book tree from the roots and returns the positions still missing an entry.
-/// `book` holds (move, score) per canonical position; the tree stops at `max_ply`.
-pub fn frontier(book: &BTreeMap<(u64, u64), (u8, i16)>, max_ply: u32) -> BTreeSet<(u64, u64)> {
-    let mut need = BTreeSet::new();
+/// Walks the book tree from the roots, then the cover layers, and returns the positions still
+/// missing an entry with the depth to search each at (a tree position keeps `book_depth` even
+/// when a cover layer also holds it). `book` holds (move, score) per canonical position; the
+/// tree stops at `max_ply`.
+pub fn frontier(book: &BTreeMap<(u64, u64), (u8, i16)>, max_ply: u32) -> BTreeMap<(u64, u64), u32> {
+    let mut need = BTreeMap::new();
     let mut seen = HashSet::new();
     let mut stack: Vec<(u64, u64)> = roots().into_iter().collect();
     while let Some(key) = stack.pop() {
@@ -210,7 +231,7 @@ pub fn frontier(book: &BTreeMap<(u64, u64), (u8, i16)>, max_ply: u32) -> BTreeSe
             continue;
         }
         let Some(&(m, _)) = book.get(&key) else {
-            need.insert(key);
+            need.insert(key, book_depth(ply(key.0, key.1)));
             continue;
         };
         let g = game(key.0, key.1);
@@ -258,6 +279,11 @@ pub fn frontier(book: &BTreeMap<(u64, u64), (u8, i16)>, max_ply: u32) -> BTreeSe
             stack.push(canonical(me, opp).0);
         }
     }
+    for key in layers(&COVER_PLIES) {
+        if !book.contains_key(&key) {
+            need.entry(key).or_insert_with(|| cover_depth(ply(key.0, key.1)));
+        }
+    }
     need
 }
 
@@ -285,18 +311,19 @@ fn open(path: &str) -> io::BufReader<std::fs::File> {
 }
 
 /// `othello-engine book …`. Commands:
-/// - `frontier <entries>`: positions the tree still needs, one `me opp` per line.
+/// - `frontier <entries>`: positions the book still needs, one `me opp depth` per line.
 /// - `analyse <shard> <shards>` (positions on stdin): entry lines for this shard.
 /// - `pack <entries>`: writes the sorted binary book to stdout.
-/// - `stats` (games on stdin, `b|w move…` per line): in-book plies and first miss per game.
+/// - `stats [opening plies]` (games on stdin, `b|w move…` per line): in-book plies and first
+///   miss per game, counting only the engine's own moves after the opening (default 6).
 pub fn command(args: &[String]) {
     let out = io::stdout();
     let mut out = out.lock();
     match args.first().map(String::as_str) {
         Some("frontier") => {
             let book = read_entries(open(&args[1]));
-            for (me, opp) in frontier(&book, MAX_PLY) {
-                writeln!(out, "{me:016x} {opp:016x}").unwrap();
+            for ((me, opp), depth) in frontier(&book, MAX_PLY) {
+                writeln!(out, "{me:016x} {opp:016x} {depth}").unwrap();
             }
         }
         Some("analyse") => {
@@ -309,7 +336,7 @@ pub fn command(args: &[String]) {
                 }
                 let f: Vec<&str> = line.split_whitespace().collect();
                 let Some((me, opp)) = parse_key(f[0], f[1]) else { continue };
-                let depth = book_depth(ply(me, opp));
+                let depth = f.get(2).and_then(|d| d.parse().ok()).unwrap_or_else(|| book_depth(ply(me, opp)));
                 let (m, v, _) = fixed_depth(&game(me, opp), depth);
                 writeln!(out, "{me:016x} {opp:016x} {m} {} {depth}", v.clamp(-32000, 32000)).unwrap();
                 out.flush().unwrap();
@@ -325,6 +352,7 @@ pub fn command(args: &[String]) {
             }
         }
         Some("stats") => {
+            let from: usize = args.get(1).and_then(|a| a.parse().ok()).unwrap_or(COVER_PLIES[0] as usize);
             let stdin = io::stdin();
             let (mut games, mut hits, mut ours) = (0, 0, 0);
             for line in stdin.lock().lines().map_while(Result::ok) {
@@ -335,7 +363,7 @@ pub fn command(args: &[String]) {
                     _ => continue,
                 };
                 let moves: Vec<String> = f.map(String::from).collect();
-                let (h, n, first) = game_stats(&moves, side);
+                let (h, n, first) = game_stats(&moves, side, from);
                 games += 1;
                 hits += h;
                 ours += n;
@@ -348,13 +376,14 @@ pub fn command(args: &[String]) {
     }
 }
 
-/// For the side `side` (0 Black, 1 White) of one game: (plies it had a book move, plies it had
-/// a placement, ply index of its first out-of-book placement).
-pub fn game_stats(moves: &[String], side: usize) -> (u32, u32, Option<usize>) {
+/// For the side `side` (0 Black, 1 White) of one game whose first `from` plies were the
+/// referee's opening: (plies it had a book move, plies it had a placement, ply index of its
+/// first out-of-book placement).
+pub fn game_stats(moves: &[String], side: usize, from: usize) -> (u32, u32, Option<usize>) {
     let mut g = Game::default();
     let (mut hits, mut n, mut first) = (0, 0, None);
     for (p, m) in moves.iter().enumerate() {
-        if p % 2 == side && g.available_moves() != 0 && p >= ROOT_PLIES[0] as usize {
+        if p % 2 == side && g.available_moves() != 0 && p >= from {
             n += 1;
             if probe(&g).is_some() {
                 hits += 1;
@@ -465,17 +494,34 @@ mod tests {
     }
 
     #[test]
+    fn every_position_after_a_six_ply_opening_is_in_the_book() {
+        let cover = layers(&COVER_PLIES);
+        assert_eq!(cover.len(), 1773 + 10649);
+        if entries() == 0 {
+            return; // generator not yet run
+        }
+        let missing = cover.iter().filter(|&&k| lookup(k).is_none()).count();
+        assert_eq!(missing, 0, "cover positions missing from the book");
+    }
+
+    #[test]
     fn generator_is_deterministic() {
         let g = game(Game::default().get()[0], Game::default().get()[1]);
         assert_eq!(fixed_depth(&g, 6), fixed_depth(&g, 6));
         let empty = BTreeMap::new();
-        assert_eq!(frontier(&empty, MAX_PLY), roots());
+        let need = frontier(&empty, MAX_PLY);
+        let mut expect = roots();
+        expect.extend(layers(&COVER_PLIES));
+        assert_eq!(need.keys().copied().collect::<BTreeSet<_>>(), expect);
+        for key in roots() {
+            assert_eq!(need[&key], book_depth(ply(key.0, key.1)));
+        }
     }
 
     #[test]
     fn stats_count_only_the_given_side_after_the_random_plies() {
         let moves: Vec<String> = "f5 d6 c3 d3 c4 f4".split(' ').map(String::from).collect();
-        let (hits, n, first) = game_stats(&moves, 0);
+        let (hits, n, first) = game_stats(&moves, 0, 4);
         assert_eq!(n, 1); // ply 4 only
         assert!(hits <= n);
         assert!(first.is_none() || first == Some(4));

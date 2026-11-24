@@ -108,25 +108,27 @@ Move into "Architecture now" only once the referee passes it.
   board's 8 symmetries (rank flip = `swap_bytes`, file flip, a1-h8 transpose, and their
   compositions; tested against a square-by-square reference). Transpositions and mirrored
   openings share one entry; the stored move is mapped back through the same symmetry.
-- **What it covers.** The referee's openings are 4 uniformly random plies (`OPENING_PLIES`), so
-  the engine first moves at ply 4 (Black) or 5 (White). There are only **382 canonical positions**
-  at plies 4 and 5: the book has all of them. After each book move it follows *every* opponent
-  reply at plies 4-5 (2237 more positions), then the **2 best replies by our own depth-6 search**
-  up to ply 9 (`replies_followed`, `MAX_PLY`). Nothing comes from Edax or an external book: the
-  opponent's replies are ranked by this engine's search only.
+- **What it covers.** Two parts. (1) A tree built for #103's 4-ply random openings: all
+  **382 canonical positions** at plies 4-5, *every* opponent reply after each book move (2237),
+  then the **2 best replies by our own depth-6 search** up to ply 9 (`replies_followed`,
+  `MAX_PLY`): 6971 entries. (2) Since #125 the gate plays 6-ply lines from the balanced suite
+  (`shared/src/openings/othello.txt`), so the engine first moves at ply 6 (Black) or 7 (White),
+  which part (1) mostly misses (it only holds ply-6/7 positions reached through its own book
+  moves). So the book also stores **every canonical position at plies 6 and 7** as a leaf
+  (`COVER_PLIES`: 1773 + 10649, no follow-ups): any 6-ply opening, not just the suite's 200,
+  gets an instant first move. Nothing comes from Edax or an external book: replies are ranked
+  and moves chosen by this engine's search only.
 - **How it was built** (regenerate with `othello/book/generate.sh [shards]` from `engines/`):
-  `fixed_depth()` = the engine's own iterative-deepening negamax and `evaluate()`, no clock,
-  depth 12 at plies 4-5 (`book_depth`), 11 below; a `go 200` search reaches 8-9 there. Cost on
-  this machine (4 shards as separate processes; the crate may not use threads): depth 10
-  0.35 s/position, 11 ~1.4 s alone (~2 s with 4 shards running), 12 ~4.6 s. Levels: 382 roots
-  ~7 min, 2237 ~20 min, 4352 ~40 min. Deterministic: same code, same book, whatever the shard
-  count. `book/entries.txt` is the readable source (me, opp hex, move index, score, depth); the
-  script resumes from it. Size: 6971 entries (382 + 2237 + 4352), 132 449 bytes embedded.
-- Hit rate: `othello-engine book stats` reads `b|w move…` game lines and reports in-book plies
-  per game and the first out-of-book ply. **Not yet measured**: the session stopped at a swarm
-  ramp-down before any match with the full book (a 382-entry partial book gave 1 in-book ply per
-  game vs main). Next: a seeded random-opening match vs main and vs Edax 4 (both colours), the
-  hit-rate stats on those games, then `arena submit`.
+  `fixed_depth()` = the engine's own iterative-deepening negamax and `evaluate()`, no clock.
+  Tree depth 12 at plies 4-5 (`book_depth`), 11 below; cover-only positions 11 at ply 6, 10 at
+  ply 7 (`cover_depth`); a `go 200` search reaches 8-9 there. `book frontier` prints each
+  missing position with its depth, so the book is deterministic whatever the shard count. Cost
+  on this machine (4 shards as separate processes; the crate may not use threads): depth 10
+  0.35 s/position, 11 ~1.4 s alone (~2 s with 4 shards running), 12 ~4.6 s. Tree: 382 roots
+  ~7 min, 2237 ~20 min, 4352 ~40 min; cover: 10185 new positions ~40 min. `book/entries.txt`
+  is the readable source (me, opp hex, move index, score, depth); the script resumes from it.
+- Hit rate: `othello-engine book stats [opening plies]` (default 6) reads `b|w move…` game lines
+  and reports the engine's in-book plies per game and its first out-of-book ply.
 
 ## Ideas worth trying
 
