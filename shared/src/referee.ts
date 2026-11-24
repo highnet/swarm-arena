@@ -109,6 +109,8 @@ export type MatchResult = {
   openingSource: 'suite' | 'random' | null;
   /** For a suite draw, the entry (0-based, in file order) each pair used. */
   openingEntries: number[] | null;
+  /** Opponent timeouts and crashes that were voided and replayed (empty when none). */
+  voided: VoidedGame[];
 };
 
 export type MatchOptions = PlayOptions & {
@@ -125,7 +127,21 @@ export type MatchOptions = PlayOptions & {
    */
   openingSuite?: OpeningSuite;
   onGame?: (g: GameRecord, index: number) => void;
+  /**
+   * How many times one game may be voided and replayed because the opponent (a reference
+   * engine) timed out or crashed. Such a forfeit measures the reference's process, not the
+   * candidate, so it is not a result: the game is replayed from the same opening, colours
+   * unchanged. Past the limit the match throws. Omit (or 0) to count every forfeit as played.
+   * The candidate's own forfeits always count.
+   */
+  replayOpponentFailures?: number;
+  onVoid?: (g: GameRecord, index: number, attempt: number) => void;
 };
+
+/** A game that did not count: the opponent timed out or crashed, so it was replayed. */
+export type VoidedGame = { index: number; attempt: number; termination: Termination; plies: number; detail?: string };
+
+const isFailure = (g: GameRecord) => g.termination === 'timeout' || g.termination === 'crash';
 
 /**
  * Plays `pairs` colour-swapped pairs: candidate first in even games, second in odd ones.
@@ -150,12 +166,26 @@ export const playMatch = async <S>(
   let wins = 0;
   let draws = 0;
   let losses = 0;
+  const voided: VoidedGame[] = [];
+  const replays = options.replayOpponentFailures ?? 0;
   for (let i = 0; i < pairs * 2; i++) {
     const candidateFirst = i % 2 === 0;
-    const g = await playGame(rules, candidateFirst ? [candidate, opponent] : [opponent, candidate], {
-      ...options,
-      opening: openings[Math.floor(i / 2)],
-    });
+    const seats: [Mover, Mover] = candidateFirst ? [candidate, opponent] : [opponent, candidate];
+    let g: GameRecord;
+    for (let attempt = 0; ; attempt++) {
+      g = await playGame(rules, seats, { ...options, opening: openings[Math.floor(i / 2)] });
+      // Whoever timed out or crashed may still have a move in flight: restore it before it
+      // plays again, or the late answer desynchronises every later game.
+      if (isFailure(g) && g.offender !== null) await seats[g.offender].reset?.();
+      const opponentFailed = isFailure(g) && g.offender === (candidateFirst ? 1 : 0);
+      if (!opponentFailed || replays <= 0) break;
+      voided.push({ index: i, attempt, termination: g.termination, plies: g.moves.length, detail: g.detail });
+      options.onVoid?.(g, i, attempt);
+      if (attempt + 1 > replays)
+        throw new Error(
+          `${opponent.id} ${g.termination} in game ${i + 1} on ${attempt + 1} attempts in a row: aborting the match (${g.detail ?? ''})`,
+        );
+    }
     const s = candidateFirst ? g.outcome : 1 - g.outcome;
     score += s;
     if (s === 1) wins++;
@@ -174,5 +204,6 @@ export const playMatch = async <S>(
     openingSeed: seed,
     openingSource: picked?.source ?? null,
     openingEntries: picked?.entries ?? null,
+    voided,
   };
 };

@@ -20,6 +20,12 @@ export type Mover = {
   id: string;
   choose: <S>(rules: GameRules<S>, state: S) => Promise<string>;
   close?: () => Promise<void>;
+  /**
+   * Bring the player back to a clean state after it timed out or crashed (for a process: kill it
+   * and start a fresh one). A move that timed out may still be running and would answer into the
+   * next game; the referee calls this before the player moves again.
+   */
+  reset?: () => Promise<void>;
 };
 
 /** Moves a sensible random player would consider (Go: never fill your own eye). */
