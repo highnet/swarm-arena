@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 import { sectorNodeId, type SwarmFlow } from './model';
 import {
   activeWindow,
+  burstsOf,
   emptySnapshot,
   indexAtTime,
   planReplay,
   stateAt,
+  sparksAt,
   summarizeReplay,
 } from './replay';
 
@@ -141,4 +143,50 @@ test('a host chooses what the replay dwells on', () => {
   const s = summarizeReplay(plan);
   assert.equal(s.milestones, 1);
   assert.equal(s.ratings, 1);
+});
+
+test('a burst (one group back to back) is found and plays as one beat', () => {
+  const g = { id: 'match:1', title: 'Chess v3 vs Stockfish L2' };
+  const flows = [
+    flow(0, 0),
+    ...Array.from({ length: 40 }, (_, k) => flow(1 + k, MIN + k * 30_000, { group: g })),
+    flow(41, 30 * MIN),
+    flow(42, 40 * MIN),
+  ];
+  const burst = burstsOf(flows);
+  assert.equal(burst[0], -1);
+  assert.equal(burst[1], 1);
+  assert.equal(burst[40], 1);
+  assert.equal(burst[41], -1);
+  const plan = planReplay(flows, 'hub', {
+    mode: 'all',
+    durationMs: 60_000,
+    isMilestone: () => false,
+  });
+  // The 39 later games ride on the first one's beat: 70 ms apart, not a share of the minute.
+  const span = plan.times[40] - plan.times[1];
+  assert.ok(span <= 39 * 70 + 1, `burst spans ${span} ms`);
+  // The events outside the burst get the time instead.
+  assert.ok(plan.times[42] - plan.times[41] > 1000);
+  // Sparks: the first, every fourth and the last of the burst; single events always.
+  assert.ok(sparksAt(plan, 0));
+  assert.ok(sparksAt(plan, 1));
+  assert.ok(!sparksAt(plan, 2));
+  assert.ok(sparksAt(plan, 5));
+  assert.ok(sparksAt(plan, 40));
+  assert.ok(sparksAt(plan, 41));
+});
+
+test('a milestone inside a burst still gets its own beat and hold', () => {
+  const g = { id: 'match:2', title: 'Go v1 vs GNU Go' };
+  const flows = [
+    flow(0, 0, { group: g }),
+    flow(1, MIN, { group: g }),
+    flow(2, 2 * MIN, { group: g, kind: 'rating', delta: 81 }),
+    flow(3, 3 * MIN),
+  ];
+  const plan = planReplay(flows, 'hub', { mode: 'all', durationMs: 20_000 });
+  assert.deepEqual(plan.milestones, [2]);
+  assert.ok(plan.times[2] - plan.times[1] > 70, 'the rating is not squeezed into the burst');
+  assert.ok(plan.times[3] - plan.times[2] >= 500, 'and holds after');
 });

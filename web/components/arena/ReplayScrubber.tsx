@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
-import { Pause, Play, RotateCcw, Radio, X } from 'lucide-react';
+import { Pause, Play, RotateCcw, Radio, Vibrate, X } from 'lucide-react';
 import {
   type SwarmReplayMode,
   type SwarmReplayPlan,
@@ -44,6 +44,11 @@ type ReplayScrubberProps = {
   onPlaying: (playing: boolean) => void;
   onSpeed: (speed: number) => void;
   onMode: (mode: SwarmReplayMode) => void;
+  /** The viewer started or stopped dragging the playhead. */
+  onScrubbing?: (on: boolean) => void;
+  /** Haptic ticks on milestones (phones), off by default. */
+  haptics?: boolean;
+  onHaptics?: () => void;
   onClose: () => void;
 };
 
@@ -65,6 +70,9 @@ const ReplayScrubber = ({
   onPlaying,
   onSpeed,
   onMode,
+  onScrubbing,
+  haptics = false,
+  onHaptics,
   onClose,
 }: ReplayScrubberProps) => {
   const track = useRef<HTMLDivElement>(null);
@@ -72,6 +80,11 @@ const ReplayScrubber = ({
   const fill = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
   const [narrow, setNarrow] = useState(false);
+  const [canVibrate, setCanVibrate] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setCanVibrate('vibrate' in navigator));
+    return () => cancelAnimationFrame(id);
+  }, []);
   const total = plan.total || 1;
 
   useEffect(() => {
@@ -145,6 +158,7 @@ const ReplayScrubber = ({
 
   const onDown = (e: PointerEvent<HTMLDivElement>) => {
     dragging.current = true;
+    onScrubbing?.(true);
     e.currentTarget.setPointerCapture(e.pointerId);
     onSeekTime(msAt(e.clientX));
   };
@@ -154,6 +168,7 @@ const ReplayScrubber = ({
   const onUp = (e: PointerEvent<HTMLDivElement>) => {
     if (!dragging.current) return;
     dragging.current = false;
+    onScrubbing?.(false);
     onSeekTime(snapped(msAt(e.clientX)));
   };
 
@@ -251,6 +266,18 @@ const ReplayScrubber = ({
               whole run
             </Button>
           </div>
+          {canVibrate && onHaptics && (
+            <Button
+              variant="segment"
+              size="xs"
+              aria-pressed={haptics}
+              onClick={onHaptics}
+              aria-label="Haptic ticks on milestones"
+              title="Haptic ticks on milestones"
+            >
+              <Vibrate className="size-3.5" aria-hidden="true" />
+            </Button>
+          )}
           <Button variant="icon" size="xs" onClick={onClose} aria-label="Close replay">
             <X className="size-3.5" aria-hidden="true" />
           </Button>

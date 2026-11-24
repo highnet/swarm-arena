@@ -25,6 +25,7 @@ import {
   applyFlow,
   indexAtTime,
   planReplay,
+  sparksAt,
   stateAt,
   type SwarmReplayPlan,
   type SwarmReplaySnapshot,
@@ -63,6 +64,39 @@ export type SwarmReplayState = {
   gapMs: number | null;
 };
 
+/**
+ * What an event did when it landed, for a host's effects layer: `merge`, `rating` (a rating
+ * changed: `delta` says by how much), `rung` (a ladder rung cleared), `milestone` (any other),
+ * `bury` (an idea abandoned: shown gently, never as an alarm), `reject` (changes asked), `pass`
+ * (a spark crossed a node on its way). `clear` means the replay jumped: drop what is in flight.
+ */
+export type SwarmEffectKind =
+  'merge' | 'rating' | 'rung' | 'milestone' | 'bury' | 'reject' | 'pass' | 'clear';
+
+export type SwarmEffect = {
+  kind: SwarmEffectKind;
+  /** Where it happened (empty for `clear`). */
+  nodeId: string;
+  color: string;
+  delta: number | null;
+  source: 'live' | 'replay';
+  flow: SwarmFlow | null;
+};
+
+/** A node as an effects layer reads it each frame: graph coordinates, radius, colour. */
+export type SwarmNodeView = SwarmNode & { x?: number; y?: number; r: number };
+
+/** The graph's camera for an effects layer: screen px = size / 2 + (x, y) + k · graph. */
+export type SwarmViewport = {
+  width: number;
+  height: number;
+  x: number;
+  y: number;
+  k: number;
+  /** The viewer has panned or zoomed away from the fitted view. */
+  moved: boolean;
+};
+
 export type SwarmGraphRendererOptions = {
   theme?: Partial<SwarmGraphTheme>;
   /** Turns off ambient motion; event sparks and replay still show, without particles. */
@@ -73,6 +107,13 @@ export type SwarmGraphRendererOptions = {
   /** A new event reached the graph (live) or was played back (replay). */
   onFlow?: (flow: SwarmFlow, source: 'live' | 'replay') => void;
   onReplay?: (state: SwarmReplayState | null) => void;
+  /** An event landed (or a spark crossed a node): for a host's particle layer. */
+  onEffect?: (effect: SwarmEffect) => void;
+  /**
+   * What a landed event is, for its payoff. The default knows the model's kinds (merge,
+   * milestone, rating, reject); a host refines it (a rung cleared, an idea buried).
+   */
+  effectOf?: (flow: SwarmFlow) => SwarmEffectKind | null;
   /**
    * How the first render appears: `full` unfolds the graph radially from the hub (about 1.4 s),
    * `short` plays a quicker version (about 0.5 s, for coming back to the page), `none` shows the
@@ -123,7 +164,46 @@ export type SwarmGraphRenderer = {
   highlight: (nodeId: string | null) => void;
   /** Recentre and reset zoom. */
   reset: () => void;
+  /** The camera, for an effects layer drawing in the same space (one reused object). */
+  viewport: () => SwarmViewport;
+  /** Every node with its position this frame. */
+  eachNode: (fn: (node: SwarmNodeView) => void) => void;
+  /** Every spark in flight: its head this frame, colour and size. */
+  eachSpark: (
+    fn: (x: number, y: number, color: string, size: number, spark: boolean) => void,
+  ) => void;
+  /** A node's position and radius this frame, or null. */
+  nodeAt: (id: string) => SwarmNodeView | null;
+  /**
+   * A GPU layer draws the trails and bursts: the SVG keeps spark heads, ripples and words but
+   * stops drawing its own comet tails and spark bursts, so the two do not double up.
+   */
+  setLayered: (on: boolean) => void;
   destroy: () => void;
+};
+
+/** The model's own reading of what an event is; hosts refine it with `effectOf`. */
+export const defaultEffectOf = (f: SwarmFlow): SwarmEffectKind | null =>
+  f.kind === 'merge'
+    ? 'merge'
+    : f.kind === 'milestone'
+      ? 'milestone'
+      : f.kind === 'rating' && f.delta
+        ? 'rating'
+        : f.kind === 'reject'
+          ? 'reject'
+          : null;
+
+/** How long a spark takes per hop, by what it carries: payoffs travel fast, chores unhurried. */
+const STEP_MS: Partial<Record<SwarmFlow['kind'], number>> = {
+  merge: 650,
+  rating: 620,
+  milestone: 680,
+  reject: 1000,
+  plan: 1050,
+  claim: 950,
+  session: 1000,
+  post: 1000,
 };
 
 /** Reads the host's CSS variables by default, so the graph follows the page's theme. */
@@ -377,6 +457,8 @@ export const createSwarmGraph = (
   let nextKey = 0;
   const lastEmit = new Map<string, number>();
   let hovered: SimNode | null = null;
+  /** A GPU effects layer draws trails and bursts (see `setLayered`). */
+  let layered = false;
   let replayOverride: Map<string, number> | null = null;
   type ReplayRun = {
     plan: SwarmReplayPlan;
@@ -981,7 +1063,7 @@ export const createSwarmGraph = (
   /** Sparks thrown out of a node, and a word rising off it. */
   const celebrate = (node: SimNode, color: string, count: number, text: string | null) => {
     const now = performance.now();
-    if (motion)
+    if (motion && !layered)
       for (let i = 0; i < count; i++)
         bursts.push({
           key: nextKey++,
@@ -1212,12 +1294,10 @@ export const createSwarmGraph = (
       n.y = Math.max(-lim.y, Math.min(lim.y, n.y ?? 0));
     }
     const scaleOf = intro?.scale;
-    gNodes
-      .selectAll<SVGGElement, SimNode>('g.sg-node')
-      .attr('transform', (n) => {
-        const k = scaleOf?.get(n.id);
-        return `translate(${n.x ?? 0},${n.y ?? 0})${k !== undefined && k < 1 ? ` scale(${k})` : ''}`;
-      });
+    gNodes.selectAll<SVGGElement, SimNode>('g.sg-node').attr('transform', (n) => {
+      const k = scaleOf?.get(n.id);
+      return `translate(${n.x ?? 0},${n.y ?? 0})${k !== undefined && k < 1 ? ` scale(${k})` : ''}`;
+    });
     gLinks
       .selectAll<SVGPathElement, SimLink>('path')
       .attr('d', (l) => curvePath(l.source, l.target));
@@ -1254,16 +1334,35 @@ export const createSwarmGraph = (
     const coloured = (flow.kind === 'merge' ? path : [...path].reverse()).find(
       (n) => n.kind !== 'hub' && n.color,
     );
-    const color = flow.kind === 'reject' ? theme.critical : coloured ? colorOf(coloured) : theme.fg;
+    const effect = (options.effectOf ?? defaultEffectOf)(flow);
+    // A buried idea fades out gently in its own colour; only a request for changes is red.
+    const color =
+      effect === 'bury'
+        ? theme.fgMuted
+        : flow.kind === 'reject'
+          ? theme.critical
+          : coloured
+            ? colorOf(coloured)
+            : theme.fg;
     const last = path[path.length - 1];
+    const emit = (kind: SwarmEffectKind, node: SimNode, c: string) =>
+      options.onEffect?.({ kind, nodeId: node.id, color: c, delta: flow.delta, source, flow });
     const land = () => {
+      if (effect) emit(effect, last, effect === 'bury' && coloured ? colorOf(coloured) : color);
+      if (effect === 'bury') {
+        ripple(last, color, performance.now());
+        pop(last, 0.3);
+        celebrate(last, color, 0, 'buried');
+        return;
+      }
       ripple(last, color, performance.now(), flow.kind === 'merge');
       pop(last, flow.kind === 'merge' ? 1.6 : 0.7);
       if (flow.kind === 'merge') {
         celebrate(last, color, 18, `+${flow.weight} merged`);
         const hub = graph ? nodeById.get(graph.hubId) : undefined;
         if (hub) pop(hub, 0.8);
-      } else if (flow.kind === 'milestone') celebrate(last, color, 10, 'milestone');
+      } else if (flow.kind === 'milestone')
+        celebrate(last, color, 10, effect === 'rung' ? 'rung cleared' : 'milestone');
       else if (flow.kind === 'rating' && flow.delta) {
         pop(last, flow.delta > 0 ? 1.4 : 0.6);
         celebrate(
@@ -1279,7 +1378,7 @@ export const createSwarmGraph = (
       land();
       return;
     }
-    const step = 850;
+    const step = STEP_MS[flow.kind] ?? 850;
     for (let i = 0; i < path.length - 1; i++) {
       const final = i === path.length - 2;
       const via = path[i + 1];
@@ -1297,6 +1396,7 @@ export const createSwarmGraph = (
             : () => {
                 ripple(via, color, performance.now());
                 pop(via, 0.5);
+                emit('pass', via, color);
               },
         },
         now,
@@ -1375,10 +1475,7 @@ export const createSwarmGraph = (
     // Sparks drag a comet tail behind them along the curve they travel.
     gTrails
       .selectAll<SVGPathElement, Particle>('path')
-      .data(
-        visible.filter((p) => p.spark),
-        (p) => p.key,
-      )
+      .data(layered ? [] : visible.filter((p) => p.spark), (p) => p.key)
       .join((enter) => enter.append('path'))
       .each(function (p) {
         const t = Math.max(0, Math.min(1, (now - p.start) / p.duration));
@@ -1530,12 +1627,10 @@ export const createSwarmGraph = (
       n.vy = 0;
       scale.set(n.id, pose.scale);
     }
-    gNodes
-      .selectAll<SVGGElement, SimNode>('g.sg-node')
-      .style('opacity', (n) => {
-        const to = target.get(n.id);
-        return to ? introPose(to, plan.timing.get(n.id), t).opacity : 1;
-      });
+    gNodes.selectAll<SVGGElement, SimNode>('g.sg-node').style('opacity', (n) => {
+      const to = target.get(n.id);
+      return to ? introPose(to, plan.timing.get(n.id), t).opacity : 1;
+    });
     linkPaths().attr(
       'stroke-dashoffset',
       (l) => 1 - introEdge(plan.timing.get(l.source.id), plan.timing.get(l.target.id), t),
@@ -1676,6 +1771,16 @@ export const createSwarmGraph = (
     }
   };
 
+  const clearEffects = () =>
+    options.onEffect?.({
+      kind: 'clear',
+      nodeId: '',
+      color: '',
+      delta: null,
+      source: 'replay',
+      flow: null,
+    });
+
   const replayState = (r: ReplayRun): SwarmReplayState => {
     const i = r.next;
     const gap = r.plan.gaps.find((g) => g.index === i - 1);
@@ -1719,7 +1824,8 @@ export const createSwarmGraph = (
       for (let i = r.next; i < due; i++) {
         const f = r.plan.flows[i];
         applyFlow(r.snap, f, r.plan.hubId);
-        if (i >= from) fireFlow(f, 'replay', now);
+        if (i >= from && sparksAt(r.plan, i)) fireFlow(f, 'replay', now);
+        else if (i >= from) options.onFlow?.(f, 'replay');
       }
       r.next = due;
       r.dirty = true;
@@ -1746,6 +1852,7 @@ export const createSwarmGraph = (
       particles = [];
       bursts = [];
       floaters = [];
+      clearEffects();
       resize();
       renderStatic();
       options.onReplay?.(null);
@@ -1811,6 +1918,7 @@ export const createSwarmGraph = (
     particles = [];
     bursts = [];
     floaters = [];
+    clearEffects();
     showSnapshot(r.snap);
     emitReplay();
   };
@@ -1838,6 +1946,36 @@ export const createSwarmGraph = (
 
   const reset = () => {
     svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity);
+  };
+
+  const port: SwarmViewport = { width, height, x: 0, y: 0, k: 1, moved: false };
+  const viewport = () => {
+    port.width = width;
+    port.height = height;
+    port.x = view.x;
+    port.y = view.y;
+    port.k = view.k;
+    port.moved = view.k !== 1 || view.x !== 0 || view.y !== 0;
+    return port;
+  };
+  const eachNode = (fn: (node: SwarmNodeView) => void) => {
+    for (const n of nodeById.values()) fn(n);
+  };
+  const eachSpark = (
+    fn: (x: number, y: number, color: string, size: number, spark: boolean) => void,
+  ) => {
+    const now = performance.now();
+    for (const p of particles) {
+      if (now < p.start) continue;
+      const t = Math.max(0, Math.min(1, (now - p.start) / p.duration));
+      const pos = pointAt(p.from, p.to, d3.easeCubicInOut(t));
+      fn(pos.x, pos.y, p.color, p.size, p.spark);
+    }
+  };
+  const nodeAt = (id: string) => nodeById.get(id) ?? null;
+  const setLayered = (on: boolean) => {
+    layered = on;
+    if (on) bursts = [];
   };
 
   const observer = new ResizeObserver(() => {
@@ -1876,6 +2014,11 @@ export const createSwarmGraph = (
     replayClock,
     highlight,
     reset,
+    viewport,
+    eachNode,
+    eachSpark,
+    nodeAt,
+    setLayered,
     destroy,
   };
 };
