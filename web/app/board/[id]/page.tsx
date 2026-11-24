@@ -15,7 +15,7 @@ import { Section } from '@/components/ui/Section';
 import { SectionHeading } from '@/components/ui/SectionHeading';
 import { SectionNav, type SectionNavItem } from '@/components/ui/SectionNav';
 import { TextLink } from '@/components/ui/TextLink';
-import { getSnapshot } from '@/lib/data';
+import { getSnapshot, getTaskRecords } from '@/lib/data';
 import { formatDay, formatTime } from '@/lib/format';
 import { matchHref, recordHref, taskHref } from '@/lib/routes';
 import { pageMeta } from '@/lib/site';
@@ -102,8 +102,13 @@ const RecordContent = async (props: RecordPageProps) => {
   const prev = at > 0 ? ordered[at - 1] : null;
   const next = at < ordered.length - 1 ? ordered[at + 1] : null;
   const match = record.match_id ? s.matches.find((m) => m.id === record.match_id) : undefined;
+  // A task's records come from their own complete query: the snapshot's list stops at 1,000 rows.
+  const taskRecords = record.task_id ? await getTaskRecords(record.task_id) : [];
+  const complete = taskRecords.some((r) => r.id === record.id);
   const related = record.task_id
-    ? ordered.filter((r) => r.task_id === record.task_id)
+    ? complete
+      ? taskRecords
+      : ordered.filter((r) => r.task_id === record.task_id)
     : ordered.filter((r) => r.kind === record.kind && r.track_id === record.track_id).slice(-12);
   // A long task keeps the records around this one in view; the whole run folds away below.
   const here = related.findIndex((r) => r.id === record.id);
@@ -185,7 +190,14 @@ const RecordContent = async (props: RecordPageProps) => {
           <RecordList records={windowed} slots={slots} current={record.id} />
         </div>
         {windowed.length < related.length && (
-          <Disclosure className="mt-10" summary={`The whole task: all ${related.length} records`}>
+          <Disclosure
+            className="mt-10"
+            summary={
+              complete
+                ? `The whole task: all ${related.length} records`
+                : `The task: ${related.length} records`
+            }
+          >
             <div className="max-w-3xl border-y border-line">
               <RecordList records={related} slots={slots} current={record.id} />
             </div>

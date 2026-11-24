@@ -13,7 +13,7 @@ import { SectionHeading } from '@/components/ui/SectionHeading';
 import { SectionNav, type SectionNavItem } from '@/components/ui/SectionNav';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { TextLink } from '@/components/ui/TextLink';
-import { getSnapshot } from '@/lib/data';
+import { getRecordTotals, getSnapshot } from '@/lib/data';
 import { newestFirst } from '@/lib/derive';
 import { formatDay } from '@/lib/format';
 import { pageMeta } from '@/lib/site';
@@ -46,15 +46,14 @@ const inlineLink =
   'text-fg underline decoration-line-strong underline-offset-4 transition-colors duration-150 hover:decoration-fg';
 
 const BoardContent = async () => {
-  const s = await getSnapshot();
+  const [s, totals] = await Promise.all([getSnapshot(), getRecordTotals()]);
   const slots = Object.fromEntries(s.tracks.map((t) => [t.id, t.color_slot])) as Partial<
     Record<GameId, number>
   >;
   const seats = Object.fromEntries(s.agents.map((a) => [a.id, a.seat]));
   const records = newestFirst(s.records);
-  const first = records.at(-1);
-  const count = (kinds: RecordKind[] | null) =>
-    kinds ? records.filter((r) => kinds.includes(r.kind)).length : records.length;
+  // Counted by the database: the snapshot's list stops at PostgREST's 1,000-row cap.
+  const count = (kinds: RecordKind[]) => kinds.reduce((n, k) => n + totals.byKind[k], 0);
   const groups = KIND_FILTERS.filter((g) => g.kinds);
 
   return (
@@ -78,9 +77,9 @@ const BoardContent = async () => {
               <Link href="/graveyard" className={inlineLink}>
                 buried ideas
               </Link>
-              . <span className="font-mono tabular text-fg">{records.length}</span> records
-              {first && <> since {formatDay(first.at)}</>}, each one written by the referee or an
-              agent as it happened.
+              . <span className="font-mono tabular text-fg">{totals.total}</span> records
+              {totals.since && <> since {formatDay(totals.since)}</>}, each one written by the
+              referee or an agent as it happened.
             </>
           }
           action={
@@ -121,7 +120,7 @@ const BoardContent = async () => {
                       {GROUP_BLURB[g.id]}
                     </span>
                   </span>
-                  <span className="font-mono text-xl tabular text-fg">{count(g.kinds)}</span>
+                  <span className="font-mono text-xl tabular text-fg">{count(g.kinds!)}</span>
                 </Link>
               </li>
             );
