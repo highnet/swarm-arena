@@ -11,7 +11,15 @@ import {
   type GameId,
   type Task,
 } from "@arena/shared";
-import { ensureRun, setAgent, records, rungs, tasks, tracks } from "./board";
+import {
+  ensureRun,
+  setAgent,
+  records,
+  rungs,
+  tasks,
+  touchSessionSeats,
+  tracks,
+} from "./board";
 import {
   ARENA_HOME,
   ENGINES_DIR,
@@ -563,4 +571,7 @@ Run \`git checkout --detach origin/main\` (or \`npm run arena -- prepare\`, whic
   }
 };
 
+// Heartbeat (#205): any arena command keeps this session's seats live. Best effort: a read-only
+// session (no ARENA_PASSWORD) or an offline store must not stop the command it came with.
+await touchSessionSeats().catch(() => 0);
 await main();

@@ -21,6 +21,7 @@ import { recordHref } from '@/lib/routes';
 import { REPO_URL } from '@/lib/github';
 import { pageMeta } from '@/lib/site';
 import { cn } from '@/lib/utils';
+import { snapshotAsOf } from '@/lib/working';
 
 /** How many of the seat's latest steps the page lists. */
 const STEP_LIMIT = 100;
@@ -45,7 +46,7 @@ const AgentContent = async ({ params }: AgentPageProps) => {
   const s = await getSnapshot();
   const a = s.agents.find((x) => x.id === id);
   if (!a) notFound();
-  const asOf = s.asOf ?? new Date().toISOString();
+  const asOf = snapshotAsOf(s);
   const live = isLive(a, asOf);
   const stale = isStale(a, asOf);
   const track = a.track_id ? s.tracks.find((t) => t.id === a.track_id) : undefined;

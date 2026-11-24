@@ -1,4 +1,5 @@
 import {
+  seatIsLive,
   TRACKS,
   type Agent,
   type BoardRecord,
@@ -91,6 +92,87 @@ export const agent = async (
     });
   }
   return id;
+};
+
+/**
+ * The running session, as seat rows record it: the cloud session id, or null for a local run
+ * (a local operator runs one session per role at a time, so it keeps one seat per role).
+ */
+export const sessionKey = () =>
+  process.env.CLAUDE_CODE_REMOTE_SESSION_ID ?? null;
+
+/** Most seats one role can fill at once: `worker`, `worker/2` … `worker/12`. */
+export const SEAT_POOL = 12;
+
+const poolSeat = (base: string, n: number) => (n === 1 ? base : `${base}/${n}`);
+const poolIds = (base: string) =>
+  new Set(
+    Array.from({ length: SEAT_POOL }, (_, i) =>
+      poolSeat(base, i + 1).replace(/\//g, "-"),
+    ),
+  );
+
+/** The seat of `base`'s pool this session already holds, or null. */
+export const ownSeat = async (base: string) => {
+  const mine = sessionKey();
+  if (!mine) return null;
+  const ids = poolIds(base);
+  const rows = await getStore().select<Agent>("agents", { session_id: mine });
+  return rows.find((r) => ids.has(r.id))?.id ?? null;
+};
+
+/**
+ * Seat this session in `base`'s pool (#205): one running session is one live seat. Every session of
+ * a role used to write the one `worker` (or `reviewer`, …) row, so three concurrent workers showed
+ * as one, the last to start overwrote the others' session, and the first retro took the seat off
+ * the fleet while the others still worked. Now a session keeps the seat it already holds, or takes
+ * the first seat in the pool that is not live (never used, idle, or silent past SEAT_STALE_MS),
+ * with a compare-and-set on `last_seen` so two sessions starting together never share one.
+ */
+export const takeSeat = async (
+  base: string,
+  track: GameId | null,
+  role: Agent["role"],
+) => {
+  const mine = sessionKey();
+  if (!mine) return agent(base, track, role);
+  const own = await ownSeat(base);
+  if (own) return own;
+  const db = getStore();
+  for (let n = 1; n <= SEAT_POOL; n++) {
+    const id = await agent(poolSeat(base, n), track, role);
+    const [row] = await db.select<Agent>("agents", { id });
+    if (!row || seatIsLive(row, Date.now())) continue;
+    const won = await db.claim(
+      "agents",
+      { id, last_seen: row.last_seen },
+      { session_id: mine, status: "working", last_seen: now() },
+    );
+    if (won) return id;
+  }
+  // Every seat is live: share the first rather than fail the session (it still does its job).
+  return agent(base, track, role);
+};
+
+/** This session's seat in `base`'s pool, or the pool's first seat when it holds none. */
+export const sessionSeat = async (
+  base: string,
+  track: GameId | null,
+  role: Agent["role"],
+) => (await ownSeat(base)) ?? agent(base, track, role);
+
+/**
+ * Heartbeat: every `arena` command a session runs keeps its seats live, so a long session that is
+ * quiet between `next` and `retro` is not shown as stale after SEAT_STALE_MS.
+ */
+export const touchSessionSeats = async () => {
+  const mine = sessionKey();
+  if (!mine) return 0;
+  return getStore().update(
+    "agents",
+    { session_id: mine, status: "working" },
+    { last_seen: now() },
+  );
 };
 
 export const setAgent = async (id: string, patch: Partial<Agent>) =>

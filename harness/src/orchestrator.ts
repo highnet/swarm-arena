@@ -5,7 +5,10 @@ import {
   now,
   post,
   records,
+  sessionKey,
+  sessionSeat,
   setAgent,
+  takeSeat,
   tasks,
 } from "./board";
 import { log, RUN_ID } from "./config";
@@ -68,7 +71,7 @@ const fleet = async (
   >,
   { countSession = true }: { countSession?: boolean } = {},
 ) => {
-  const id = await agent(seat, null, role);
+  const id = await takeSeat(seat, null, role);
   if (countSession) await bumpSessions(id);
   await setAgent(id, {
     status: "working",
@@ -153,14 +156,14 @@ You were dispatched as ${role}, but ${why}. The board moved on; that is the loop
 Do nothing else: leave a one-line retro only if the dispatch itself was wrong, then stop.`;
 
 const mergerBrief = async (p: Pull) => {
-  await fleet("merger", "merger", {
+  const id = await fleet("merger", "merger", {
     rp_role: "merger",
     pr: p.number,
     task_id: taskOf(p.body),
     activity: `Merging #${p.number}`,
   });
   return `ROLE merger (Rallypoint)
-You are ${agentName("merger")}. Pull request ${prLine(p)} has an independent approve.
+You are ${agentName(id)}. Pull request ${prLine(p)} has an independent approve.
 1. Read .rallypoint/roles/merger.md.
 2. Run: npm run arena -- merge ${p.number}
    It re-checks the verdict, refuses a red or unfinished check run, squash-merges with the PR title,
@@ -171,14 +174,14 @@ You are ${agentName("merger")}. Pull request ${prLine(p)} has an independent app
 
 const fixerBrief = async (p: Pull) => {
   const taskId = taskOf(p.body);
-  await fleet("fixer", "worker", {
+  const id = await fleet("fixer", "worker", {
     rp_role: "fixer",
     pr: p.number,
     task_id: taskId,
     activity: `Fixing review feedback on #${p.number}`,
   });
   return `ROLE fixer (Rallypoint)
-You are ${agentName("fixer")}. Review sent back ${prLine(p)}.
+You are ${agentName(id)}. Review sent back ${prLine(p)}.
 1. Read .rallypoint/roles/fixer.md and the newest request-changes verdict on the PR
    (gh api repos/${REPO}/issues/${p.number}/comments and .../pulls/${p.number}/reviews).
 2. git fetch origin ${p.head.ref} && git checkout ${p.head.ref}
@@ -196,7 +199,7 @@ const reviewerBrief = async (p: Pull) => {
     activity: `Reviewing #${p.number}`,
   });
   return `ROLE reviewer (Rallypoint)
-You are ${agentName("reviewer")}. Review ${prLine(p)}.
+You are ${agentName(id)}. Review ${prLine(p)}.
 Your Rallypoint agent id: ${sessionAgentId("reviewer")}
 1. Read .rallypoint/roles/reviewer.md and docs/AGENT_LOOP.md (Review).
 2. Read the issue it closes, the diff (gh api repos/${REPO}/pulls/${p.number}/files)${arena ? ", and the referee evidence in the PR body" : ", and the validation the PR body reports"}.
@@ -208,12 +211,12 @@ Your Rallypoint agent id: ${sessionAgentId("reviewer")}
 };
 
 const improverBrief = async (retros: Message[]) => {
-  await fleet("steward", "improver", {
+  const id = await fleet("steward", "improver", {
     rp_role: "improver",
     activity: `Improving the protocol from ${retros.length} retros`,
   });
   return `ROLE improver (Rallypoint) · the swarm improving its own protocol
-You are ${agentName("steward")}. Follow the swarm-steward skill (.claude/skills/swarm-steward/SKILL.md).
+You are ${agentName(id)}. Follow the swarm-steward skill (.claude/skills/swarm-steward/SKILL.md).
 Retros since the last protocol change:
 ${retros.map((m) => `- #${m.id} ${m.agent_id}: ${m.body}`).join("\n") || "- none"}
 
@@ -245,12 +248,12 @@ const resumeWorker = async (issue: Issue, track?: string) => {
     return resumeTask(task, branch, remote);
   }
   const where = await resumeCheckout(branch, remote);
-  await fleet("worker", "worker", {
+  const id = await fleet("worker", "worker", {
     rp_role: "worker",
     activity: `Resumed issue #${issue.number}`,
   });
   return `ROLE worker (Rallypoint) · not an arena task · RESUMED
-You are ${agentName("worker")}. Issue #${issue.number} ${issue.title} (${issue.html_url}).
+You are ${agentName(id)}. Issue #${issue.number} ${issue.title} (${issue.html_url}).
 Your Rallypoint agent id: ${agentId}. It already holds the claim, so do not run claim.mjs again.
 You are ${where}.
 1. Read .rallypoint/roles/worker.md, the issue, and what the last attempt left on the branch.
@@ -297,12 +300,12 @@ const issueWorker = async (number: number, track?: string) => {
     );
   }
   const agentId = sessionAgentId("worker");
-  await fleet("worker", "worker", {
+  const id = await fleet("worker", "worker", {
     rp_role: "worker",
     activity: `Working issue #${number}`,
   });
   return `ROLE worker (Rallypoint) · not an arena task
-You are ${agentName("worker")}. Issue #${number} ${issue.title} (${issue.html_url}).
+You are ${agentName(id)}. Issue #${number} ${issue.title} (${issue.html_url}).
 Your Rallypoint agent id: ${agentId}
 It has no engine:<track> label, so there is no referee and no \`arena submit\`.
 1. Read .rallypoint/roles/worker.md and the issue in full.
@@ -496,7 +499,7 @@ export const verdict = async (pr: number, decision: string, note: string) => {
     );
   const pull = await ghApi<Pull>("GET", `repos/${REPO}/pulls/${pr}`);
   const taskId = taskOf(pull.body);
-  const reviewer = await agent("reviewer", null, "reviewer");
+  const reviewer = await sessionSeat("reviewer", null, "reviewer");
   if (taskId) {
     await post("progress", {
       task_id: taskId,
@@ -574,7 +577,7 @@ export const merge = async (pr: number) => {
     "DELETE",
     `repos/${REPO}/git/refs/heads/${encodeURIComponent(pull.head.ref)}`,
   ).catch(() => null);
-  const merger = await agent("merger", null, "merger");
+  const merger = await sessionSeat("merger", null, "merger");
   const taskId = taskOf(pull.body);
   if (taskId && hasLabel(pull, "arena:referee-passed")) await land(taskId);
   if (hasLabel(pull, "loop:improvement")) {
@@ -721,8 +724,20 @@ export const retro = async (seat: string, body: string) => {
   });
   // The retro is a session's last step, so it is what takes the seat off the fleet. A session
   // may retro under another name than the seat it was dispatched as; the session id joins them.
-  const ids = new Set<string>(msg.agent_id ? [msg.agent_id] : []);
-  const session = process.env.CLAUDE_CODE_REMOTE_SESSION_ID;
+  // Only this session's seats: a retro signed with a shared seat's name (`--as worker`) must not
+  // take another running session off the fleet (#205).
+  const session = sessionKey();
+  const ids = new Set<string>();
+  if (msg.agent_id) {
+    const [named] = await getStore().select<Agent>("agents", {
+      id: msg.agent_id,
+    });
+    if (
+      named &&
+      (!named.session_id || !session || named.session_id === session)
+    )
+      ids.add(named.id);
+  }
   if (session)
     for (const a of await getStore().select<Agent>("agents", {
       session_id: session,
