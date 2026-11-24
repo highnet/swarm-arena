@@ -6,11 +6,11 @@ import { SceneBackground } from '@/components/arena/SceneBackground';
 import { JustIn } from '@/components/arena/JustIn';
 import { SiteHeader } from '@/components/arena/SiteHeader';
 import { SIDEBAR_INIT_SCRIPT, Sidebar } from '@/components/arena/SiteNav';
-import { liveAgents } from '@/components/arena/seats';
 import { getSnapshot } from '@/lib/data';
 import { justInInitScript } from '@/lib/justIn';
 import { getNews, JUST_IN_MS, newsHref } from '@/lib/news';
 import { SITE_DESCRIPTION, SITE_NAME, SITE_TITLE, SITE_URL } from '@/lib/site';
+import { workingCount } from '@/lib/working';
 import './globals.css';
 
 const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] });
@@ -84,7 +84,7 @@ const RootLayout = async ({ children }: RootLayoutProps) => {
         <SceneBackground />
         <SiteHeader
           runId={snapshot.run.id}
-          working={liveAgents(snapshot.agents, snapshot.asOf ?? snapshot.run.started_at).length}
+          working={workingCount(snapshot)}
           slots={slots}
           storyTitles={storyTitles}
         />

@@ -13,7 +13,7 @@
     "build": "npm run build -w web",
     "lint": "npm run lint -w web",
     "typecheck": "tsc --noEmit -p shared && tsc --noEmit -p swarm-graph && tsc --noEmit -p harness && tsc --noEmit -p web",
-    "test": "npm test -w shared && npm test -w swarm-graph && npm test -w harness",
+    "test": "npm test -w shared && npm test -w swarm-graph && npm test -w harness && npm test -w web",
     "arena": "npm run arena -w harness --"
   }
 }

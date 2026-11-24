@@ -83,6 +83,18 @@ export const sessionAgentId = (seat: string) => {
   return id;
 };
 
+/** The agent id a conductor pinned for this session (`--agent-id`), or null. Reads only. */
+export const pinnedAgentId = () => {
+  const file = resolve(ARENA_HOME, "session.json");
+  if (!existsSync(file)) return null;
+  const saved = JSON.parse(readFileSync(file, "utf8")) as Record<
+    string,
+    string
+  >;
+  const sessionKey = process.env.CLAUDE_CODE_REMOTE_SESSION_ID ?? "local";
+  return saved.session === sessionKey ? (saved["*"] ?? null) : null;
+};
+
 /**
  * Pin this session's Rallypoint identity for every seat: a conductor that dispatched the session
  * names the id it wrote the lease under, so the session's own lease calls and verdicts match it.

@@ -11,6 +11,7 @@ import {
   post,
   records,
   rungs,
+  sessionSeat,
   setAgent,
   tasks,
   tracks,
@@ -44,7 +45,7 @@ export type Plan = {
 const TRACK_IDS = TRACKS.map((t) => t.id) as string[];
 
 export const brief = async () => {
-  await bumpSessions("strategist");
+  await bumpSessions(await sessionSeat("strategist", null, "strategist"));
   const ts = await tracks();
   const all = await tasks();
   const recs = await records();
@@ -133,9 +134,10 @@ const validate = (raw: unknown): Plan => {
 
 export const applyPlan = async (raw: unknown) => {
   const plan = validate(raw);
-  await setAgent("strategist", { status: "working" });
+  const seat = await sessionSeat("strategist", null, "strategist");
+  await setAgent(seat, { status: "working" });
   await post("strategy", {
-    agent_id: "strategist",
+    agent_id: seat,
     title: plan.update.title,
     detail: plan.update.detail,
   });
@@ -185,7 +187,7 @@ export const applyPlan = async (raw: unknown) => {
     if (issue) await getStore().update("tasks", { id }, { issue });
     await post("task_opened", {
       track_id: t.track,
-      agent_id: "strategist",
+      agent_id: seat,
       task_id: id,
       title: t.title,
       detail: t.spec,
@@ -196,7 +198,7 @@ export const applyPlan = async (raw: unknown) => {
     );
     opened++;
   }
-  await setAgent("strategist", { activity: `Opened ${opened} tasks` });
+  await setAgent(seat, { activity: `Opened ${opened} tasks` });
   return opened;
 };
 

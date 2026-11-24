@@ -11,6 +11,7 @@ import {
 } from '@rallypoint/swarm-graph/model';
 import { stageOf, type MergedPull, type RpItem } from './github';
 import { versionHref, versionOf } from './routes';
+import { snapshotAsOf } from './working';
 import {
   agentEvents,
   emptyContext,
@@ -125,7 +126,7 @@ export const toSwarmInput = (
   rp: RpItem[] = [],
   merged: MergedPull[] | null = null,
 ): ArenaSwarm => {
-  const asOf = s.asOf ?? new Date().toISOString();
+  const asOf = snapshotAsOf(s);
   const engines = new Set(s.tracks.map((t) => t.id));
   const counts = sectorCounts(s, merged, asOf);
   const sectors: SwarmSector[] = [

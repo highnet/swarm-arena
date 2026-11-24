@@ -9,6 +9,7 @@ import {
   refsOf,
   rootOf,
   threadTitle,
+  type Agent,
   type GameId,
   type Message,
   type MessageKind,
@@ -16,9 +17,9 @@ import {
   type MessageStatus,
   type Thread,
 } from "@arena/shared";
-import { agent, now } from "./board";
+import { agent, now, sessionKey } from "./board";
 import { RUN_ID } from "./config";
-import { REPO } from "./rallypoint";
+import { pinnedAgentId, REPO } from "./rallypoint";
 import { getStore } from "./store";
 
 /**
@@ -54,8 +55,29 @@ const allMessages = async () =>
     .map(withDefaults)
     .sort((a, b) => a.at.localeCompare(b.at) || a.id - b.id);
 
-const seatAgent = (seat: string, track: GameId | null) =>
-  agent(seat, track, seat === "strategist" ? "strategist" : "builder");
+/**
+ * The seat a post is signed by. A session that signs with its own seat's name ("Rhea Pinecrest"),
+ * its seat id or base ("worker" for `worker-2`), or its pinned agent id is that seat (#205); before,
+ * each of those spellings became a new, never-working seat on the fleet.
+ */
+const seatAgent = async (seat: string, track: GameId | null) => {
+  const mine = sessionKey();
+  if (mine) {
+    const want = seat.replace(/\//g, "-");
+    const pinned = pinnedAgentId();
+    const own = (
+      await getStore().select<Agent>("agents", { session_id: mine })
+    ).find(
+      (a) =>
+        a.id === want ||
+        a.id.replace(/-\d+$/, "") === want ||
+        agentName(a.id) === seat ||
+        (pinned !== null && seat === pinned),
+    );
+    if (own) return own.id;
+  }
+  return agent(seat, track, seat === "strategist" ? "strategist" : "builder");
+};
 
 /** Post a thread or a comment as a seat. */
 export const postMessage = async (opts: {

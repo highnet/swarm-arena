@@ -41,9 +41,11 @@ import {
   trackSummaries,
 } from '@/lib/derive';
 import { formatInt } from '@/lib/format';
+import { getRallypoint } from '@/lib/github';
 import { gameHref, matchHref } from '@/lib/routes';
 import { SERIES, SHORT_NAME } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
+import { snapshotAsOf, workingNow } from '@/lib/working';
 
 const TERMINATION: Record<string, string> = {
   adjudicated: 'adjudicated',
@@ -95,7 +97,8 @@ const Counter = ({ label, value, icon: Icon, href }: CounterProps) => (
 );
 
 const HomeContent = async () => {
-  const s = await getSnapshot();
+  // Rallypoint items: the same cached read the fleet graph uses, to name what each agent is on.
+  const [s, rp] = await Promise.all([getSnapshot(), getRallypoint()]);
   const now = snapshotNow(s);
   const tracks = trackSummaries(s);
   const c = counters(s);
@@ -166,7 +169,7 @@ const HomeContent = async () => {
             </a>
           </div>
         </div>
-        <RightNow s={s} slots={slots} />
+        <RightNow s={s} working={workingNow(s, rp.items)} slots={slots} />
       </section>
 
       <nav aria-label="Run totals" className="mt-10">
@@ -319,7 +322,7 @@ const HomeContent = async () => {
           >
             <MessageBoard messages={s.messages ?? []} seats={seats} slots={slots} limit={4} />
           </Panel>
-          <Fleet agents={s.agents} asOf={s.asOf ?? s.run.started_at} slots={slots} />
+          <Fleet agents={s.agents} asOf={snapshotAsOf(s)} slots={slots} />
         </div>
       </div>
       <NextSteps links={['howItWorks', 'concepts', 'protocol', 'skills']} />
