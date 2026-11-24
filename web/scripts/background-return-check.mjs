@@ -496,6 +496,9 @@ const open = async (browser, opts = {}) => {
   await page.goto(`${base}/fleet`, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('[data-slot="swarm-graph"]');
   await page.waitForTimeout(4_000);
+  // A page that failed to hydrate would pass everything below trivially: insist it is drawn.
+  const drawn = await page.locator('[data-slot="swarm-graph"] g.sg-node').count();
+  if (!drawn) throw new Error(`${base}/fleet did not draw the graph (no nodes)`);
   const cdp = await context.newCDPSession(page);
   await cdp.send('HeapProfiler.enable');
   return { context, page, cdp, errors };
