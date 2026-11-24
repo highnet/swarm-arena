@@ -749,8 +749,12 @@ export const createSwarmGraph = (
             .style('cursor', 'pointer')
             .style('outline', 'none')
             .attr('opacity', 0);
-          // The inner group scales (pops) without fighting the per-tick translate.
-          const inner = g.append('g').attr('class', 'sg-inner');
+          // The inner group scales (pops) without fighting the per-tick translate. Its opacity is
+          // the dimming of a dead node winding down (`FADING_OPACITY`).
+          const inner = g
+            .append('g')
+            .attr('class', 'sg-inner')
+            .attr('opacity', (n) => (n.fading ? FADING_OPACITY : 1));
           inner.append('path').attr('class', 'sg-track').attr('stroke', 'none');
           inner.append('path').attr('class', 'sg-arc-flight').attr('stroke', 'none');
           inner.append('path').attr('class', 'sg-arc').attr('stroke', 'none');
