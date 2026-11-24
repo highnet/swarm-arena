@@ -142,19 +142,120 @@ fn terminal(g: &Game) -> i32 {
     d.signum() * WIN + d
 }
 
-struct Search {
+/// Transposition-table size: 2^20 slots of 16 bytes = 16 MB.
+const TT_BITS: u32 = 20;
+const EXACT: u8 = 0;
+const LOWER: u8 = 1;
+const UPPER: u8 = 2;
+/// Stored in `Entry::mv` when the node has no best move to remember.
+const NO_MOVE: u8 = 64;
+
+/// One table slot (16 bytes). `meta` packs the generation (high 6 bits) and the bound (low 2).
+#[derive(Clone, Copy, Default)]
+struct Entry {
+    key: u64,
+    score: i32,
+    mv: u8,
+    depth: u8,
+    meta: u8,
+}
+
+impl Entry {
+    fn bound(&self) -> u8 {
+        self.meta & 3
+    }
+    fn generation(&self) -> u8 {
+        self.meta >> 2
+    }
+    fn best(&self) -> Option<usize> {
+        (self.mv < NO_MOVE).then_some(self.mv as usize)
+    }
+}
+
+/// 64-bit key of a (mover, opponent) pair. A pass swaps the pair, so the side to move needs no
+/// flag; the two halves go through different mixes so (a, b) and (b, a) differ.
+fn tt_key(me: u64, opp: u64) -> u64 {
+    fn mix(mut z: u64) -> u64 {
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^ (z >> 31)
+    }
+    mix(me ^ 0x9e37_79b9_7f4a_7c15) ^ mix(opp.wrapping_add(0x632b_e59b_d9b4_e019)).rotate_left(17)
+}
+
+/// Always-indexed table keyed by the full 64-bit key (the stored key rejects index collisions;
+/// a stored move is still checked against the legal moves before use). It lives across `go`
+/// calls within a game: each search bumps the generation, a slot from an older generation is
+/// always replaced, and within a generation the deeper result stays. Scores need no ply
+/// adjustment: Othello's terminal scores are disc counts, not distances to mate.
+struct Tt {
+    entries: Vec<Entry>,
+    mask: usize,
+    generation: u8,
+}
+
+impl Tt {
+    fn new(bits: u32) -> Tt {
+        Tt { entries: Vec::new(), mask: (1 << bits) - 1, generation: 0 }
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.generation = 0;
+    }
+
+    fn new_search(&mut self) {
+        if self.entries.is_empty() {
+            self.entries = vec![Entry::default(); self.mask + 1];
+        }
+        self.generation = (self.generation + 1) & 63;
+    }
+
+    fn probe(&self, key: u64) -> Option<Entry> {
+        let e = *self.entries.get(key as usize & self.mask)?;
+        (e.key == key && key != 0).then_some(e)
+    }
+
+    fn store(&mut self, key: u64, depth: u32, score: i32, bound: u8, mv: Option<usize>) {
+        let gen = self.generation;
+        let Some(slot) = self.entries.get_mut(key as usize & self.mask) else { return };
+        if slot.generation() == gen && slot.key != 0 && depth < slot.depth as u32 {
+            return;
+        }
+        *slot = Entry { key, score, mv: mv.map_or(NO_MOVE, |m| m as u8), depth: depth.min(255) as u8, meta: (gen << 2) | bound };
+    }
+}
+
+thread_local! {
+    /// The game's table, kept between `go` calls and cleared by `game`.
+    static TT: std::cell::RefCell<Tt> = std::cell::RefCell::new(Tt::new(TT_BITS));
+}
+
+struct Search<'a> {
     start: Instant,
     deadline: Duration,
     nodes: u64,
     stopped: bool,
+    /// The transposition table; `None` searches without one (tests, reports, the book generator).
+    tt: Option<&'a mut Tt>,
 }
 
-impl Search {
+impl<'a> Search<'a> {
+    fn new(deadline: Duration, tt: Option<&'a mut Tt>) -> Self {
+        Search { start: Instant::now(), deadline, nodes: 0, stopped: false, tt }
+    }
+
     fn out_of_time(&mut self) -> bool {
         if !self.stopped && self.nodes & 1023 == 0 && self.start.elapsed() >= self.deadline {
             self.stopped = true;
         }
         self.stopped
+    }
+
+    /// The stored best move for `g`, if the table holds one (legality is checked by `ordered`).
+    fn tt_move(&self, g: &Game) -> Option<usize> {
+        let [me, opp] = g.get();
+        self.tt.as_ref()?.probe(tt_key(me, opp))?.best()
     }
 
     /// Negamax alpha-beta. A side with no placement passes; two passes end the game.
@@ -178,8 +279,26 @@ impl Search {
         if depth == 0 {
             return evaluate(g);
         }
+        let [me, opp] = g.get();
+        let key = tt_key(me, opp);
+        let mut first = None;
+        if let Some(e) = self.tt.as_ref().and_then(|t| t.probe(key)) {
+            if e.depth as u32 >= depth {
+                let cut = match e.bound() {
+                    EXACT => true,
+                    LOWER => e.score >= beta,
+                    _ => e.score <= alpha,
+                };
+                if cut {
+                    return e.score;
+                }
+            }
+            first = e.best();
+        }
+        let alpha0 = alpha;
         let mut best = -INF;
-        for i in ordered(avail, None) {
+        let mut best_move = None;
+        for i in ordered(avail, first) {
             let Some(next) = g.make_move(i) else { continue };
             let v = -self.negamax(&next, depth - 1, -beta, -alpha);
             if self.stopped {
@@ -187,6 +306,7 @@ impl Search {
             }
             if v > best {
                 best = v;
+                best_move = Some(i);
                 if v > alpha {
                     alpha = v;
                     if alpha >= beta {
@@ -194,6 +314,16 @@ impl Search {
                     }
                 }
             }
+        }
+        if let Some(t) = self.tt.as_mut() {
+            let bound = if best >= beta {
+                LOWER
+            } else if best <= alpha0 {
+                UPPER
+            } else {
+                EXACT
+            };
+            t.store(key, depth, best, bound, best_move);
         }
         best
     }
@@ -233,28 +363,39 @@ fn search(g: &Game, budget_ms: u64) -> (usize, u32) {
     search_limited(g, u32::MAX, Duration::from_millis(budget_ms * 6 / 10))
 }
 
-/// Iterative deepening up to `max_depth` plies or until `deadline` passes, whichever is first.
+/// Iterative deepening up to `max_depth` plies or until `deadline` passes, whichever is first,
+/// with the game's transposition table.
 fn search_limited(g: &Game, max_depth: u32, deadline: Duration) -> (usize, u32) {
-    let (m, d, _) = search_counted(g, max_depth, deadline);
-    (m, d)
+    let r = TT.with(|t| {
+        let mut t = t.borrow_mut();
+        t.new_search();
+        search_with(g, max_depth, deadline, Some(&mut t))
+    });
+    (r.0, r.1)
 }
 
-/// `search_limited`, also returning the number of nodes searched.
+/// `search_limited` without a table, also returning the number of nodes searched.
+#[cfg(test)]
 fn search_counted(g: &Game, max_depth: u32, deadline: Duration) -> (usize, u32, u64) {
+    let r = search_with(g, max_depth, deadline, None);
+    (r.0, r.1, r.2)
+}
+
+/// Iterative deepening with an optional table: (move, depth completed, nodes, score of the
+/// last completed depth). The root tries the stored move first on the first iteration and the
+/// previous iteration's best after that.
+fn search_with(g: &Game, max_depth: u32, deadline: Duration, tt: Option<&mut Tt>) -> (usize, u32, u64, i32) {
     let avail = g.available_moves();
-    let order = ordered(avail, None);
+    let mut s = Search::new(deadline, tt);
+    let order = ordered(avail, s.tt_move(g));
     let mut best = order[0];
     if order.len() == 1 {
-        return (best, 0, 0);
+        return (best, 0, 0, 0);
     }
-    let mut s = Search {
-        start: Instant::now(),
-        deadline,
-        nodes: 0,
-        stopped: false,
-    };
-    let empties = (!(g.get()[0] | g.get()[1])).count_ones();
+    let [me, opp] = g.get();
+    let empties = (!(me | opp)).count_ones();
     let mut done = 0;
+    let mut score = 0;
     for depth in 1..=empties.min(max_depth) {
         let mut alpha = -INF;
         let mut iter_best = None;
@@ -274,12 +415,16 @@ fn search_counted(g: &Game, max_depth: u32, deadline: Duration) -> (usize, u32, 
         }
         best = iter_best.unwrap_or(best);
         done = depth;
+        score = alpha;
+        if let Some(t) = s.tt.as_mut() {
+            t.store(tt_key(me, opp), depth, alpha, EXACT, Some(best));
+        }
         // A deeper iteration costs several times this one: do not start what cannot finish.
         if s.start.elapsed() * 3 >= s.deadline {
             break;
         }
     }
-    (best, done, s.nodes)
+    (best, done, s.nodes, score)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -513,7 +658,10 @@ fn choose(moves: &[String], budget_ms: u64) -> Option<String> {
 fn handle(line: &str, moves: &mut Vec<String>) -> (Option<String>, bool) {
     let mut parts = line.split_whitespace();
     match parts.next() {
-        Some("game") => (Some("ready".into()), false),
+        Some("game") => {
+            TT.with(|t| t.borrow_mut().clear());
+            (Some("ready".into()), false)
+        }
         Some("position") => {
             *moves = parts.map(String::from).collect();
             (None, false)
@@ -764,7 +912,7 @@ mod tests {
         let mut p = g.clone();
         p.pass_move();
         assert_ne!(p.available_moves(), 0);
-        let mut s = Search { start: Instant::now(), deadline: Duration::from_secs(5), nodes: 0, stopped: false };
+        let mut s = Search::new(Duration::from_secs(5), None);
         // White plays c1 and wins 3-0: from Black's view the game is lost.
         assert!(s.negamax(&g, 4, -INF, INF) <= -WIN);
         // Neither side can move: scored by disc difference.
@@ -804,22 +952,109 @@ mod tests {
     #[test]
     #[ignore = "report: cargo test --release -p othello-engine depth_report -- --ignored --nocapture"]
     fn depth_report() {
-        // Depth reached at `go 200` (120 ms deadline; wall clock, so informational only), and
-        // nodes and nodes per second at a fixed depth 7 (node counts deterministic).
+        // Per empties band: depth reached at `go 200` (120 ms deadline; wall clock, so
+        // informational only) without and with a fresh table, and nodes at a fixed depth 7
+        // (deterministic) without and with the table.
         for band in [50u32, 40, 30, 20] {
             let ps: Vec<_> = report_positions().into_iter().filter(|p| p.0 == band).collect();
-            let depths: Vec<u32> = ps.iter().map(|(_, g)| search_limited(g, u32::MAX, Duration::from_millis(120)).1).collect();
-            let t = Instant::now();
+            let plain: Vec<u32> = ps.iter().map(|(_, g)| search_with(g, u32::MAX, Duration::from_millis(120), None).1).collect();
+            let with_tt: Vec<u32> = ps
+                .iter()
+                .map(|(_, g)| {
+                    let mut t = Tt::new(TT_BITS);
+                    t.new_search();
+                    search_with(g, u32::MAX, Duration::from_millis(120), Some(&mut t)).1
+                })
+                .collect();
+            let t0 = Instant::now();
             let n: u64 = ps.iter().map(|(_, g)| search_counted(g, 7, Duration::from_secs(600)).2).sum();
-            let secs = t.elapsed().as_secs_f64();
+            let s0 = t0.elapsed().as_secs_f64();
+            let t1 = Instant::now();
+            let n_tt: u64 = ps
+                .iter()
+                .map(|(_, g)| {
+                    let mut t = Tt::new(TT_BITS);
+                    t.new_search();
+                    search_with(g, 7, Duration::from_secs(600), Some(&mut t)).2
+                })
+                .sum();
+            let s1 = t1.elapsed().as_secs_f64();
+            let range = |d: &[u32]| format!("{}-{}", d.iter().min().unwrap(), d.iter().max().unwrap());
             println!(
-                "<={band} empties: go 200 depth {}-{} {:?}; depth 7 nodes {n}, {:.0} knps",
-                depths.iter().min().unwrap(),
-                depths.iter().max().unwrap(),
-                depths,
-                n as f64 / secs / 1000.0
+                "<={band} empties: go 200 depth plain {} {:?}, tt {} {:?}; depth 7 nodes plain {n} ({:.0} ms), tt {n_tt} ({:.0} ms, {:+.0}%)",
+                range(&plain),
+                plain,
+                range(&with_tt),
+                with_tt,
+                s0 * 1000.0,
+                s1 * 1000.0,
+                (n_tt as f64 / n as f64 - 1.0) * 100.0
             );
         }
+    }
+
+    #[test]
+    fn tt_search_matches_plain_search_at_fixed_depth() {
+        // Seeded positions over the four empties bands, depths 3..=6: with a fresh table the
+        // root score equals plain alpha-beta's, and the table's move scores that same value under
+        // plain search (ties may resolve to a different move). It must also search fewer nodes.
+        let (mut plain_nodes, mut tt_nodes) = (0, 0);
+        let mut checked = 0;
+        for (_, g) in report_positions() {
+            for depth in 3..=6 {
+                let (_, d0, n0, v0) = search_with(&g, depth, Duration::from_secs(600), None);
+                let mut t = Tt::new(TT_BITS);
+                t.new_search();
+                let (m1, d1, n1, v1) = search_with(&g, depth, Duration::from_secs(600), Some(&mut t));
+                assert_eq!((d0, d1), (depth, depth));
+                assert_eq!(v1, v0, "root score differs at depth {depth}:\n{g:?}");
+                let next = g.make_move(m1).unwrap();
+                let mut s = Search::new(Duration::from_secs(600), None);
+                assert_eq!(-s.negamax(&next, depth - 1, -INF, INF), v0, "tt move is not best at depth {depth}:\n{g:?}");
+                plain_nodes += n0;
+                tt_nodes += n1;
+                checked += 1;
+            }
+        }
+        assert!(checked >= 100);
+        assert!(tt_nodes < plain_nodes, "tt {tt_nodes} nodes vs plain {plain_nodes}");
+    }
+
+    #[test]
+    fn tt_survives_go_calls_and_clears_on_game() {
+        let mut moves = Vec::new();
+        handle("game othello", &mut moves);
+        assert!(TT.with(|t| t.borrow().entries.is_empty()));
+        handle("position f5 d6 c3 d3 c4 f4 f6 f3 e6 e7", &mut moves);
+        handle("go 50", &mut moves);
+        let (filled, gen) = TT.with(|t| {
+            let t = t.borrow();
+            (t.entries.iter().filter(|e| e.key != 0).count(), t.generation)
+        });
+        assert!(filled > 0 && gen >= 1);
+        handle("go 50", &mut moves);
+        assert!(TT.with(|t| t.borrow().generation) > gen, "generation bumps each go");
+        assert!(TT.with(|t| t.borrow().entries.iter().filter(|e| e.key != 0).count()) >= filled);
+        handle("game othello", &mut moves);
+        assert!(TT.with(|t| t.borrow().entries.is_empty()));
+    }
+
+    #[test]
+    fn tt_replacement_keeps_deeper_within_a_generation() {
+        let mut t = Tt::new(4);
+        t.new_search();
+        let k = 0x10; // slot 0
+        t.store(k, 5, 7, EXACT, Some(3));
+        t.store(k, 2, 9, EXACT, Some(4));
+        assert_eq!(t.probe(k).unwrap().depth, 5, "shallower result does not replace within a search");
+        t.store(k, 6, 11, LOWER, Some(5));
+        assert_eq!((t.probe(k).unwrap().depth, t.probe(k).unwrap().score), (6, 11));
+        t.new_search();
+        t.store(k, 1, -2, UPPER, None);
+        let e = t.probe(k).unwrap();
+        assert_eq!((e.depth, e.score, e.bound(), e.best()), (1, -2, UPPER, None), "older generation always replaced");
+        assert!(t.probe(0x20).is_none(), "different key in the same slot misses");
+        assert_ne!(tt_key(1, 2), tt_key(2, 1), "a pass (swapped pair) is a different position");
     }
 
     /// Full-width minimax to the end of the game, no pruning: the reference for the solver.

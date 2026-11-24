@@ -1,0 +1,1 @@
+- 2026-11-24 · **transposition table** · Othello · v0.6 rated 1427 (+153) · Transposition table in the midgame search, ported from chess's shipped TT and judged against v0.5
