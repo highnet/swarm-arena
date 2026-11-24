@@ -141,6 +141,12 @@ export type SwarmUpdateOptions = {
    * shows (a filter) passes this so the newly visible history does not spark as if it were new.
    */
   quiet?: boolean;
+  /**
+   * The same data seen another way (a preset switch): the nodes shown before and after hold
+   * where they are while the ones that arrive or leave fade in or out, so the view does not
+   * shake. They are let go once the layout has settled; later data moves them as usual.
+   */
+  view?: boolean;
 };
 
 export type SwarmGraphRenderer = {
@@ -566,6 +572,18 @@ export const createSwarmGraph = (
   /** A dead node winding down (`SwarmNode.fading`) is drawn this much dimmer. */
   const FADING_OPACITY = 0.7;
   const liveTimers = new Set<ReturnType<typeof setTimeout>>();
+  /** Nodes held still through a view change (`SwarmUpdateOptions.view`), until it settles. */
+  const held = new Set<string>();
+  const releaseHeld = () => {
+    for (const id of held) {
+      const n = nodeById.get(id);
+      if (n && !departures.has(id)) {
+        n.fx = null;
+        n.fy = null;
+      }
+    }
+    held.clear();
+  };
 
   const colorOf = (n: SwarmNode) => n.color ?? theme.neutral;
   const effortOf = (n: SimNode) => (replayOverride ? (replayOverride.get(n.id) ?? 0) : n.effort);
@@ -622,7 +640,11 @@ export const createSwarmGraph = (
     .force('collide', d3.forceCollide<SimNode>().radius(collideOf))
     .force('ringX', d3.forceX<SimNode>((n) => anchorOf(n).x).strength(anchorStrength))
     .force('ringY', d3.forceY<SimNode>((n) => anchorOf(n).y).strength(anchorStrength))
-    .on('tick', () => draw());
+    .on('tick', () => draw())
+    // A view change's held nodes go free once nothing is fading in or out any more.
+    .on('end', () => {
+      if (held.size && !arrivals.size && !departures.size) releaseHeld();
+    });
 
   const linkForce = d3
     .forceLink<SimNode, SimLink>()
@@ -1072,6 +1094,7 @@ export const createSwarmGraph = (
           .clickDistance(4)
           .on('start', (e, n) => {
             if (n.kind === 'hub') return;
+            held.delete(n.id);
             if (!e.active) simulation.alphaTarget(0.2).restart();
             n.fx = n.x;
             n.fy = n.y;
@@ -1994,6 +2017,15 @@ export const createSwarmGraph = (
     const quiet = first || Boolean(updateOptions.quiet);
     graph = next;
     const keep = new Set(next.nodes.map((n) => n.id));
+    // New data lays out as usual; a view change holds what both views show where it is.
+    releaseHeld();
+    if (updateOptions.view && !first)
+      for (const [id, n] of nodeById)
+        if (keep.has(id) && !departures.has(id) && n.fx == null && n.fy == null) {
+          n.fx = n.x;
+          n.fy = n.y;
+          held.add(id);
+        }
     const now = performance.now();
     // Gone nodes fade out first (staggered) and leave the simulation after; at once without motion.
     let leaving = 0;
@@ -2027,8 +2059,11 @@ export const createSwarmGraph = (
         departures.delete(n.id);
         life.delete(n.id);
         settled.add(n.id);
-        existing.fx = null;
-        existing.fy = null;
+        if (updateOptions.view && motion) held.add(n.id);
+        else {
+          existing.fx = null;
+          existing.fy = null;
+        }
       }
       if (existing) {
         const was = existing.workItem?.stage;
@@ -2110,6 +2145,11 @@ export const createSwarmGraph = (
       // Settle the layout off-screen first, so every end position is known before anything moves.
       simulation.stop();
       for (let i = 0; i < 300; i++) simulation.tick();
+    } else if (!motion && updateOptions.view) {
+      // Without motion a view change is static: the new nodes find their places off-screen.
+      simulation.stop().alpha(0.35);
+      for (let i = 0; i < 300; i++) simulation.tick();
+      releaseHeld();
     } else if (!motion) simulation.alpha(0.35).restart();
     else
       // Arrivals and departures are taken in at low alpha, so nothing already there jolts; a
