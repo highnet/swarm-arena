@@ -25,8 +25,8 @@ export type BoardShape = {
 export const LAYOUT: { x: number; z: number; yaw: number }[] = [
   { x: 11, z: -10, yaw: 0.3 },
   { x: 23, z: -17, yaw: -0.2 },
-  { x: 8, z: -24, yaw: 0.14 },
-  { x: 21, z: -32, yaw: -0.34 },
+  { x: 13.5, z: -24, yaw: 0.14 },
+  { x: 21, z: -30, yaw: -0.34 },
 ];
 
 /** One full drift of the field, and one hop of a mote (travel then rest), in milliseconds. */
