@@ -11,11 +11,13 @@
 //! explicitly (rather than trusting the library's string parser) and the tests pin it down.
 
 mod board;
+mod book;
 mod search;
 
 use hexgame::{Board, Color, Coords, Edge, Game, Status};
 use search::Limit;
 use std::io::{self, BufRead, Write};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 /// Board size used by the referee.
@@ -120,6 +122,12 @@ fn seed(moves: &[String]) -> u64 {
     h
 }
 
+/// The opening book, parsed once on first use.
+fn book() -> &'static book::Book {
+    static BOOK: OnceLock<book::Book> = OnceLock::new();
+    BOOK.get_or_init(book::Book::load)
+}
+
 /// Pick a move for the side to move, given the moves so far.
 fn choose(moves: &[String], limit: Limit) -> Option<String> {
     let game = replay(moves);
@@ -143,6 +151,15 @@ fn choose(moves: &[String], limit: Limit) -> Option<String> {
         return Some("f6".into());
     }
     let (black, white) = bitboards(board);
+    // The engine's own opening book (#111): positions searched offline far longer than a game
+    // allows, played instantly. Off book, search as usual.
+    if let Some(mv) = book().probe(black, white) {
+        let c = Coords::new(mv / N, mv % N);
+        if board.get_color(c).is_none() {
+            eprintln!("info book ply {}", moves.len());
+            return Some(to_move(c));
+        }
+    }
     let out = search::search(black, white, me == Color::Black, limit, seed(moves))?;
     eprintln!("info playouts {} winrate {:.3}", out.playouts, out.winrate);
     let c = Coords::new(out.mv / N, out.mv % N);
@@ -400,5 +417,21 @@ mod tests {
         let b = choose(&moves, Limit::Playouts(2000));
         assert!(a.is_some());
         assert_eq!(a, b);
+    }
+
+    /// In book, `choose` plays the book move without searching (a zero-playout budget would
+    /// otherwise still return the search's first child), in both orientations of the position.
+    #[test]
+    fn plays_the_book_move_in_book() {
+        for line in [["j7", "a1"], ["e5", "g7"], ["a1", "k11"]] {
+            let moves: Vec<String> = line.iter().map(|s| s.to_string()).collect();
+            let (b, w) = bitboards(replay(&moves).get_board());
+            let mv = book().probe(b, w).expect("2-ply position in book");
+            assert_eq!(choose(&moves, Limit::Playouts(0)), Some(book::name(mv)));
+        }
+        let moves = vec!["f6".to_string()];
+        let (b, w) = bitboards(replay(&moves).get_board());
+        let mv = book().probe(b, w).expect("1-ply position in book");
+        assert_eq!(choose(&moves, Limit::Playouts(0)), Some(book::name(mv)));
     }
 }

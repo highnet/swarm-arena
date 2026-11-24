@@ -5,3 +5,9 @@ edition = "2021"
 
 [dependencies]
 hexgame = "0.1"
+
+# Offline book generator (#111): never part of a game. Its modules are the engine's own.
+[[bin]]
+name = "gen-book"
+path = "src/bin/gen-book.rs"
+test = false
