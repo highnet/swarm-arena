@@ -28,6 +28,29 @@ colors:
   stone-white: 'oklch(0.975 0.03 97.3)'
   highlight: 'light-dark(oklch(0.594 0.126 105.7 / 0.35), oklch(0.941 0.2 105.7 / 0.28))'
 typography:
+  hero:
+    fontFamily: 'Geist, ui-sans-serif, system-ui, sans-serif'
+    fontSize: '3.75rem'
+    fontWeight: 600
+    lineHeight: 1.08
+    letterSpacing: '-0.025em'
+  chapter:
+    fontFamily: 'Geist, ui-sans-serif, system-ui, sans-serif'
+    fontSize: '3rem'
+    fontWeight: 600
+    lineHeight: 1.1
+    letterSpacing: '-0.025em'
+  subchapter:
+    fontFamily: 'Geist, ui-sans-serif, system-ui, sans-serif'
+    fontSize: '1.875rem'
+    fontWeight: 600
+    lineHeight: 1.2
+    letterSpacing: '-0.025em'
+  intro:
+    fontFamily: 'Geist, ui-sans-serif, system-ui, sans-serif'
+    fontSize: '1.125rem'
+    fontWeight: 400
+    lineHeight: '32px'
   display:
     fontFamily: 'Geist, ui-sans-serif, system-ui, sans-serif'
     fontSize: '1.75rem'
@@ -89,6 +112,12 @@ spacing:
   md: '12px'
   gutter: '16px'
   gutter-wide: '24px'
+  gutter-band: '40px'
+  section-compact: '56px / 80px'
+  section: '80px / 112px'
+  section-roomy: '96px / 144px'
+  chapter: '48px / 64px'
+  sticky: '96px'
 components:
   button-primary:
     backgroundColor: '{colors.primary}'
@@ -160,10 +189,22 @@ components:
     height: '48px'
   section:
     backgroundColor: '{colors.bg} | {colors.band}'
-    padding: '80-144px 16/24/40px'
+    padding: '{spacing.section} {spacing.gutter}'
+  section-heading:
+    typography: '{typography.chapter}'
+    margin-bottom: '{spacing.chapter}'
   section-nav:
     backgroundColor: 'color-mix(in oklab, var(--bg) 90%, transparent)'
+    textColor: '{colors.fg-3}'
     height: '44px'
+  section-nav-current:
+    textColor: '{colors.fg}'
+  reading-progress:
+    backgroundColor: '{colors.fg-3}'
+    height: '1px'
+  disclosure-row:
+    typography: '{typography.headline}'
+    padding: '20px 0'
 ---
 
 # Design System: Swarm Arena
@@ -255,8 +296,8 @@ The site's credit: "Colour combinations after Sanzo Wada, _A Dictionary of Color
 
 ### Hierarchy
 
-- **Display** (600, 36px rising to 48px at `sm` and 60px at `lg`, tight tracking, balanced wrap): the one h1 of an editorial page's opening section (the homepage).
-- **Chapter** (600, 30px rising to 48px at `sm`): the h2 that opens each section of a long page; **Intro** (16-18px, 28-32px line height, `fg-2`) is the one or two sentences under it.
+- **Display** (600, 36px rising to 48px at `sm` and 60px at `lg`, tight tracking, balanced wrap): the one h1 of an editorial page's opening section (`SectionHeading level="page"`).
+- **Chapter** (600, 30px rising to 48px at `sm`): the h2 that opens each section of a long page; **Sub-chapter** (600, 24px rising to 30px) the h3 inside one; **Intro** (16-18px, 28-32px line height, `fg-2`) is the one or two sentences under it.
 - **Display / page title** (600, 24px rising to 28px at `sm`, tight tracking, balanced wrap): one per page, the h1 under the top bar.
 - **Lede** (400, 15px, 24px line height, `fg-2`): the one or two sentences under the page title; kept to about `max-w-2xl`.
 - **Section title** (500, 14px, `fg`): panel headers ("Progress", "Latest game", "Board").
@@ -276,17 +317,75 @@ The site's credit: "Colour combinations after Sanzo Wada, _A Dictionary of Color
 
 Pages share one frame: the 48px sticky top bar, the collapsible sidebar, and the footer.
 
-**Editorial pages** (the homepage first, the rest of the site through #218) spread information along the vertical axis instead of compressing it into one viewport:
+**Editorial pages** spread information along the vertical axis instead of compressing it into one viewport. The homepage was the first (#206); every other route follows on this one system (#218), area by area: engines and versions (#229); games, matches and graveyard (#230); fleet, sessions and tasks (#231); board, messages and news (#232); the explainers (#233). Those pages compose the primitives below. They never fork them: a page that needs something new adds a variant here, in its own pull request, and documents it in this file.
 
-- **Sections, not panels.** The page is a stack of full-width `Section` bands, each answering one question, in narrative order (overview → context → evidence → analysis → further reading). Bands alternate `bg` and `band`; whitespace and the change of ground mark the boundary. No borders or cards around a section.
-- **A breakout grid** (`.section-grid`): a reading column of up to 72rem, gutters of 16px, 24px from `sm` and 40px from `lg`. `FullBleed` lets a chart or table take `wide` (up to 84rem) or `full` (the whole band) width, never past the band.
-- **Rhythm.** Vertical padding of 56-80px (`compact`), 80-112px (`default`) or 96-144px (`roomy`). Alternate full-width sections with two-column ones (5:6 splits), so the page does not repeat one shape.
-- **Chapters.** Each section opens with `SectionHeading`: a chapter heading, an intro, and at most two quiet links.
-- **Wayfinding.** `SectionNav` sticks under the top bar, marks the section being read and carries a scroll-linked hairline of reading progress. No scroll snapping.
-- **Progressive disclosure.** The essentials stay visible; detail sits behind a `Disclosure` or on its own page, one click away.
-- **The first viewport is the overview only:** the headline, one line, one primary action. Secondary actions are text links.
+### Sections and bands
 
-**Dashboard pages** (not yet converted) keep the previous layout: a 90rem container, a title block, then a fluid main column and a fixed 23rem rail, with panels built as hairline rows. Inside panels the rhythm is fixed: 16px horizontal padding, 10px row padding, a 44px header with a hairline under it.
+- **One question per section.** A page is a stack of full-width `Section` bands, each answering one question, in narrative order: overview, then context, evidence, analysis, further reading. If a section needs two headings to explain itself, it is two sections.
+- **Bands alternate.** Sections alternate `plain` (`bg`) and `band` (`band`, the quiet member of Wada 52), starting with `plain`. Never two `band`s in a row. The change of ground and the whitespace mark the boundary: no border, rule or card around a section.
+- **A breakout grid** (`.section-grid`): a reading column of up to 72rem, gutters of 16px, 24px from `sm` and 40px from `lg`. Prose inside it keeps its own measure (`max-w-2xl` to `max-w-3xl`).
+- **The full-width data section.** A chart, a table or a board that wants room goes in `FullBleed`: `wide` (up to 84rem) for charts and tables, `full` (the whole band) for edge-to-edge data such as the fleet graph. It never reaches past the band, so it never scrolls the page sideways; a table too wide for a phone scrolls inside its own `overflow-x-auto` box.
+- **Vary the shape.** Alternate single-column sections with two-column ones (a 5:6 or 2:3 split, text on the left), so the page does not repeat one shape down its length.
+
+### Spacing scale
+
+Vertical rhythm comes from four tokens in `app/globals.css`, each a phone value and a value from `sm` (40rem) up. Sections and headings use these utilities and nothing else for their outer spacing.
+
+| Token (utility)                                    | Phone | `sm` and up | Use                                                       |
+| -------------------------------------------------- | ----- | ----------- | --------------------------------------------------------- |
+| `--spacing-section-compact` (`py-section-compact`) | 56px  | 80px        | a short section: one line of status, a list of links      |
+| `--spacing-section` (`py-section`)                 | 80px  | 112px       | the default                                               |
+| `--spacing-section-roomy` (`py-section-roomy`)     | 96px  | 144px       | the opening section, and sections built around a chart    |
+| `--spacing-chapter` (`mb-chapter`)                 | 48px  | 64px        | between a section's heading block and its content         |
+| `--spacing-sticky` (`scroll-mt-sticky`)            | 96px  | 96px        | anchor offset: the 48px top bar plus the 44px section nav |
+
+Inside a section, step down by the Tailwind scale: 80-128px (`mt-20` to `mt-32`) between sub-sections, 40px (`mt-10`) between a block and its disclosure, 24-32px between list rows (`py-6`, `py-7`), 16-20px between a heading and its intro.
+
+### Headings
+
+Every page has exactly one h1, and the outline never skips a level.
+
+- **Page** (`SectionHeading level="page"`, the `display` type, 36-60px): the route's one h1, in its opening section. On the homepage it is the headline sentence; on other routes it names the page ("The fleet"), with the intro saying what the page answers.
+- **Chapter** (`level="chapter"`, the default, 30-48px): the h2 that opens every other section, with an intro of one or two sentences (16-18px, `fg-2`, at most 42rem) and at most two quiet `TextLink`s.
+- **Sub-chapter** (`level="sub"`, 24-30px): an h3 inside a section ("The latest game", "Further reading").
+- Below that, items in a list carry 16-18px medium titles (h3 or h4 by the outline). Hierarchy comes from size and the three inks, never from uppercase, letter-spacing or an eyebrow label above a heading.
+
+### Wayfinding and reading progress
+
+- **SectionNav.** A page with four or more sections carries a `SectionNav` under the top bar: one link per section, the current one marked. A page with fewer sections needs none.
+- **Anchor scrolling.** Links are real `#id` anchors (they work without JavaScript and open in a new tab). A click marks its section at once, glides there only when motion is allowed, lands it under the sticky bars (`scroll-mt-sticky`), moves keyboard focus to it and writes the hash. No scroll snapping, ever.
+- **Reading progress.** A 1px `fg-3` hairline that fills with the page scroll, driven by CSS scroll timelines (no script). It rides the `SectionNav`'s bottom edge; a long page with no section nav (a news story, a long explainer) may use `ReadingProgress placement="bar"` instead. Never both. Browsers without scroll timelines and readers with reduced motion see no bar.
+
+### Progressive disclosure
+
+The essentials stay visible; the detail is one click away. Use a `Disclosure` (`inline` under the thing it expands, `row` for a stack of several) or a link to the record's own page. Never hide the one number or sentence a section exists to show. A disclosure's summary says what opening it shows ("The ladders: who each engine has beaten").
+
+### When a card is allowed
+
+Whitespace is the default separator, a hairline (`border-line`, `divide-y`) the second. A card (`Panel`: `panel` fill, `line` border, 8px radius) is allowed only for:
+
+1. **An interactive unit** that must read as one object: a playable board with its controls, a form, a filter bar with its results.
+2. **A floating surface**: a tooltip, a popover, the search dialog.
+3. **The one lead item** of a list that is otherwise hairline rows (the newest story on `/news`).
+4. **A dashboard table** that has to hold together on a page not yet converted.
+
+Never a grid of same-shaped cards, never a card inside a card, never a card around a whole section, and never a card used only to make a number look important: set it large in mono instead.
+
+### One primary action
+
+Each screen has at most one primary button (the ink fill). Secondary actions are `TextLink`s: 15px `fg-2` with a small arrow, underlined on hover.
+
+### Checking a page
+
+Each route's redesign shows, before and after:
+
+- `node web/scripts/impeccable-routes.mjs <base-url> [--only /route]`: Impeccable's `detect` at 1440x900 and 390x844 against a production build. CI runs it for every page route on each pull request that touches `web/` and writes the table to the job summary (the **web-checks** run); quote your route's row. Remaining findings are either fixed or justified in the pull request.
+- `/impeccable critique` of the route, and screenshots at 1440 and 390 px in both themes.
+- `npm test -w web`: the token contrast test and `scripts/design-system.test.mjs` (the primitives' contract).
+
+### Dashboard pages
+
+Pages not yet converted keep the previous layout: a 90rem container, a title block, then a fluid main column and a fixed 23rem rail, with panels built as hairline rows. Inside panels the rhythm is fixed: 16px horizontal padding, 10px row padding, a 44px header with a hairline under it.
 
 ## Elevation & Depth
 
@@ -309,13 +408,17 @@ Small, consistent radii and hairline outlines. Panels are 8px; buttons, notices,
 
 ### Section primitives (`components/ui`)
 
-Built for every page to adopt (#218):
+The shared editorial layout system (#218). Every primitive is a CVA component with a `data-slot`; import it, pick a variant, and add only layout classes through `className`.
 
-- **Section** (`tone`: `plain` | `band`; `space`: `compact` | `default` | `roomy`; `fill`: `none` | `screen`): a full-width band with an anchor `id`, named by its heading (`aria-labelledby`), with `scroll-margin` that clears the sticky bars.
-- **SectionHeading**: the chapter heading, an intro paragraph capped at about 42rem, and an optional row of quiet links.
-- **SectionNav**: a sticky list of in-page links, 13px `fg-3` with the current chapter in `fg` and a 1px ink underline (`aria-current="location"`), on `bg` at 90% with backdrop blur. It scrolls sideways on phones instead of wrapping.
-- **Disclosure**: a native `<details>` with a 15px `fg-2` summary and a chevron that turns 90°. Works without JavaScript.
+- **Section** (`tone`: `plain` | `band`; `space`: `compact` | `default` | `roomy`; `fill`: `none` | `screen`): a full-width band with an anchor `id`, named by its heading (`labelledBy`), padded from the section spacing scale, with `scroll-margin` that clears the sticky bars. `fill="screen"` makes an opening section fill most of the first viewport.
+- **SectionHeading** (`level`: `page` | `chapter` | `sub`; `space`: `default` | `tight` | `none`): the heading block that opens a section: the title at its rung of the outline, an intro capped at about 42rem, and an optional row of quiet links (`action`).
+- **SectionNav** (`items`, `label`, `progress`): a sticky list of in-page links, 13px `fg-3` with the current section in `fg` and a 1px ink underline (`aria-current="location"`), on `bg` at 90% with backdrop blur. It scrolls sideways on phones, keeping the current link in view, and handles anchor scrolling as described under Layout.
+- **ReadingProgress** (`placement`: `edge` | `bar`): the 1px reading-progress hairline, on the nav's bottom edge or pinned under the top bar.
+- **Disclosure** (`variant`: `inline` | `row`): a native `<details>` with a chevron that turns 90°. `inline` has a 15px `fg-2` summary; `row` is a full-width 16px `fg` summary between hairlines, for a stack of several. Works without JavaScript, and find-in-page opens it.
 - **FullBleed** (`width`: `wide` | `full`): lets a chart or table leave the reading column.
+- **TextLink** (`size`: `default` | `small`; `external`): a secondary action as a text link with an arrow (up-right for `external`), so each screen keeps one primary button.
+
+The type steps they use are Typography's `display`, `chapter`, `subchapter` and `intro` variants.
 
 ### Engine feature (homepage)
 

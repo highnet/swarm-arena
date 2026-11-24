@@ -4,6 +4,10 @@
 # Actions minutes are capped (see maintenance.yml), so this runs only on pull requests that touch
 # web/, shared/, swarm-graph/ or the package files, as one job with the npm cache. Other pull
 # requests skip it; their checks (tests, the referee's games, preflight, review) run in the Claude cloud sessions.
+#
+# After the build, Impeccable's `detect` scans every page route at 1440 and 390 px against the
+# production server (#218) and writes one table per route to the job summary. It reports, it does
+# not gate: each route's redesign (#229-#233) quotes its row before and after.
 name: web-checks
 
 on:
@@ -26,7 +30,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -40,3 +44,18 @@ jobs:
         run: npm run lint
       - name: Build
         run: npm run build
+      - name: Impeccable detect, per route
+        working-directory: web
+        run: |
+          npx next start -p 3000 > ../next-start.log 2>&1 &
+          for i in $(seq 1 60); do curl -fs -o /dev/null http://localhost:3000/ && break; sleep 1; done
+          node scripts/impeccable-routes.mjs http://localhost:3000 --json ../impeccable-routes.json
+      - name: Keep the detect report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: impeccable-routes
+          path: |
+            impeccable-routes.json
+            next-start.log
+          if-no-files-found: ignore

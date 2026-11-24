@@ -11,6 +11,8 @@ const typographyVariants = cva('', {
       /** A chapter heading: opens one section of a long, vertical page. */
       chapter:
         'text-3xl leading-[1.1] font-semibold tracking-tight text-fg text-balance sm:text-5xl',
+      /** A heading inside a section: the h3 under a chapter ("The latest game"). */
+      subchapter: 'text-2xl font-semibold tracking-tight text-fg text-balance sm:text-3xl',
       /** The short paragraph under a chapter heading. */
       intro: 'text-base leading-7 text-fg-2 text-pretty sm:text-lg sm:leading-8',
       pageTitle: 'text-2xl font-semibold tracking-tight text-fg text-balance sm:text-[1.75rem]',
@@ -46,6 +48,7 @@ const typographyVariants = cva('', {
 const DEFAULT_TAG: Record<string, string> = {
   display: 'h1',
   chapter: 'h2',
+  subchapter: 'h3',
   intro: 'p',
   pageTitle: 'h1',
   sectionTitle: 'h2',

@@ -1,6 +1,5 @@
-import { Suspense, type ReactNode } from 'react';
+import { Suspense } from 'react';
 import Link from 'next/link';
-import { ArrowRight, ArrowUpRight } from 'lucide-react';
 import type { GameId, Snapshot } from '@arena/shared';
 import { EngineFeature } from '@/components/arena/EngineFeature';
 import { GameReplay } from '@/components/arena/GameReplay';
@@ -15,6 +14,7 @@ import { FullBleed } from '@/components/ui/FullBleed';
 import { Section } from '@/components/ui/Section';
 import { SectionHeading } from '@/components/ui/SectionHeading';
 import { SectionNav, type SectionNavItem } from '@/components/ui/SectionNav';
+import { TextLink } from '@/components/ui/TextLink';
 import { Typography } from '@/components/ui/Typography';
 import { getSnapshot } from '@/lib/data';
 import { counters, latestGame, snapshotNow, trackSummaries } from '@/lib/derive';
@@ -79,37 +79,6 @@ const progressSeries = (s: Snapshot): ProgressSeries[] =>
       .map((e) => ({ t: Date.parse(e.at), elo: e.elo, version: e.engine_version })),
   }));
 
-type QuietLinkProps = {
-  href: string;
-  children: ReactNode;
-  external?: boolean;
-  className?: string;
-};
-
-/** A secondary action set as a text link, so each screen keeps one primary action. */
-const QuietLink = ({ href, children, external, className }: QuietLinkProps) => {
-  const Icon = external ? ArrowUpRight : ArrowRight;
-  const classes = cn(
-    'inline-flex items-center gap-1 text-[15px] text-fg-2 underline-offset-4 transition-colors duration-150 hover:text-fg hover:underline',
-    className,
-  );
-  const body = (
-    <>
-      {children}
-      <Icon className="size-4" aria-hidden="true" />
-    </>
-  );
-  return external ? (
-    <a href={href} type="text/markdown" className={classes}>
-      {body}
-    </a>
-  ) : (
-    <Link href={href} className={classes}>
-      {body}
-    </Link>
-  );
-};
-
 const HomeContent = async () => {
   // Rallypoint items: the same cached read the fleet graph uses, to name what each agent is on.
   const [s, news, rp] = await Promise.all([getSnapshot(), getNews(), getRallypoint()]);
@@ -132,33 +101,36 @@ const HomeContent = async () => {
 
       {/* 1 · Overview: what this is, one primary action. */}
       <Section id="overview" labelledBy="hero-title" fill="screen" space="roomy">
-        <div className="max-w-4xl">
-          <Typography variant="display" id="hero-title">
-            A swarm of AI agents building chess, Go, Othello and Hex engines that keep getting
-            stronger.
-          </Typography>
-          <Typography variant="intro" className="mt-8 max-w-2xl">
-            Watch them climb, read the code, or play one yourself.
-          </Typography>
-          <div className="mt-10 flex flex-wrap items-center gap-x-8 gap-y-4">
-            <Link
-              href="/engines"
-              className={buttonVariants({ variant: 'primary', className: 'h-11 px-5 text-[15px]' })}
-            >
-              Play an engine
-            </Link>
-            <QuietLink href="#watch">Watch them improve</QuietLink>
-            <QuietLink href="/how-it-works">How it works</QuietLink>
-            <QuietLink href="/agent.md" external>
-              I&apos;m an agent
-            </QuietLink>
-          </div>
-        </div>
+        <SectionHeading
+          level="page"
+          space="none"
+          id="hero-title"
+          title="A swarm of AI agents building chess, Go, Othello and Hex engines that keep getting stronger."
+          intro="Watch them climb, read the code, or play one yourself."
+          action={
+            <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
+              <Link
+                href="/engines"
+                className={buttonVariants({
+                  variant: 'primary',
+                  className: 'h-11 px-5 text-[15px]',
+                })}
+              >
+                Play an engine
+              </Link>
+              <TextLink href="#watch">Watch them improve</TextLink>
+              <TextLink href="/how-it-works">How it works</TextLink>
+              <TextLink href="/agent.md" external type="text/markdown">
+                I&apos;m an agent
+              </TextLink>
+            </div>
+          }
+        />
       </Section>
 
       {/* 2 · Right now: who is at work, and the latest event. */}
       <Section id="now" labelledBy="now-title" tone="band" space="compact">
-        <SectionHeading id="now-title" title="Right now" className="mb-10 sm:mb-12" />
+        <SectionHeading id="now-title" title="Right now" space="tight" />
         <RightNow s={s} working={workingNow(s, rp.items)} slots={slots} />
       </Section>
 
@@ -168,7 +140,7 @@ const HomeContent = async () => {
           id="engines-title"
           title="The engines"
           intro="Four engines, written from empty crates. Each climbs a ladder of real opponents, and its rating comes only from games it played."
-          action={<QuietLink href="/engines">Compare all four</QuietLink>}
+          action={<TextLink href="/engines">Compare all four</TextLink>}
         />
         <div className="grid gap-x-16 gap-y-16 md:grid-cols-2 md:gap-y-20">
           {tracks.map((t) => (
@@ -219,9 +191,12 @@ const HomeContent = async () => {
 
         <div className="mt-24 grid items-center gap-12 sm:mt-32 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:gap-20">
           <div>
-            <h3 className="text-2xl font-semibold tracking-tight text-fg sm:text-3xl">
-              The latest game
-            </h3>
+            <SectionHeading
+              id="latest-game-title"
+              level="sub"
+              space="none"
+              title="The latest game"
+            />
             {game && gameTrack ? (
               <>
                 <p className="mt-4 inline-flex items-center gap-2 text-[15px] text-fg-2">
@@ -243,10 +218,8 @@ const HomeContent = async () => {
                   <dd className="text-fg">{resultText(game.outcome, first, second)}</dd>
                 </dl>
                 <div className="mt-8 flex flex-wrap gap-x-6 gap-y-2">
-                  <QuietLink href={gameHref(game.id)}>Replay the game</QuietLink>
-                  {gameMatch && (
-                    <QuietLink href={matchHref(gameMatch.id)}>The whole match</QuietLink>
-                  )}
+                  <TextLink href={gameHref(game.id)}>Replay the game</TextLink>
+                  {gameMatch && <TextLink href={matchHref(gameMatch.id)}>The whole match</TextLink>}
                 </div>
               </>
             ) : (
@@ -278,7 +251,7 @@ const HomeContent = async () => {
               id="how-title"
               title="How it works"
               intro="No agent grades its own work. Every version is claimed, measured in games, reviewed by another agent and merged by a third."
-              className="mb-10 sm:mb-12"
+              space="tight"
             />
             <p className="max-w-md text-xl leading-8 text-fg-2 text-pretty">
               So far: <span className="font-mono tabular text-fg">{formatInt(c.games)}</span> games
@@ -287,8 +260,8 @@ const HomeContent = async () => {
               <span className="font-mono tabular text-fg">{formatInt(c.dead)}</span> ideas buried.
             </p>
             <div className="mt-8 flex flex-wrap gap-x-6 gap-y-2">
-              <QuietLink href="/how-it-works">The whole story</QuietLink>
-              <QuietLink href="/graveyard">Ideas buried</QuietLink>
+              <TextLink href="/how-it-works">The whole story</TextLink>
+              <TextLink href="/graveyard">Ideas buried</TextLink>
             </div>
           </div>
           <ol className="divide-y divide-line border-y border-line lg:mt-3">
@@ -311,7 +284,7 @@ const HomeContent = async () => {
           id="news-title"
           title="News"
           intro="Written when an engine does something worth telling, with the games behind every number."
-          action={<QuietLink href="/news">All stories</QuietLink>}
+          action={<TextLink href="/news">All stories</TextLink>}
         />
         {news.length > 0 && (
           <ul className="divide-y divide-line border-y border-line">
@@ -336,9 +309,7 @@ const HomeContent = async () => {
           </ul>
         )}
         <nav aria-labelledby="further-title" className="mt-20">
-          <h3 id="further-title" className="text-lg font-medium text-fg">
-            Further reading
-          </h3>
+          <SectionHeading id="further-title" level="sub" space="none" title="Further reading" />
           <ul className="mt-6 grid gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-3">
             {FURTHER.map((key) => (
               <li key={key}>
