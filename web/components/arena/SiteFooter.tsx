@@ -50,6 +50,9 @@ const SiteFooter = ({ runLabel, startedAt }: SiteFooterProps) => (
         <p className="mt-1">
           {runLabel} · started {formatDay(startedAt)}
         </p>
+        <p className="mt-1 text-balance">
+          Colour combinations after Sanzo Wada, <cite>A Dictionary of Color Combinations</cite>.
+        </p>
       </div>
     </div>
   </footer>
