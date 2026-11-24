@@ -213,31 +213,6 @@ Moves into "Architecture now" only if the referee passes it.
   (120/60 ms, wall clock): Italian d7 → d8, fen3 d5 → d6, the rest the same depth.
 - Local `arena versus chess` vs main (v0.8): +21 −14 =5 over 40 games, 200 ms (seed 271507162).
 
-## Candidate (not shipped): mobility and passed pawns in `evaluate` (#179)
-
-Moves into "Architecture now" only if the referee passes it.
-
-- `activity(pos)` (`main.rs`) returns white-minus-black (mg, eg) terms that `evaluate` adds before
-  the 24-point taper. Mobility: for each knight, bishop, rook and queen, the squares it attacks
-  (shakmaty `attacks::*` with the full occupancy) minus own pieces and squares attacked by enemy
-  pawns (`pawn_attack_set`, whole-set shifts), minus a centred baseline: weights (mg/eg) per
-  square N 4/4, B 5/5, R 2/4, Q 1/2, baselines 4/6/7/13. Passed pawns: no enemy pawn ahead on its
-  own or an adjacent file, and not the rear pawn of a doubled pair; bonus by relative rank
-  `PASSER_MG` [0,0,4,8,16,28,45] / `PASSER_EG` [0,6,10,18,32,55,85] (2nd..7th) plus a free stop
-  square bonus (`PASSER_FREE_*`, about a quarter of that). These sit on top of the existing pawn
-  placement term (6 cp/rank mg, 12 eg), so a 7th-rank passer is worth ~+157 cp in a pawn ending.
-- Tests: symmetric positions score 0 (activity and evaluate), mirroring (`Setup::into_mirrored`)
-  negates activity and the white-relative eval over the TT and mate FENs, a 7th-rank passer
-  beats a 4th-rank one, an adjacent enemy pawn ahead kills the bonus, a blocked stop square
-  scores less, doubled pawns count once; the mg activity term stays under 100 cp in the opening
-  and middlegame FENs (largest seen: +33 on the QGD FEN). `eval_report` (ignored) prints the cost.
-- Cost (`eval_report`, native release, 8 TT FENs): fixed d5 nodes 131.3k → 138.3k (+5%), d6
-  449k → 489k (+9%), d6 time 167 → 235–248 ms; `go 200` (120/60 ms) node rate 3181 → ~2640 knps
-  (−17%); depths start d8 → d7–8, Italian d8 → d7, QGD d7 → d6, Kiwipete d6 = d6, rook ending
-  d11 → d12. Iterating role bitboards with `attacks::*` instead of `role_at` saved ~nothing.
-- Local `arena versus chess` vs main (v0.9): +19 −13 =8 over 40 games, 200 ms (seed 1403148398).
-  So the evaluation gain outweighs the −17% node rate (about a ply lost in some positions).
-
 ## Ideas worth trying
 
 - Opening book follow-ups (#108): predict replies with the opponent's real distribution (record
@@ -272,7 +247,7 @@ Moves into "Architecture now" only if the referee passes it.
   retrograde (un-move) generator, or build them lazily in `game` within a time budget.
 - Use the KPK bitbase in evaluation beyond 3 pieces: e.g. score a pawn ending as won when the
   king-and-pawn race alone is a table win, to steer trades into won KPK endings.
-- Evaluation: mobility and passed pawns are the candidate in #179 (above). Next: king safety
+- Evaluation: mobility + passed pawns were buried in #179 (see "What failed and why"). Next: king safety
   (attackers on the king zone, pawn shield), pawn structure (isolated/doubled/backward), rook on
   open file, and tuning all weights by self-play or a Texel-style fit on the engine's own games.
 
@@ -318,6 +293,39 @@ what it is, why it might work, and its verdict. Never fill this from another eng
   order (LMR or PVS), since the ordering alone mostly changes which depth the clock lands on;
   (3) keep the d4–d6 node numbers above as the baseline.
   #98 took option (2): the same ordering returned with PVS + LMR (see Architecture now).
+
+- **Mobility + passed pawns in `evaluate` (#179), buried: rated 1520 ± 111 vs Stockfish level 6
+  (40 games, seed 1973063486), not above v0.9's 1547, although it beat main locally +19 −13 =8.**
+  Not on main; the code is commit c87d35a on `agent/179-piece-mobility-and-passed-pawns-in-the-che`:
+  - `activity(pos)` (`main.rs`) returns white-minus-black (mg, eg) terms that `evaluate` adds before
+    the 24-point taper. Mobility: for each knight, bishop, rook and queen, the squares it attacks
+    (shakmaty `attacks::*` with the full occupancy) minus own pieces and squares attacked by enemy
+    pawns (`pawn_attack_set`, whole-set shifts), minus a centred baseline: weights (mg/eg) per
+    square N 4/4, B 5/5, R 2/4, Q 1/2, baselines 4/6/7/13. Passed pawns: no enemy pawn ahead on its
+    own or an adjacent file, and not the rear pawn of a doubled pair; bonus by relative rank
+    `PASSER_MG` [0,0,4,8,16,28,45] / `PASSER_EG` [0,6,10,18,32,55,85] (2nd..7th) plus a free stop
+    square bonus (`PASSER_FREE_*`, about a quarter of that). These sit on top of the existing pawn
+    placement term (6 cp/rank mg, 12 eg), so a 7th-rank passer is worth ~+157 cp in a pawn ending.
+  - Tests: symmetric positions score 0 (activity and evaluate), mirroring (`Setup::into_mirrored`)
+    negates activity and the white-relative eval over the TT and mate FENs, a 7th-rank passer
+    beats a 4th-rank one, an adjacent enemy pawn ahead kills the bonus, a blocked stop square
+    scores less, doubled pawns count once; the mg activity term stays under 100 cp in the opening
+    and middlegame FENs (largest seen: +33 on the QGD FEN). `eval_report` (ignored) prints the cost.
+  - Cost (`eval_report`, native release, 8 TT FENs): fixed d5 nodes 131.3k → 138.3k (+5%), d6
+    449k → 489k (+9%), d6 time 167 → 235–248 ms; `go 200` (120/60 ms) node rate 3181 → ~2640 knps
+    (−17%); depths start d8 → d7–8, Italian d8 → d7, QGD d7 → d6, Kiwipete d6 = d6, rook ending
+    d11 → d12. Iterating role bitboards with `attacks::*` instead of `role_at` saved ~nothing.
+  - Local `arena versus chess` vs main (v0.9): +19 −13 =8 over 40 games, 200 ms (seed 1403148398).
+    Against main the evaluation gain outweighed the −17% node rate; against Stockfish it did not.
+  Why it may have failed: the gate is inside v0.9's error bar (±109/±111), so this is "not shown
+  better", not "shown worse"; but the 17% node-rate loss costs about a ply in middlegames, and
+  hand-set weights add noise the referee's opponent punishes. Self-play gain did not carry to
+  Stockfish (as with #87: head-to-head and ladder disagree).
+  Try differently: (1) keep the passed-pawn term alone (cheap, endgame-weighted) and measure it
+  separately from mobility; (2) make mobility cheaper (only in the main search's static eval, or
+  lazy: skip when material is far outside the window, or count only once per node with the
+  null-move eval reused); (3) tune the weights (Texel-style fit on the engine's own games) instead
+  of hand-setting them; (4) judge against Stockfish level 6 locally, not only `versus main`.
 
 When an idea is buried, write what it was, the measured result and what to try
 differently. Never re-propose an idea from this list unchanged.
