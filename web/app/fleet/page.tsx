@@ -18,7 +18,7 @@ import { NextSteps } from '@/components/arena/NextSteps';
 import { getSnapshot, liveGames } from '@/lib/data';
 import { formatDay, formatTime } from '@/lib/format';
 import { recordHref } from '@/lib/routes';
-import { getRallypoint, REPO_URL } from '@/lib/github';
+import { getMergedPulls, getRallypoint, REPO_URL } from '@/lib/github';
 import { pageMeta } from '@/lib/site';
 import { engineNodes, toSwarmInput } from '@/lib/swarmGraph';
 import { cn } from '@/lib/utils';
@@ -175,7 +175,12 @@ const FleetContent = async ({ searchParams }: FleetContentProps) => {
   // Live by nature: who is working right now is a request-time question.
   await connection();
   const { view } = await searchParams;
-  const [s, rp, live] = await Promise.all([getSnapshot(), getRallypoint(), liveGames()]);
+  const [s, rp, live, merged] = await Promise.all([
+    getSnapshot(),
+    getRallypoint(),
+    liveGames(),
+    getMergedPulls(),
+  ]);
   const asOf = s.asOf ?? new Date().toISOString();
   const slots = Object.fromEntries(s.tracks.map((t) => [t.id, t.color_slot])) as Partial<
     Record<GameId, number>
@@ -221,7 +226,7 @@ const FleetContent = async ({ searchParams }: FleetContentProps) => {
 
         <SwarmGraph
           className="mt-6"
-          {...toSwarmInput(s, rp.items)}
+          {...toSwarmInput(s, rp.items, merged)}
           engines={engineNodes(s)}
           liveGames={live}
           view={typeof view === 'string' ? view : null}

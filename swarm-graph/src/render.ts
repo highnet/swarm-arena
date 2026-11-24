@@ -22,6 +22,16 @@ import {
   type IntroPlan,
 } from './intro';
 import {
+  ARRIVAL,
+  DEPARTURE,
+  arrivalPose,
+  arrivalTarget,
+  departurePose,
+  progressAt,
+  staggerAt,
+  type Pose,
+} from './lifecycle';
+import {
   applyFlow,
   indexAtTime,
   planReplay,
@@ -539,6 +549,22 @@ export const createSwarmGraph = (
     labels: number;
   };
   let intro: IntroRun | null = null;
+  /** New nodes gliding out of their parent (see `lifecycle.ts`). */
+  type Arrival = {
+    start: number;
+    parent: string | null;
+    from: { x: number; y: number };
+    to: { x: number; y: number };
+  };
+  const arrivals = new Map<string, Arrival>();
+  /** Nodes gone from the graph, fading out before they leave the simulation. */
+  const departures = new Map<string, { start: number }>();
+  /** The pose of every arriving or departing node this frame. */
+  const life = new Map<string, Pose>();
+  /** Nodes whose pose just ended: their styles go back to the defaults once. */
+  const settled = new Set<string>();
+  /** A dead node winding down (`SwarmNode.fading`) is drawn this much dimmer. */
+  const FADING_OPACITY = 0.7;
   const liveTimers = new Set<ReturnType<typeof setTimeout>>();
 
   const colorOf = (n: SwarmNode) => n.color ?? theme.neutral;
@@ -745,8 +771,12 @@ export const createSwarmGraph = (
             .style('cursor', 'pointer')
             .style('outline', 'none')
             .attr('opacity', 0);
-          // The inner group scales (pops) without fighting the per-tick translate.
-          const inner = g.append('g').attr('class', 'sg-inner');
+          // The inner group scales (pops) without fighting the per-tick translate. Its opacity is
+          // the dimming of a dead node winding down (`FADING_OPACITY`).
+          const inner = g
+            .append('g')
+            .attr('class', 'sg-inner')
+            .attr('opacity', (n) => (n.fading ? FADING_OPACITY : 1));
           inner.append('path').attr('class', 'sg-track').attr('stroke', 'none');
           inner.append('path').attr('class', 'sg-arc-flight').attr('stroke', 'none');
           inner.append('path').attr('class', 'sg-arc').attr('stroke', 'none');
@@ -766,10 +796,17 @@ export const createSwarmGraph = (
               .attr('dur', '40s')
               .attr('repeatCount', 'indefinite');
           inner.append('path').attr('class', 'sg-body');
-          g.transition().duration(500).attr('opacity', 1);
+          // Arrivals (and reduced motion) are posed per frame instead; see `stepLife`.
+          const posed = (n: SimNode) => !motion || arrivals.has(n.id);
+          g.filter(posed).attr('opacity', 1);
+          g.filter((n) => !posed(n))
+            .transition()
+            .duration(500)
+            .attr('opacity', 1);
           // New nodes spring in from nothing.
           if (motion)
             inner
+              .filter((n) => !arrivals.has(n.id))
               .attr('transform', 'scale(0.01)')
               .transition()
               .delay(80)
@@ -779,7 +816,8 @@ export const createSwarmGraph = (
           return g;
         },
         (update) => update,
-        (exit) => exit.transition().duration(400).attr('opacity', 0).remove(),
+        // A node leaves only after its departure faded it out (at once with reduced motion).
+        (exit) => exit.remove(),
       );
 
     // The label layer mirrors the nodes one-for-one, appearing and leaving with them.
@@ -796,9 +834,15 @@ export const createSwarmGraph = (
             .attr('dominant-baseline', 'central');
           g.append('text').attr('class', 'sg-label').attr('text-anchor', 'middle');
           g.append('text').attr('class', 'sg-sub').attr('text-anchor', 'middle');
-          g.transition().duration(500).attr('opacity', 1);
+          const posed = (n: SimNode) => !motion || arrivals.has(n.id);
+          g.filter(posed).attr('opacity', 1);
+          g.filter((n) => !posed(n))
+            .transition()
+            .duration(500)
+            .attr('opacity', 1);
           if (motion)
             inner
+              .filter((n) => !arrivals.has(n.id))
               .attr('transform', 'scale(0.01)')
               .transition()
               .delay(80)
@@ -808,8 +852,20 @@ export const createSwarmGraph = (
           return g;
         },
         (update) => update,
-        (exit) => exit.transition().duration(400).attr('opacity', 0).remove(),
+        (exit) => exit.remove(),
       );
+
+    // A dead node winding down is drawn dimmer before it leaves.
+    const dim = (n: SimNode) => (n.fading ? FADING_OPACITY : 1);
+    groups
+      .select<SVGGElement>('g.sg-inner')
+      .transition('dim')
+      .duration(motion ? 800 : 0)
+      .attr('opacity', dim);
+    tags
+      .transition('dim')
+      .duration(motion ? 800 : 0)
+      .attr('opacity', dim);
 
     groups.attr('aria-label', (n) => `${n.kind} ${n.label}`);
     groups.select<SVGPathElement>('path.sg-body').each(function (n) {
@@ -929,7 +985,7 @@ export const createSwarmGraph = (
           return (
             ROLE_GLYPH[n.agent?.role ?? ''] ?? (n.agent?.role ?? n.label).charAt(0).toUpperCase()
           );
-        if (n.kind === 'sector') return String(shownNumber.get(n.id) ?? Math.round(effortOf(n)));
+        if (n.kind === 'sector') return countLabel(shownNumber.get(n.id) ?? countOf(n));
         if (n.kind === 'hub') return n.label;
         return '';
       });
@@ -1097,25 +1153,31 @@ export const createSwarmGraph = (
     });
   };
 
-  /** Sector effort numbers count up (or down) to their new value instead of jumping. */
+  /**
+   * The number inside a sector is the host's stable count (`SwarmSector.count`: merged pull
+   * requests, landed versions), not effort, so it does not move with the events a view shows. It
+   * counts up (or down) to a new value instead of jumping, and a sector with nothing shows nothing.
+   */
   const shownNumber = new Map<string, number>();
+  const countOf = (n: SimNode) => n.sector?.count?.value ?? 0;
+  const countLabel = (v: number) => (v > 0 ? String(Math.round(v)) : '');
   const countUp = () => {
     tagGroups()
       .filter((n) => n.kind === 'sector')
       .select<SVGTextElement>('text.sg-glyph')
       .each(function (n) {
-        const to = Math.round(effortOf(n));
+        const to = countOf(n);
         const from = shownNumber.get(n.id) ?? to;
         shownNumber.set(n.id, to);
         const el = d3.select(this);
         if (!motion || from === to) {
-          el.interrupt('count').text(String(to));
+          el.interrupt('count').text(countLabel(to));
           return;
         }
         el.transition('count')
           .duration(Math.min(1600, 300 + Math.abs(to - from) * 40))
           .ease(d3.easeCubicOut)
-          .textTween(() => (t) => String(Math.round(from + (to - from) * t)));
+          .textTween(() => (t) => countLabel(from + (to - from) * t));
       });
   };
 
@@ -1180,7 +1242,15 @@ export const createSwarmGraph = (
       const live = [...nodeById.values()].filter(
         (a) => a.kind === 'agent' && a.active && a.sectorId === n.sectorId,
       ).length;
-      return live ? `${live} live` : '';
+      // What the number inside counts, so it is never a bare figure.
+      const c = n.sector?.count;
+      const count =
+        c && c.value > 0
+          ? c.recent
+            ? `${c.unit} · ${c.recent} ${c.recentUnit ?? 'recent'}`
+            : c.unit
+          : null;
+      return [count, live ? `${live} live` : null].filter(Boolean).join(' · ');
     }
     if (n.kind === 'agent' && n.active) return n.agent?.role ?? '';
     if (n.kind === 'work' && n.phase === 'pr' && n.workItem) return STAGE_LABEL[n.workItem.stage];
@@ -1391,7 +1461,7 @@ export const createSwarmGraph = (
     }
     const scaleOf = intro?.scale;
     const place = (n: SimNode) => {
-      const k = scaleOf?.get(n.id);
+      const k = scaleOf?.get(n.id) ?? life.get(n.id)?.scale;
       return `translate(${n.x ?? 0},${n.y ?? 0})${k !== undefined && k < 1 ? ` scale(${k})` : ''}`;
     };
     gNodes.selectAll<SVGGElement, SimNode>('g.sg-node').attr('transform', place);
@@ -1578,6 +1648,7 @@ export const createSwarmGraph = (
   const timer = d3.timer(() => {
     const now = performance.now();
     if (intro) stepIntro(now);
+    stepLife(now);
     ambient(now);
     advanceReplay(now);
 
@@ -1704,7 +1775,7 @@ export const createSwarmGraph = (
       dashOffset = (dashOffset - 0.4) % 1000;
       gLinks
         .selectAll<SVGPathElement, SimLink>('path')
-        .filter((l) => l.active)
+        .filter((l) => l.active && !life.has(l.source.id) && !life.has(l.target.id))
         .attr('stroke-dashoffset', dashOffset);
     }
   });
@@ -1811,6 +1882,109 @@ export const createSwarmGraph = (
     liveTimers.add(t);
   };
 
+  // ---- arriving and leaving ---------------------------------------------------------------
+
+  const linksOf = (ids: Set<string>) =>
+    linkPaths().filter((l) => ids.has(l.source.id) || ids.has(l.target.id));
+
+  /** One frame of arrivals and departures: positions, sizes, opacities, edges. */
+  const stepLife = (now: number) => {
+    if (!arrivals.size && !departures.size && !settled.size) return;
+    const gone: string[] = [];
+    for (const [id, a] of arrivals) {
+      const n = nodeById.get(id);
+      if (!n) {
+        arrivals.delete(id);
+        life.delete(id);
+        continue;
+      }
+      const p = progressAt(now, a.start, ARRIVAL.durationMs);
+      const pose = arrivalPose(p);
+      // The parent may be moving: the glide starts wherever it is now.
+      const parent = a.parent ? nodeById.get(a.parent) : undefined;
+      const from = parent ? { x: parent.x ?? a.from.x, y: parent.y ?? a.from.y } : a.from;
+      n.x = from.x + (a.to.x - from.x) * pose.travel;
+      n.y = from.y + (a.to.y - from.y) * pose.travel;
+      n.vx = 0;
+      n.vy = 0;
+      if (p >= 1) {
+        arrivals.delete(id);
+        life.delete(id);
+        settled.add(id);
+      } else life.set(id, pose);
+    }
+    for (const [id, d] of departures) {
+      const p = progressAt(now, d.start, DEPARTURE.durationMs);
+      life.set(id, departurePose(p));
+      if (p >= 1) gone.push(id);
+    }
+
+    const posed = (n: SimNode) => life.has(n.id) || settled.has(n.id);
+    const pose = (n: SimNode) => life.get(n.id);
+    gNodes
+      .selectAll<SVGGElement, SimNode>('g.sg-node')
+      .filter(posed)
+      .style('opacity', (n) => (pose(n) ? String(pose(n)!.opacity) : null));
+    tagGroups()
+      .filter(posed)
+      .each(function (n) {
+        const p = pose(n);
+        const g = d3.select(this);
+        g.select('g.sg-tag-inner').style('opacity', () => (p ? String(p.opacity) : null));
+        g.selectAll('text.sg-label, text.sg-sub').style('opacity', () =>
+          p ? String(Math.max(0, p.label)) : null,
+        );
+      });
+    const touched = new Set([...life.keys(), ...settled]);
+    linksOf(touched).each(function (l) {
+      const el = d3.select(this);
+      const leaving = departures.has(l.source.id) || departures.has(l.target.id);
+      const arriving = arrivals.has(l.source.id) || arrivals.has(l.target.id);
+      const base = linkStyle(l);
+      if (leaving) {
+        const k = Math.min(life.get(l.source.id)?.edge ?? 1, life.get(l.target.id)?.edge ?? 1);
+        el.attr('pathLength', null)
+          .style('stroke-dasharray', null)
+          .style('stroke-dashoffset', null)
+          .style('opacity', String(base.opacity * k))
+          .style('stroke-width', `${base.width * k}px`);
+      } else if (arriving) {
+        // Edges draw on from the parent's end: the end that is not arriving.
+        const k = Math.min(life.get(l.source.id)?.edge ?? 1, life.get(l.target.id)?.edge ?? 1);
+        const fromTarget = arrivals.has(l.source.id) && !arrivals.has(l.target.id);
+        el.attr('pathLength', 1)
+          .style('stroke-dasharray', '1 1')
+          .style('stroke-dashoffset', String(fromTarget ? k - 1 : 1 - k))
+          .style('opacity', String(base.opacity))
+          .style('stroke-width', null);
+      } else
+        el.attr('pathLength', null)
+          .style('stroke-dasharray', null)
+          .style('stroke-dashoffset', null)
+          .style('opacity', null)
+          .style('stroke-width', null);
+    });
+    settled.clear();
+    if (gone.length) finishDepartures(gone);
+    draw();
+  };
+
+  /** Faded out: the nodes leave the simulation, and the rest ease into the room they leave. */
+  const finishDepartures = (ids: string[]) => {
+    for (const id of ids) {
+      departures.delete(id);
+      life.delete(id);
+      nodeById.delete(id);
+      arcShown.delete(id);
+      shownNumber.delete(id);
+    }
+    simLinks = simLinks.filter((l) => nodeById.has(l.source.id) && nodeById.has(l.target.id));
+    simulation.nodes([...nodeById.values()]);
+    linkForce.links(simLinks);
+    renderStatic();
+    simulation.alpha(Math.max(simulation.alpha(), DEPARTURE.alpha)).restart();
+  };
+
   // ---- public API --------------------------------------------------------------------------
 
   const update = (next: SwarmGraph, updateOptions: SwarmUpdateOptions = {}) => {
@@ -1820,11 +1994,42 @@ export const createSwarmGraph = (
     const quiet = first || Boolean(updateOptions.quiet);
     graph = next;
     const keep = new Set(next.nodes.map((n) => n.id));
-    for (const id of [...nodeById.keys()]) if (!keep.has(id)) nodeById.delete(id);
+    const now = performance.now();
+    // Gone nodes fade out first (staggered) and leave the simulation after; at once without motion.
+    let leaving = 0;
+    for (const [id, n] of [...nodeById]) {
+      if (keep.has(id)) continue;
+      if (!motion || first) {
+        nodeById.delete(id);
+        departures.delete(id);
+        life.delete(id);
+        arrivals.delete(id);
+        continue;
+      }
+      if (departures.has(id)) continue;
+      arrivals.delete(id);
+      departures.set(id, {
+        start: now + staggerAt(leaving++, DEPARTURE.staggerMs, DEPARTURE.maxSteps),
+      });
+      // It holds still while it fades.
+      n.fx = n.x;
+      n.fy = n.y;
+      n.active = false;
+    }
+    let arriving = 0;
+    const fresh: SimNode[] = [];
 
     const advanced: { node: SimNode; stage: SwarmStage }[] = [];
     for (const n of next.nodes) {
       const existing = nodeById.get(n.id);
+      if (existing && departures.has(n.id)) {
+        // Back before it finished leaving: it stays where it is and comes back to full.
+        departures.delete(n.id);
+        life.delete(n.id);
+        settled.add(n.id);
+        existing.fx = null;
+        existing.fy = null;
+      }
       if (existing) {
         const was = existing.workItem?.stage;
         Object.assign(existing, n);
@@ -1837,18 +2042,42 @@ export const createSwarmGraph = (
           (l) => l.source === n.id && l.kind !== 'contribution',
         )?.target;
         const anchor = anchorId ? nodeById.get(anchorId) : undefined;
-        const jitter = () => (Math.random() - 0.5) * 40;
-        const fresh: SimNode = {
+        // On a live graph it starts on its parent and glides out (see `stepLife`).
+        const glide = motion && !first && Boolean(anchor);
+        const jitter = () => (glide ? 0 : (Math.random() - 0.5) * 40);
+        const node: SimNode = {
           ...n,
           r: 0,
           x: (anchor?.x ?? 0) + jitter(),
           y: (anchor?.y ?? 0) + jitter(),
         };
-        fresh.r = rOf(fresh);
-        nodeById.set(n.id, fresh);
+        node.r = rOf(node);
+        nodeById.set(n.id, node);
+        if (glide) {
+          fresh.push(node);
+          arrivals.set(n.id, {
+            start: now + staggerAt(arriving++, ARRIVAL.staggerMs, ARRIVAL.maxSteps),
+            parent: anchor!.id,
+            from: { x: anchor!.x ?? 0, y: anchor!.y ?? 0 },
+            to: { x: anchor!.x ?? 0, y: anchor!.y ?? 0 },
+          });
+        }
       }
     }
     placeRing();
+    // Where each arrival glides to: just outside its parent, towards where the layout pulls it.
+    for (const n of fresh) {
+      const a = arrivals.get(n.id);
+      const parent = a?.parent ? nodeById.get(a.parent) : undefined;
+      if (!a || !parent) continue;
+      const spin = ((hash(n.id) % 100) / 100 - 0.5) * 0.9;
+      a.to = arrivalTarget(
+        { x: parent.x ?? 0, y: parent.y ?? 0, r: parent.r },
+        anchorOf(n),
+        n.r,
+        spin,
+      );
+    }
     if (first)
       for (const n of nodeById.values())
         if (n.kind === 'sector' && n.ring) {
@@ -1856,13 +2085,23 @@ export const createSwarmGraph = (
           n.y = n.ring.y;
         }
 
+    // Departing nodes keep their edges until they have faded with them.
+    const nextLinks = new Set(next.links.map((l) => l.id));
+    const fadingLinks = simLinks.filter(
+      (l) =>
+        !nextLinks.has(l.id) &&
+        (departures.has(l.source.id) || departures.has(l.target.id)) &&
+        nodeById.has(l.source.id) &&
+        nodeById.has(l.target.id),
+    );
     simLinks = next.links
       .filter((l) => nodeById.has(l.source) && nodeById.has(l.target))
       .map((l) => ({
         ...l,
         source: nodeById.get(l.source)!,
         target: nodeById.get(l.target)!,
-      }));
+      }))
+      .concat(fadingLinks);
 
     simulation.nodes([...nodeById.values()]);
     linkForce.links(simLinks);
@@ -1871,7 +2110,18 @@ export const createSwarmGraph = (
       // Settle the layout off-screen first, so every end position is known before anything moves.
       simulation.stop();
       for (let i = 0; i < 300; i++) simulation.tick();
-    } else simulation.alpha(0.35).restart();
+    } else if (!motion) simulation.alpha(0.35).restart();
+    else
+      // Arrivals and departures are taken in at low alpha, so nothing already there jolts; a
+      // work item changing phase (a branch becoming a pull request) still moves to its new place.
+      simulation
+        .alpha(
+          Math.max(
+            simulation.alpha(),
+            advanced.length ? 0.2 : arriving || leaving ? ARRIVAL.alpha : 0.03,
+          ),
+        )
+        .restart();
 
     renderStatic();
     if (first && introMode !== 'none' && nodeById.size > 0) startIntro(introMode);
