@@ -128,7 +128,46 @@ Negamax alpha-beta with iterative deepening (`engines/chess/src/main.rs`):
   middlegame +239 for b2b4 — horizon optimism. Quiescence costs one ply of nominal depth and buys
   honest leaf scores. `arena versus chess` vs main (v0.2, no quiescence): +7 -2 =1.
 
+## Candidate (not shipped): self-generated opening book (#108)
+
+Moves into "Architecture now" only if the referee passes it.
+
+- `src/book.rs`: `book/book.bin` (10-byte records: u64 Zobrist key, u16 move code, sorted)
+  embedded with `include_bytes!` and probed by binary search before `search` in `go`. The stored
+  code is decoded against the legal moves (decode = validate). A book move that would repeat a
+  position already seen in the game is left to the search. Prints `info book 1` when it plays one.
+- `book/book.txt` is the source of truth (normalised FEN with counters `0 1`, UCI move, score in
+  cp for the side to move, depth); `chess-engine book pack` turns it into `book.bin`. The test
+  `every_book_move_is_legal_and_the_binary_matches_the_text` checks each move is legal, that the
+  probe returns it, and that `book.bin` is exactly `pack(book.txt)`.
+- Generator: `chess-engine book gen <shard> <shards> <depth> <reply-depth> <replies>
+  <book-moves> [resume.txt]`, run by `engines/chess/book/generate.sh` (processes, not threads:
+  the referee's source scan forbids `std::thread` anywhere in the crate). Roots: the initial
+  position + the 200 start lines of `shared/src/openings/chess.txt` (where gate games begin).
+  For each root and each colour it walks a tree: where we move, the move of a deterministic
+  fixed-depth-10 search (fresh 64 MB TT, PVS/LMR, the engine's own eval); where the opponent
+  moves, its top 3 replies (then top 2 deeper) by our own depth-6 search, which is roughly what
+  main plays at 200 ms. Three book moves per side per line (plies 4/6/8 as White, 5/7/9 as Black).
+  Mate scores are not stored. Deterministic: fixed depth, fresh table per position.
+- Built with `generate.sh 10 6 3,2 3 4`: 5,904 positions (1,965 White to move, 3,939 Black),
+  59 KB embedded, ~1–5 s per position (≈2.5 s mean with 4 shards on 4 cores), ~64 min wall in
+  all on 4 cores (it was resumed once: a 30-minute background limit killed the first run, so
+  `resume.txt` exists). The gate's 200 ms reaches depth 6–7, so a book move is ~3–4 plies deeper.
+- Local measurement (`measure`-style script: `playMatch` with the balanced suite, seed 4242,
+  20 pairs, 200 ms; `chess-engine book stats` on the games; at most 3 book moves per game):
+  vs main (v0.6) +18 −9 =13, book moves per game 2.62 (White 2.90, Black 2.35), median first
+  out-of-book ply 10. vs Stockfish level 6 +12 −26 =2 (v0.6's gate there: 11–26–3), 1.48 per
+  game (White 2.05, Black 0.90), median first out-of-book ply 7. Our depth-6 top-3 predicts
+  main's replies well and Stockfish's poorly, especially its first move as White out of the
+  suite position (we as Black often leave book at ply 5). Read the main result with care: the
+  book is tuned to the opponent main *is*, so it says more about the book being hit than about
+  strength; the Stockfish result is flat.
+
 ## Ideas worth trying
+
+- Opening book follow-ups (#108): predict replies with the opponent's real distribution (record
+  Stockfish level 6's replies in gate games: our top-3 misses some), extend book depth on the
+  lines actually hit, or store a score-only entry to seed the TT instead of forcing the move.
 
 - TT follow-ups: store quiescence results as depth-0 entries (then probing inside `quiesce`
   pays; probing alone does not, since `quiesce` stores nothing and few qnodes are in the table);
@@ -216,3 +255,4 @@ differently. Never re-propose an idea from this list unchanged.
 - 2026-11-23 19:07 UTC · buried · Killer moves and history heuristic for quiet-move ordering · Rated higher on the ladder but lost to v0.4 head to head (4–14–2).
 - 2026-11-23 20:04 UTC · v0.5 passed the referee · PVS and late move reductions on top of killer + history quiet ordering (retry of #87 with a consumer) · rated 1458 (+28 vs v0.4 on the same rung)
 - 2026-11-23 21:07 UTC · v0.6 passed the referee · Self-generated endgame bitbases (KPK, KQK, KRK) solved by the engine's own retrograde analysis · rated 1463 (+5)
+- 2026-11-24 09:56 UTC · v0.7 passed the referee · Self-generated opening book: the engine's own long searches over the first plies, probed instantly · rated 1483 (+20)

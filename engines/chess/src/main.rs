@@ -2,6 +2,7 @@
 //! Rules: the `shakmaty` crate. Search and evaluation: written by the swarm.
 //! Protocol and library policy: ../PROTOCOL.md.
 
+mod book;
 mod endgame;
 
 use endgame::Tb;
@@ -642,7 +643,7 @@ struct Outcome {
 fn search(pos: &Chess, seen: &HashSet<u64>, budget_ms: u64) -> Option<Outcome> {
     let hard = Duration::from_millis(budget_ms * 6 / 10);
     let soft = Duration::from_millis(budget_ms * 3 / 10);
-    TT.with(|tt| run(pos, seen, hard, soft, MAX_DEPTH, &mut tt.borrow_mut(), true, true, true))
+    TT.with(|tt| run(pos, seen, hard, soft, MAX_DEPTH, &mut tt.borrow_mut(), true, true, true, &[]))
 }
 
 /// Fixed-depth search with no clock and a fresh table: deterministic, for tests and measurement.
@@ -682,10 +683,12 @@ fn search_depth_feats(
     use_pvs: bool,
 ) -> Option<Outcome> {
     let day = Duration::from_secs(86_400);
-    run(pos, seen, day, day, depth, tt, use_tt, use_order, use_pvs)
+    run(pos, seen, day, day, depth, tt, use_tt, use_order, use_pvs, &[])
 }
 
 /// Iterative deepening up to `max_depth`, stopping at `hard` and not starting a depth after `soft`.
+/// Root moves in `exclude` are not searched (the book generator ranks replies this way).
+#[allow(clippy::too_many_arguments)]
 fn run(
     pos: &Chess,
     seen: &HashSet<u64>,
@@ -696,9 +699,10 @@ fn run(
     use_tt: bool,
     use_order: bool,
     use_pvs: bool,
+    exclude: &[Move],
 ) -> Option<Outcome> {
     let start = Instant::now();
-    let mut moves: Vec<Move> = pos.legal_moves().into_iter().collect();
+    let mut moves: Vec<Move> = pos.legal_moves().into_iter().filter(|m| !exclude.contains(m)).collect();
     tt.new_search(pos.turn());
     // The root is never cut off; its stored move (from the previous `go`) only orders.
     let tt_move = if use_tt { tt.probe(hash(pos)).and_then(|e| decode(e.mv, &moves)) } else { None };
@@ -772,7 +776,16 @@ fn handle(line: &str, moves: &mut Vec<String>) -> (Option<String>, bool) {
         }
         Some("go") => {
             let budget = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1000);
-            let reply = match replay(moves).and_then(|(pos, seen)| search(&pos, &seen, budget)) {
+            let Some((pos, seen)) = replay(moves) else { return (Some("bestmove 0000".into()), false) };
+            if let Some(m) = book::probe(&pos) {
+                let mut child = pos.clone();
+                child.play_unchecked(m);
+                // A book move that would repeat a position is left to the search (contempt).
+                if !seen.contains(&hash(&child)) {
+                    return (Some(format!("info book 1\nbestmove {}", UciMove::from_standard(m))), false);
+                }
+            }
+            let reply = match search(&pos, &seen, budget) {
                 Some(o) => format!(
                     "info depth {} score {} nodes {} qnodes {} tthits {} ttcuts {} tbhits {}\nbestmove {}",
                     o.depth,
@@ -794,6 +807,11 @@ fn handle(line: &str, moves: &mut Vec<String>) -> (Option<String>, bool) {
 }
 
 fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("book") {
+        book::tool(&args[1..]);
+        return;
+    }
     let stdin = io::stdin();
     let mut out = io::stdout();
     let mut moves = Vec::new();
@@ -1145,8 +1163,8 @@ mod tests {
             let pos = from_fen(fen);
             let hard = Duration::from_millis(120);
             let soft = Duration::from_millis(60);
-            let off = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(4), false, true, true).unwrap();
-            let on = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true, true, true).unwrap();
+            let off = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(4), false, true, true, &[]).unwrap();
+            let on = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true, true, true, &[]).unwrap();
             println!("go 200 {name}: off depth {} nodes {} | on depth {} nodes {} hits {} cuts {}", off.depth, off.nodes, on.depth, on.nodes, on.tt_hits, on.tt_cuts);
         }
     }
@@ -1235,8 +1253,8 @@ mod tests {
             let pos = from_fen(fen);
             let hard = Duration::from_millis(120);
             let soft = Duration::from_millis(60);
-            let off = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true, false, false).unwrap();
-            let on = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true, true, false).unwrap();
+            let off = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true, false, false, &[]).unwrap();
+            let on = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true, true, false, &[]).unwrap();
             println!("go 200 {name}: off depth {} nodes {} | on depth {} nodes {}", off.depth, off.nodes, on.depth, on.nodes);
         }
     }
@@ -1307,8 +1325,8 @@ mod tests {
             let pos = from_fen(fen);
             let hard = Duration::from_millis(120);
             let soft = Duration::from_millis(60);
-            let base = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true, false, false).unwrap();
-            let full = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true, true, true).unwrap();
+            let base = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true, false, false, &[]).unwrap();
+            let full = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true, true, true, &[]).unwrap();
             println!("go 200 {name}: v0.4 depth {} nodes {} | full depth {} nodes {}", base.depth, base.nodes, full.depth, full.nodes);
         }
     }
