@@ -136,8 +136,44 @@ order-dependent, so expect a smaller gain there; start its sweep at C = 0 too.
 ## Ideas worth trying
 
 
-- Win back RAVE's playout rate: structure-of-arrays AMAF counters (vectorisable update), or
-  skip the AMAF update below a depth; then re-check K (K = 3000 tied K = 1000).
+- **Candidate (not shipped): cheaper RAVE selection and AMAF backup (#187).** Same search,
+  bit for bit: K = 1000, C = 0, fill-in and pruning untouched. Profile first (callgrind, mid-game,
+  v0.5): `select` ~56% of instructions, `backup` (AMAF) ~16%, fill-in ~8%; `select`'s cost is
+  the per-child value, two divisions and a square root on every child of every path node, and
+  its `visits == 0` branch is ~74% of all mispredictions. Three exact changes:
+  (1) Q = wins/visits and β = sqrt(K/(3n+K)) depend only on a child's real counts, which change
+  only on the path (one node per level), so `backup` caches them in the node (`q`, `beta`; node
+  24 → 32 bytes, tree cap 48 → 64 MB) and `select` keeps one division per child (Q_amaf);
+  (2) a child with no real and no AMAF visits is worth FPU = 1.1, above every win rate, so
+  `select` returns the first such child at once; (3) the two 128-entry AMAF increment tables
+  are written in one branch-free pass instead of zeroing 2 KB and walking each colour's bits.
+  Test `same_search_as_v0_5` pins 12 searches (4 positions × 3 seeds, 20k–100k playouts) to the
+  move and win-rate bits main gave; `amaf_counts_on_a_hand_built_path` is unchanged.
+  Fixed work (`search` with `Limit::Playouts`, best of 5, k playouts/s; 3-stone position at
+  50k/300k, then a 20-stone mid-game at 50k/300k): v0.5 392/431–460, 508/646–654; (1) alone
+  433/557, 533/758; (1)+(2) 451/554, 554/770; (1)+(2)+(3) 453–468/540–572, 573–580/797–806,
+  i.e. **+15–25%** on the same tree. Wall clock (native, 4-core Xeon, 4 runs each,
+  main → candidate, medians): `go 200` f6 e7 g5 59k → 63k, mid-game 1 (`c3 h9 e7 f4 c8 d5 g4
+  g3 h3 f6 b10 h5 e5 f5 e4 f2 d3 d7 e6 d4`) 56k → 75k, mid-game 2 (`b9 e4 g5 e7 f7 h4 g4 e8 f8
+  e9 f9 g3 h3 f6 g6 i1 j2 i2 i3 e11`) 54k → 58k; `go 1000` f6 e7 g5 371k → 521k (+40%),
+  mid 1 555k → 752k (+36%), mid 2 304k → 384k (+26%). `go 200` is noisy (single runs 46–76k).
+  **Measured slower and dropped:** structure-of-arrays trees. Full SoA (one vector per field)
+  with a branch-free, vectorised value (`divps`/`sqrtps`; LLVM only vectorised it once the
+  float selects were written as bit masks, it turns `if` back into branches) ran at 284k/376k
+  on the fixed work, below v0.5: mispredictions fell ~10× but SSE `divps` at 3 divisions + 1
+  sqrt per lane costs more than v0.5's mostly-one scalar division, and every descent step then
+  touches 5–7 separate arrays. SoA with `q`/`beta` cached and only Q_amaf vectorised: 347k/393k,
+  still slower than array-of-nodes; a 16-byte stats + 8-byte header split: no better.
+  `std::hint::select_unpredictable` on the `visits == 0` choice and a branch-free argmax: no
+  change (real hardware hides those mispredictions far better than callgrind's model).
+  The one 32-byte node per child, read as a single prefetch-friendly stream, beats several
+  streams here. Not tried: skipping the AMAF update deep in the tree (not exact).
+  Strength at 200 ms, `arena versus hex`, 40 games a seed, four or three runs in parallel on the
+  4-core machine (which compresses the speed gain): candidate vs main 18–22 (seed 18701), 17–23
+  (18702), 23–17 (18703), **58–62**; control main vs main 18–22, 19–21, 18–22, **55–65**.
+  K = 3000 (with the faster code) vs main 17–23 (18701), so K stays 1000. As expected for an
+  identical search with 10–35% more playouts at `go 200`: the gain, if any, is far below what
+  120 games resolve; the speed is the measured result.
 - Silver's minimum-MSE β schedule instead of sqrt(K / (3n + K)) (not tried).
 - Heuristic prior (the old one-ply score: centre distance, neighbours, bridges) as virtual
   wins on new nodes; the issue left it optional and it was not measured.
