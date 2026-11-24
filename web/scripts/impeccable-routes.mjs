@@ -5,6 +5,7 @@
  *
  *   node web/scripts/impeccable-routes.mjs [base-url] [--out <file.md>] [--json <file.json>]
  *                                         [--viewports 1440x900,390x844] [--only /,/engines]
+ *                                         [--concurrency 4]
  *
  * The routes are every page under `web/app` without a dynamic segment, plus the four engine pages
  * (the only dynamic route whose ids are fixed: the games). Pages that need a record id (a game, a
@@ -17,7 +18,7 @@
  * Impeccable (Apache-2.0) is a dev dependency of the site, run from `node_modules`; nothing of
  * it is vendored.
  */
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { appendFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, relative, sep } from 'node:path';
@@ -30,6 +31,9 @@ const APP = join(WEB, 'app');
 export const ENGINE_IDS = ['chess', 'go9', 'othello', 'hex'];
 
 export const DEFAULT_VIEWPORTS = ['1440x900', '390x844'];
+
+/** A page that never settles (live boards, polling) is reported as a failed scan, not waited on. */
+const SCAN_TIMEOUT_MS = 240_000;
 
 /**
  * Route paths for every `page.tsx` under `appDir`: route groups `(x)` drop out, a page under a
@@ -102,23 +106,43 @@ const impeccableBin = () => {
   return join(dirname(require.resolve('impeccable/package.json')), 'cli', 'bin', 'cli.js');
 };
 
-const scan = (bin, url, viewport) => {
-  const run = spawnSync(process.execPath, [bin, 'detect', '--json', '--viewport', viewport, url], {
-    cwd: WEB, // so the CLI reads web/DESIGN.md and web/.impeccable/
-    encoding: 'utf8',
-    maxBuffer: 32 * 1024 * 1024,
-    timeout: 180_000,
+/** One URL scan in a child process; resolves to its summary, or `{ error }`. */
+const scan = (bin, url, viewport) =>
+  new Promise((resolve) => {
+    const child = spawn(process.execPath, [bin, 'detect', '--json', '--viewport', viewport, url], {
+      cwd: WEB, // so the CLI reads web/DESIGN.md and web/.impeccable/
+    });
+    let out = '';
+    let err = '';
+    child.stdout.on('data', (d) => (out += d));
+    child.stderr.on('data', (d) => (err += d));
+    const timer = setTimeout(() => child.kill('SIGKILL'), SCAN_TIMEOUT_MS);
+    child.on('close', (code, signal) => {
+      clearTimeout(timer);
+      try {
+        resolve(summarise(JSON.parse(out.trim() || '[]')));
+      } catch {
+        const why = signal ? `timed out after ${SCAN_TIMEOUT_MS / 1000}s` : err || `exit ${code}`;
+        resolve({ error: why.trim().split('\n').pop().slice(0, 160) });
+      }
+    });
   });
-  const out = (run.stdout ?? '').trim();
-  try {
-    return summarise(JSON.parse(out || '[]'));
-  } catch {
-    const why = (run.stderr || run.error?.message || `exit ${run.status}`).trim().split('\n').pop();
-    return { error: why.slice(0, 160) };
-  }
+
+/** Runs `jobs` with at most `limit` at once, keeping their order in the result. */
+const pool = async (jobs, limit) => {
+  const results = new Array(jobs.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < jobs.length) {
+      const i = next++;
+      results[i] = await jobs[i]();
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, jobs.length) }, worker));
+  return results;
 };
 
-const main = () => {
+const main = async () => {
   const args = process.argv.slice(2);
   const flag = (name) => {
     const i = args.indexOf(name);
@@ -128,20 +152,21 @@ const main = () => {
   const outJson = flag('--json');
   const viewports = (flag('--viewports') ?? DEFAULT_VIEWPORTS.join(',')).split(',');
   const only = flag('--only')?.split(',');
+  const concurrency = Number(flag('--concurrency') ?? 4);
   const base = (args[0] ?? 'http://localhost:3000').replace(/\/$/, '');
 
   const bin = impeccableBin();
   const routes = only ?? pageRoutes();
-  const results = [];
-  for (const route of routes) {
-    for (const viewport of viewports) {
-      const r = { route, viewport, ...scan(bin, `${base}${route}`, viewport) };
+  const jobs = routes.flatMap((route) =>
+    viewports.map((viewport) => async () => {
+      const r = { route, viewport, ...(await scan(bin, `${base}${route}`, viewport)) };
       console.log(
         `${route} @ ${viewport}: ${r.error ? `FAILED (${r.error})` : `${r.findings} findings`}`,
       );
-      results.push(r);
-    }
-  }
+      return r;
+    }),
+  );
+  const results = await pool(jobs, concurrency);
 
   const md = markdown(results, viewports);
   console.log(`\n${md}`);
@@ -151,4 +176,4 @@ const main = () => {
   if (results.every((r) => r.error)) process.exit(1);
 };
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) main();
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) void main();

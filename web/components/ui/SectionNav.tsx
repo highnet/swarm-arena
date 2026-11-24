@@ -19,8 +19,11 @@ type SectionNavProps = {
   className?: string;
 };
 
-/** How long a click owns the active state while the page glides to its section. */
-const CLICK_HOLD_MS = 900;
+/**
+ * A click owns the active state while the page glides to its section: until the scroll ends, or
+ * this long at most (for browsers without the `scrollend` event).
+ */
+const CLICK_HOLD_MS = 1500;
 
 const prefersReducedMotion = () =>
   typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -97,6 +100,7 @@ const SectionNav = ({
     if (!target) return;
     e.preventDefault();
     heldUntil.current = Date.now() + CLICK_HOLD_MS;
+    window.addEventListener('scrollend', () => (heldUntil.current = 0), { once: true });
     setActive(id);
     target.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'start' });
     // Move the keyboard's starting point too, as a plain anchor jump would.
