@@ -145,7 +145,7 @@ const PlayGame = ({ game, wasmUrl, engineLabel }: PlayGameProps) => {
 
       <div className="flex min-w-0 flex-col gap-4">
         <div className="rounded-lg border border-line bg-panel p-4">
-          <Typography variant="label" as="h2">
+          <Typography variant="label" as="h3">
             Status
           </Typography>
           <p
@@ -177,7 +177,7 @@ const PlayGame = ({ game, wasmUrl, engineLabel }: PlayGameProps) => {
         </div>
 
         <div className="rounded-lg border border-line bg-panel p-4">
-          <Typography variant="label" as="h2">
+          <Typography variant="label" as="h3">
             New game
           </Typography>
           <div className="mt-2 flex flex-wrap gap-2">
@@ -222,7 +222,7 @@ const PlayGame = ({ game, wasmUrl, engineLabel }: PlayGameProps) => {
 
         {moves.length > 0 && (
           <div className="rounded-lg border border-line bg-panel p-4">
-            <Typography variant="label" as="h2">
+            <Typography variant="label" as="h3">
               Moves
             </Typography>
             <p className="mt-2 max-h-40 overflow-y-auto font-mono text-xs leading-6 text-fg-2">
