@@ -110,7 +110,10 @@ test('the schedule fits the duration, squeezes idle gaps and dwells on milestone
   for (let i = 1; i < plan.times.length; i++) assert.ok(plan.times[i] >= plan.times[i - 1]);
   const m = plan.flows.findIndex((f) => f.kind === 'merge');
   assert.deepEqual(plan.milestones, [m]);
-  assert.deepEqual(plan.gaps.map((g) => g.index), [m]);
+  assert.deepEqual(
+    plan.gaps.map((g) => g.index),
+    [m],
+  );
   // The 10 h idle gap is a short beat, not 10 h's share of the minute.
   assert.ok(plan.times[m] - plan.times[m - 1] < 1000);
   // A routine step after the merge waits out the milestone's hold.
