@@ -196,7 +196,7 @@ fn arg<T: std::str::FromStr>(args: &[String], i: usize, default: T) -> T {
 
 /// `chess-engine book …`: offline tooling, never reached from the protocol loop.
 ///
-/// - `gen <shard> <shards> <depth> <reply-depth> <replies> <book-moves>`: `replies` is a comma
+/// - `gen <shard> <shards> <depth> <reply-depth> <replies> <book-moves> [done.txt]`: `replies` is a comma
 ///   list, replies predicted at the 1st, 2nd, … opponent turn (e.g. `3,2`). Reads opening lines (UCI
 ///   moves from the initial position, one per line; an empty line is the initial position) on
 ///   stdin, takes every `shards`-th line from `shard`, and prints `book.txt` lines on stdout.
@@ -220,6 +220,13 @@ pub fn tool(args: &[String]) {
                 started: Instant::now(),
             };
             let book_moves: u32 = arg(args, 6, 3);
+            // Optional 8th argument: a `book.txt` from an interrupted run. Roots already in it are
+            // skipped (a root is written only once both of its trees are complete).
+            let done: HashSet<String> = args
+                .get(7)
+                .and_then(|p| std::fs::read_to_string(p).ok())
+                .map(|t| t.lines().filter_map(|l| l.split('\t').next()).map(String::from).collect())
+                .unwrap_or_default();
             let mut stdout = io::stdout();
             for (i, line) in lines.iter().enumerate() {
                 if i % shards != shard {
@@ -230,6 +237,9 @@ pub fn tool(args: &[String]) {
                     eprintln!("skipping unplayable line: {line}");
                     continue;
                 };
+                if done.contains(&fen(&pos)) {
+                    continue;
+                }
                 let before = g.out.len();
                 g.walk(&pos, Color::White, book_moves, 0);
                 g.walk(&pos, Color::Black, book_moves, 0);
