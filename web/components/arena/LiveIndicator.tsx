@@ -4,6 +4,7 @@ import { startTransition, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import { refreshLive } from '@/app/actions';
+import { publishLive } from '@/lib/liveBus';
 import { cn } from '@/lib/utils';
 
 type LiveIndicatorProps = {
@@ -49,7 +50,8 @@ const TITLE: Record<Mode, string> = {
 /**
  * Keeps every page live. It subscribes to Supabase Realtime for every table the site renders;
  * on a change it expires the server's cached snapshot (`refreshLive`) and re-renders the route,
- * so the page shows the new rows rather than a cached copy. Bursts are coalesced, a tab that
+ * so the page shows the new rows rather than a cached copy. Each row is also published on the
+ * page (`publishLive`) for components that show it at once, before the refresh lands. Bursts are coalesced, a tab that
  * comes back into view catches up at once, and if the stream cannot be opened (blocked socket,
  * network policy, auth) it falls back to refreshing on a timer.
  */
@@ -97,7 +99,18 @@ const LiveIndicator = ({ runId, working }: LiveIndicatorProps) => {
         channel = channel.on(
           'postgres_changes',
           { event: '*', schema: 'public', table, filter: `run_id=eq.${runId}` },
-          refresh,
+          (payload) => {
+            // The row itself, at once, for components that show it without a refresh.
+            const row = (r: unknown) =>
+              r && Object.keys(r).length ? (r as Record<string, unknown>) : null;
+            publishLive({
+              table,
+              eventType: payload.eventType,
+              new: row(payload.new),
+              old: row(payload.old),
+            });
+            refresh();
+          },
         );
     channel.subscribe((status) => {
       if (status === 'SUBSCRIBED') {
