@@ -108,6 +108,9 @@ export type SwarmViewport = {
   moved: boolean;
 };
 
+/** Where an anchored host element sits: beside its node, or over it as its bounding square. */
+export type SwarmAnchorPlacement = 'beside' | 'inside';
+
 export type SwarmGraphRendererOptions = {
   theme?: Partial<SwarmGraphTheme>;
   /** Turns off ambient motion; event sparks and replay still show, without particles. */
@@ -133,6 +136,12 @@ export type SwarmGraphRendererOptions = {
   intro?: 'full' | 'short' | 'none';
   /** Accessible name for the SVG. */
   title?: string;
+  /**
+   * A sector's radius in graph units at full size, from no effort (`min`) to the most (`max`).
+   * Default 18 to 48. A host that draws a sector's information inside it (`anchor(…, 'inside')`)
+   * raises it so the text fits. Narrow canvases scale it down.
+   */
+  sectorRadius?: { min: number; max: number };
 };
 
 export type SwarmUpdateOptions = {
@@ -153,11 +162,15 @@ export type SwarmGraphRenderer = {
   update: (graph: SwarmGraph, options?: SwarmUpdateOptions) => void;
   /**
    * Pin a host element to a node: every frame the renderer sets its CSS `transform` (from the
-   * container's top left, zoom and pan included) to sit beside the node on the side away from
-   * the centre, inside the canvas, and sets `data-side` to `left` or `right`. It is hidden while
-   * the node is not on the graph. `null` releases it. Hosts use this for HTML badges on nodes.
+   * container's top left, zoom and pan included). `beside` (the default) puts it beside the node
+   * on the side away from the centre, inside the canvas, and sets `data-side` to `left` or
+   * `right`. `inside` makes it the node's bounding square (`width` = `height` = the node's
+   * diameter on screen, `--node-r` its radius in px), so a host draws the node's information in
+   * its circle; the renderer then draws no name, sub-line or count of its own for that node, and
+   * keeps edges from showing through its body. It is hidden while the node is not on the graph.
+   * `null` releases it.
    */
-  anchor: (nodeId: string, el: HTMLElement | null) => void;
+  anchor: (nodeId: string, el: HTMLElement | null, placement?: SwarmAnchorPlacement) => void;
   /**
    * Play a planned replay (`planReplay`), or the whole history over `durationMs` (default 30 s).
    * The graph starts from the plan's seed state and ends at the live state.
@@ -376,12 +389,18 @@ const pointAt = (a: SimNode, b: SimNode, t: number) => {
   };
 };
 
-const radiusOf = (n: SwarmNode, effort: number, scale = 1) => {
+const SECTOR_RADIUS = { min: 18, max: 48 };
+
+const radiusOf = (n: SwarmNode, effort: number, scale = 1, sector = SECTOR_RADIUS) => {
   switch (n.kind) {
     case 'hub':
       return 26;
     case 'sector':
-      return Math.min(48, 18 + Math.sqrt(effort) * 2.6) * scale;
+      // Grows with effort (the default: 18 + 2.6 per √effort, up to 48).
+      return (
+        (sector.min + (sector.max - sector.min) * Math.min(1, (Math.sqrt(effort) * 2.6) / 30)) *
+        scale
+      );
     case 'work':
       return n.phase === 'pr' ? 8 : n.phase === 'branch' ? 8 : n.phase === 'issue' ? 5 : 4;
     case 'agent':
@@ -586,6 +605,11 @@ export const createSwarmGraph = (
   };
 
   const colorOf = (n: SwarmNode) => n.color ?? theme.neutral;
+  /** Nodes whose host draws their information inside them (`anchor(…, 'inside')`). */
+  const hosted = new Set<string>();
+  /** The hosted set as `renderStatic` last drew it, and a pending redraw for a change to it. */
+  let drawnHosted = '';
+  let restyle = 0;
   const effortOf = (n: SimNode) => (replayOverride ? (replayOverride.get(n.id) ?? 0) : n.effort);
   /** The sector ring is an ellipse fitted to the canvas, leaving room for satellites outside it. */
   const ringRadii = () => ({
@@ -595,7 +619,8 @@ export const createSwarmGraph = (
   const ringRadius = () => Math.min(ringRadii().x, ringRadii().y);
   /** Sectors shrink on narrow canvases so the ring still fits a phone. */
   const sizeScale = () => Math.max(0.6, Math.min(1, Math.min(width, height) / 620));
-  const rOf = (n: SimNode) => radiusOf(n, effortOf(n), sizeScale());
+  const rOf = (n: SimNode) =>
+    radiusOf(n, effortOf(n), sizeScale(), options.sectorRadius ?? SECTOR_RADIUS);
   /** Room for the body plus the progress arc drawn around sectors and open work. */
   const collideOf = (n: SimNode) =>
     n.r + (n.kind === 'agent' ? 6 : n.kind === 'sector' ? 12 : n.kind === 'work' ? 7 : 4);
@@ -736,6 +761,7 @@ export const createSwarmGraph = (
   };
 
   const renderStatic = () => {
+    drawnHosted = [...hosted].sort().join('|');
     // Links
     gLinks
       .selectAll<SVGPathElement, SimLink>('path')
@@ -901,8 +927,13 @@ export const createSwarmGraph = (
           .attr('fill-opacity', 1)
           .attr('filter', n.active ? glowUrl : null);
       } else if (n.kind === 'sector') {
-        el.style('fill', c)
-          .attr('fill-opacity', n.active ? 0.3 : 0.16)
+        // A hosted sector's body is opaque (its tint mixed into the panel), so no edge passing
+        // behind it shows through the text drawn inside (#173, #199).
+        el.style(
+          'fill',
+          hosted.has(n.id) ? `color-mix(in srgb, ${c} ${n.active ? 30 : 16}%, ${theme.panel})` : c,
+        )
+          .attr('fill-opacity', hosted.has(n.id) ? 1 : n.active ? 0.3 : 0.16)
           .style('stroke', c)
           .attr('stroke-width', n.active ? 2 : 1.25)
           .attr('filter', n.active ? glowUrl : null);
@@ -1007,7 +1038,8 @@ export const createSwarmGraph = (
           return (
             ROLE_GLYPH[n.agent?.role ?? ''] ?? (n.agent?.role ?? n.label).charAt(0).toUpperCase()
           );
-        if (n.kind === 'sector') return countLabel(shownNumber.get(n.id) ?? countOf(n));
+        if (n.kind === 'sector')
+          return hosted.has(n.id) ? '' : countLabel(shownNumber.get(n.id) ?? countOf(n));
         if (n.kind === 'hub') return n.label;
         return '';
       });
@@ -1186,7 +1218,7 @@ export const createSwarmGraph = (
   const countLabel = (v: number) => (v > 0 ? String(Math.round(v)) : '');
   const countUp = () => {
     tagGroups()
-      .filter((n) => n.kind === 'sector')
+      .filter((n) => n.kind === 'sector' && !hosted.has(n.id))
       .select<SVGTextElement>('text.sg-glyph')
       .each(function (n) {
         const to = countOf(n);
@@ -1246,6 +1278,8 @@ export const createSwarmGraph = (
 
   /** Sectors, live agents, branches and pull requests are always named; the rest on hover. */
   const labelOf = (n: SimNode) => {
+    // A hosted node's host draws its name inside it.
+    if (hosted.has(n.id)) return '';
     if (n.kind === 'sector') return n.label;
     // Narrow canvases (phones) get shorter names so there is room to place them.
     const narrow = width < 560;
@@ -1260,6 +1294,7 @@ export const createSwarmGraph = (
   };
 
   const subOf = (n: SimNode) => {
+    if (hosted.has(n.id)) return '';
     if (n.kind === 'hub') return 'integration branch';
     if (n.kind === 'sector') {
       const live = [...nodeById.values()].filter(
@@ -1426,11 +1461,12 @@ export const createSwarmGraph = (
   const placeAnchors = () => {
     chipBoxes.clear();
     // Read every size first, then write every position: one layout per frame, not one per badge.
+    // An inside element's size is the node's, so it is never read.
     const placed = [...anchors].map(([id, el]) => ({
       el,
       n: nodeById.get(id),
-      w: el.offsetWidth,
-      h: el.offsetHeight,
+      w: hosted.has(id) ? 0 : el.offsetWidth,
+      h: hosted.has(id) ? 0 : el.offsetHeight,
     }));
     const pad = 4;
     for (const { el, n, w, h } of placed) {
@@ -1440,6 +1476,22 @@ export const createSwarmGraph = (
       }
       const cx = width / 2 + view.x + view.k * (n.x ?? 0);
       const cy = height / 2 + view.y + view.k * (n.y ?? 0);
+      if (hosted.has(n.id)) {
+        // The node's bounding square, on whole pixels with its centre on the node's (rounded)
+        // centre: what the host draws at a fixed place in it stays put whatever its text does.
+        const R = Math.max(1, Math.round(view.k * n.r));
+        const size = `${2 * R}px`;
+        if (el.style.width !== size) {
+          el.style.width = size;
+          el.style.height = size;
+          el.style.setProperty('--node-r', `${R}px`);
+        }
+        el.dataset.side = 'inside';
+        el.style.visibility = 'visible';
+        el.style.opacity = intro ? String(intro.labels) : '';
+        el.style.transform = `translate(${Math.round(cx) - R}px, ${Math.round(cy) - R}px)`;
+        continue;
+      }
       const r = view.k * n.r + 8;
       // Beside the node, on the side away from the centre, so the middle of the graph stays
       // clear; the other side when that one has no room. Kept inside the canvas vertically.
@@ -1461,10 +1513,33 @@ export const createSwarmGraph = (
       }
     }
   };
-  const anchor = (nodeId: string, el: HTMLElement | null) => {
+  const anchor = (
+    nodeId: string,
+    el: HTMLElement | null,
+    placement: SwarmAnchorPlacement = 'beside',
+  ) => {
     if (el) anchors.set(nodeId, el);
     else anchors.delete(nodeId);
+    const inside = Boolean(el) && placement === 'inside';
+    if (inside !== hosted.has(nodeId)) {
+      if (inside) hosted.add(nodeId);
+      else hosted.delete(nodeId);
+      if (el && !inside) {
+        el.style.width = '';
+        el.style.height = '';
+        el.style.removeProperty('--node-r');
+      }
+      // The node's own name, sub-line, count and body change hands. Once per frame at most: a
+      // host that re-attaches its element (a ref released and set again) costs nothing.
+      if (graph && !restyle) restyle = requestAnimationFrame(applyHosting);
+    }
     placeAnchors();
+  };
+  const applyHosting = () => {
+    restyle = 0;
+    const now = [...hosted].sort().join('|');
+    if (now === drawnHosted || !graph) return;
+    renderStatic();
   };
 
   const draw = () => {
@@ -1473,11 +1548,15 @@ export const createSwarmGraph = (
     for (const n of nodeById.values()) {
       const lim = {
         // Labelled nodes keep room for their label (about 22 characters at 11px).
+        // A hosted node carries its label inside: it needs only room for its body.
         x:
           width / 2 -
           pad -
-          Math.max(n.r, n.kind === 'sector' || (n.kind === 'agent' && n.active) ? 62 : 0),
-        y: height / 2 - n.r - pad - (n.kind === 'sector' ? 26 : 0),
+          Math.max(
+            n.r,
+            !hosted.has(n.id) && (n.kind === 'sector' || (n.kind === 'agent' && n.active)) ? 62 : 0,
+          ),
+        y: height / 2 - n.r - pad - (n.kind === 'sector' && !hosted.has(n.id) ? 26 : 0),
       };
       n.x = Math.max(-lim.x, Math.min(lim.x, n.x ?? 0));
       n.y = Math.max(-lim.y, Math.min(lim.y, n.y ?? 0));
@@ -2420,6 +2499,7 @@ export const createSwarmGraph = (
   observer.observe(container);
 
   const destroy = () => {
+    cancelAnimationFrame(restyle);
     intro = null;
     run = null;
     liveTimers.forEach(clearTimeout);

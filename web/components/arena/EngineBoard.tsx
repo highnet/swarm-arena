@@ -77,7 +77,9 @@ type EngineBoardProps = {
 };
 
 /**
- * The engine's game, small, on its graph node, with the opponent and move number under it. A
+ * The engine's game, small, inside its graph node, with the opponent and move number under it.
+ * The board is centred in the link's width and the caption is one truncated line of fixed
+ * height, so nothing the caption says moves the board (#199). A
  * live game plays ply by ply at a steady pace however its moves arrive; an ended one holds its
  * result, then loops, dimmed, until the next game cross-fades in (#171). Pauses while the tab is
  * hidden. With motion reduced it shows each batch's position, holds the result, and never loops.
@@ -218,7 +220,7 @@ const EngineBoard = ({ source, reducedMotion, className }: EngineBoardProps) => 
       )}
       aria-label={`${live ? 'Live game' : looping ? 'Last game, replaying' : kind === 'ended' ? 'Finished game' : 'Latest game'} ${caption}${status && !live && result ? `, ${result}` : ''}`}
     >
-      <div className="relative w-16 overflow-hidden rounded border border-line bg-panel">
+      <div className="relative mx-auto w-16 overflow-hidden rounded border border-line bg-panel">
         <div className={cn('transition-opacity duration-500', looping && 'opacity-70')}>
           <BoardView game={g.track} view={boards[at]} label={caption} motion={motion} />
         </div>
@@ -236,13 +238,21 @@ const EngineBoard = ({ source, reducedMotion, className }: EngineBoardProps) => 
           </div>
         )}
       </div>
-      <div className="mt-0.5 flex items-center gap-1 text-[10px] leading-3 text-fg-3 group-hover/board:text-fg-2">
+      <div
+        data-slot="engine-board-caption"
+        className="mt-0.5 flex h-3 items-center justify-center gap-1 overflow-hidden text-[10px] leading-3 whitespace-nowrap tabular text-fg-3 group-hover/board:text-fg-2"
+      >
         {live && (
-          <span className="size-1.5 animate-pulse-dot rounded-full bg-good" aria-hidden="true" />
+          <span
+            className="size-1.5 shrink-0 animate-pulse-dot rounded-full bg-good"
+            aria-hidden="true"
+          />
         )}
-        <span className="truncate">{caption}</span>
+        {/* The opponent gives way first, so the move number stays readable in a narrow node. */}
+        <span className="min-w-0 shrink-[10] truncate">vs {g.opponent}</span>
+        <span className="shrink-0">· move {move}</span>
         {status && !live && (
-          <span className="shrink-0 text-fg-2">
+          <span className="min-w-0 truncate text-fg-2">
             · {status}
             {looping && result && ` · ${result}`}
           </span>
