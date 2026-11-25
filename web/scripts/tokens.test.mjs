@@ -3,7 +3,8 @@
  * `light-dark(<light>, <dark>)` pair, and asserts WCAG AA in both themes:
  *   - text tokens at 4.5:1 against every surface they sit on;
  *   - engine accents and status marks at 3:1 (non-text contrast, WCAG 1.4.11);
- *   - the primary button's label against its fill at 4.5:1.
+ *   - the primary button's label against its fill at 4.5:1;
+ *   - board pieces (#263): each side's stones at 3:1 on every board square, and against each other.
  * Run: npm test -w web (node --test).
  */
 import { test } from 'node:test';
@@ -81,6 +82,20 @@ for (const theme of ['light', 'dark']) {
         const ratio = contrast(color(mark), color(bg));
         assert.ok(ratio >= 3, `--${mark} on --${bg}: ${ratio.toFixed(2)}:1`);
       }
+  });
+
+  test(`${theme}: both sides' pieces stand out from the board and from each other`, () => {
+    for (const stone of ['stone-black', 'stone-white'])
+      for (const square of ['square-light', 'square-dark']) {
+        const ratio = contrast(color(stone), color(square));
+        assert.ok(ratio >= 3, `--${stone} on --${square}: ${ratio.toFixed(2)}:1`);
+      }
+    const sides = contrast(color('stone-black'), color('stone-white'));
+    assert.ok(sides >= 3, `--stone-black against --stone-white: ${sides.toFixed(2)}:1`);
+    for (const square of ['square-light', 'square-dark']) {
+      const ratio = contrast(color('board-line'), color(square));
+      assert.ok(ratio >= 3, `--board-line on --${square}: ${ratio.toFixed(2)}:1`);
+    }
   });
 
   test(`${theme}: the primary action's label reads on its fill`, () => {
