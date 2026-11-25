@@ -35,6 +35,7 @@ const gameOf = (r: LiveGameRow) => ({
   moves: r.moves,
   opponent: r.opponent,
   finishedAt: r.updated_at,
+  matchId: r.match_id,
 });
 
 /** The fresher of two copies of one row: out-of-order updates never step a board backwards. */
