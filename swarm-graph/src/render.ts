@@ -646,8 +646,8 @@ export const createSwarmGraph = (
    */
   let regrid = 0;
   /** Quiet time before a pending ring/grid switch is re-placed, and its glide (ms). */
-  const REGRID_QUIET_MS = 40;
-  const REGRID_MOVE_MS = 380;
+  const REGRID_QUIET_MS = 32;
+  const REGRID_MOVE_MS = 320;
   /** The glide the next layout gives its moves: shorter for a ring/grid switch. */
   let moveMs: number = MOVE.durationMs;
 
