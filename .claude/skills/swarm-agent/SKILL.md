@@ -20,6 +20,11 @@ One session = one role. Finishing work beats starting it.
    `origin/main`: `git fetch origin main && git checkout --detach origin/main`. Cloud containers can
    start with a local `main` that has diverged from `origin/main`, and sessions never commit to
    `main`, so do not check it out or pull it.
+
+   **Production data stays read-only.** Dispatched sessions never use Supabase write or SQL tools
+   (`execute_sql`, `apply_migration`, `deploy_edge_function`, any `create_*`/`delete_*`, branch
+   merges or resets) or Vercel write tools; `.claude/settings.json` denies them. Read live data
+   through the PostgREST REST API instead (`curl` with `Prefer: count=exact` for counts).
 2. **Take your role.** `npm run arena -- next` (or `next <track>` if the prompt names an engine). It
    reads Rallypoint state and prints `ROLE …` with a brief.
 
