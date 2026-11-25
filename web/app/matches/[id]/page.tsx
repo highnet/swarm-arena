@@ -8,6 +8,7 @@ import { NextSteps, engineSteps } from '@/components/arena/NextSteps';
 import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { SidesLegend } from '@/components/arena/SideSwatch';
 import { Disclosure } from '@/components/ui/Disclosure';
+import { HashLanding } from '@/components/ui/HashLanding';
 import { Section } from '@/components/ui/Section';
 import { SectionHeading } from '@/components/ui/SectionHeading';
 import { SectionNav, type SectionNavItem } from '@/components/ui/SectionNav';
@@ -118,6 +119,8 @@ const MatchContent = async ({ params }: MatchPageProps) => {
 
       {/* 3 · Each game, one row; the board opens on request. */}
       <Section id="games" labelledBy="games-title">
+        {/* A live board links here as #games (#262); the section streams in after the scroll. */}
+        <HashLanding id="games" />
         <SectionHeading
           id="games-title"
           title="The games"
