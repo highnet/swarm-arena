@@ -181,6 +181,17 @@ Move into "Architecture now" only once the referee passes it. A rebuild of #44's
 - Not tried: probing the table inside the exact solver (~10 empties up), the issue's optional
   part; measure it separately.
 
+## Candidate (not shipped): #160's solver table resubmitted unchanged on the sequential gate (task #209)
+
+Move into "Architecture now" only once the referee passes it. `engines/othello/src` is commit
+7024682 byte for byte (`SolveTt` 2^18 × 16 B, `SOLVE_EMPTIES` 15, `SOLVE_TT_MIN` 6; design and
+measurements in the #160 note below). Only `src/` was restored: main's release-please bump
+(`CHANGELOG.md`, `Cargo.toml` 0.3.0) postdates 7024682, so `git checkout 7024682 -- engines/othello`
+would have reverted it. Reviewer's check: `git diff 7024682 <branch> -- engines/othello/src` is
+empty. What differs from #160 is only the gate (#195: sequential head-to-head vs main instead of a
+40-game Edax-6 rating against a stored 1427). Expect it near neutral at go 200 (#160's local
+matches were +38 −38 =4 at N = 15); the verdict is recorded in the results log.
+
 ## Buried: history heuristic + PVS in the midgame search (task #190, lesson PR #194)
 
 **Referee: rated 1295 ± 138 vs Edax level 6 (40 games, seed 102195233), not above v0.6's 1427**;
