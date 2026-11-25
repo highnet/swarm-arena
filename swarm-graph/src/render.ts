@@ -635,7 +635,21 @@ export const createSwarmGraph = (
   /** What placed each node there (its sector, phase, ties): when it changes, it is re-placed. */
   const placedBy = new Map<string, string>();
   /** Nodes on their way to a new place: a straight line with one ease-out, nothing else. */
-  const moves = new Map<string, { from: LayoutPoint; to: LayoutPoint; start: number }>();
+  const moves = new Map<
+    string,
+    { from: LayoutPoint; to: LayoutPoint; start: number; ms: number }
+  >();
+  /**
+   * A switch between ring and grid waiting for the canvas to stop changing size (#272): the time
+   * of the last resize, or 0. The page reflows over a few frames, so the graph is re-placed once,
+   * at the size it ends at, rather than once per intermediate size.
+   */
+  let regrid = 0;
+  /** Quiet time before a pending ring/grid switch is re-placed, and its glide (ms). */
+  const REGRID_QUIET_MS = 40;
+  const REGRID_MOVE_MS = 380;
+  /** The glide the next layout gives its moves: shorter for a ring/grid switch. */
+  let moveMs: number = MOVE.durationMs;
 
   const colorOf = (n: SwarmNode) => n.color ?? theme.neutral;
   /** Nodes whose host draws their information inside them (`anchor(…, 'inside')`). */
@@ -900,7 +914,7 @@ export const createSwarmGraph = (
       }
       const going = moves.get(n.id);
       if (going && Math.hypot(going.to.x - to.x, going.to.y - to.y) < 0.5) continue;
-      moves.set(n.id, { from: { x: n.x, y: n.y }, to, start: now });
+      moves.set(n.id, { from: { x: n.x, y: n.y }, to, start: now, ms: moveMs });
     }
   };
 
@@ -913,7 +927,7 @@ export const createSwarmGraph = (
         moves.delete(id);
         continue;
       }
-      const p = progressAt(now, m.start, MOVE.durationMs);
+      const p = progressAt(now, m.start, m.ms);
       const at = movePoint(m.from, m.to, p);
       n.x = at.x;
       n.y = at.y;
@@ -2063,6 +2077,15 @@ export const createSwarmGraph = (
   const timer = d3.timer(() => {
     const now = performance.now();
     if (intro) stepIntro(now);
+    if (regrid && now - regrid >= REGRID_QUIET_MS) {
+      regrid = 0;
+      places.clear();
+      homes.clear();
+      placedBy.clear();
+      moveMs = REGRID_MOVE_MS;
+      relayout();
+      moveMs = MOVE.durationMs;
+    }
     if (pending) runLayout(SLICE_MS);
     const moved = stepMoves(now);
     if (stepLife(now) || moved) draw();
@@ -2730,13 +2753,11 @@ export const createSwarmGraph = (
     setViewBox();
     placeRing();
     resize();
-    if (arrangement().kind !== kind) {
+    if (arrangement().kind !== kind || regrid) {
       // Ring to grid or back (#272): the sectors stand somewhere else, so everything is placed
-      // afresh around them, once, each node gliding from where it stands.
-      places.clear();
-      homes.clear();
-      placedBy.clear();
-      relayout();
+      // afresh around them, once the canvas has stopped changing size, each node gliding from
+      // where it stands (see the timer).
+      regrid = performance.now();
       return;
     }
     // The layout stretches with the canvas, once: every place scales with the ring, overlaps the
