@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { replayBoards, type BoardView as BoardViewData, type GameId } from '@arena/shared';
 import { boardMotion } from '@/lib/boardMotion';
 import type { EngineGame } from '@/lib/swarmEvents';
-import { gameHref } from '@/lib/routes';
+import { boardHref } from '@/lib/routes';
 import { engineColor, sideNames } from '@/lib/sides';
 import { cn } from '@/lib/utils';
 import { BoardView } from './BoardView';
@@ -85,7 +85,7 @@ type EngineBoardProps = {
  * live game plays ply by ply at a steady pace however its moves arrive; an ended one holds its
  * result, then loops, dimmed, until the next game cross-fades in (#171). Pauses while the tab is
  * hidden. With motion reduced it shows each batch's position, holds the result, and never loops.
- * Opens the game's page on click.
+ * Opens the game's page on click, or, while the game is still being played, its match (#262).
  */
 const EngineBoard = ({ source, reducedMotion, className }: EngineBoardProps) => {
   const [pb, setPb] = useState<Playback>(() => ({
@@ -214,7 +214,8 @@ const EngineBoard = ({ source, reducedMotion, className }: EngineBoardProps) => 
 
   return (
     <Link
-      href={gameHref(g.id)}
+      // A game with a result is stored; a live one is not yet, so it links its match (#262).
+      href={boardHref(g, kind === 'finished' || g.result !== null)}
       data-slot="engine-board"
       data-board={kind}
       data-phase={kind === 'finished' ? undefined : phase}

@@ -8,6 +8,21 @@ export const versionOf = (r: Pick<BoardRecord, 'title'>) => r.title.split(' ')[0
 export const taskHref = (id: string) => `/tasks/${encodeURIComponent(id)}`;
 export const matchHref = (id: string) => `/matches/${encodeURIComponent(id)}`;
 export const gameHref = (id: string) => `/games/${encodeURIComponent(id)}`;
+/**
+ * Where an engine board links (#262). A stored game opens its own page. A game still being played
+ * has no `games` row yet, so `/games/<id>` would 404 until it ends: it opens its match's games
+ * instead (the match row is written before its first game starts), or, for an `arena versus`
+ * game, which has no match, the engine's page.
+ */
+export const boardHref = (
+  game: { id: string; track: GameId; matchId: string | null },
+  stored: boolean,
+) =>
+  stored
+    ? gameHref(game.id)
+    : game.matchId
+      ? `${matchHref(game.matchId)}#games`
+      : `/engines/${game.track}`;
 export const messageHref = (id: number) => `/messages/${id}`;
 export const ideaHref = (id: number) => `/graveyard/${id}`;
 export const versionHref = (track: GameId, version: string) =>

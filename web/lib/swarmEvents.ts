@@ -562,6 +562,8 @@ export type EngineGame = {
   engineFirst: boolean;
   result: 'win' | 'loss' | 'draw';
   finishedAt: string;
+  /** The referee's match; null for an `arena versus` game, which has none (#163, #262). */
+  matchId: string | null;
 };
 
 export type EngineNode = {
@@ -591,5 +593,6 @@ export const gameOfRow = (
     engineFirst: g.engine_first,
     result: score > 0.5 ? 'win' : score < 0.5 ? 'loss' : 'draw',
     finishedAt: g.finished_at,
+    matchId: g.match_id,
   };
 };
