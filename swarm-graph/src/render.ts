@@ -662,6 +662,11 @@ export const createSwarmGraph = (
   const RESIZE_QUIET_MS = 90;
   /** The glide of a resize's re-fit: one quick move, so it is over soon after the page settles. */
   const RESIZE_MOVE_MS = 320;
+  /**
+   * The glide of a ring/grid crossing's re-place: shorter still. The page's reflow to (or from) a
+   * wide canvas costs long frames of its own, so this one has to be over sooner to settle in time.
+   */
+  const CROSSING_MOVE_MS = 180;
   /** The glide the next layout gives its moves. */
   let moveMs: number = MOVE.durationMs;
 
@@ -2757,13 +2762,32 @@ export const createSwarmGraph = (
     if (on) bursts = [];
   };
 
+  /** Take the container's current size, if it changed: true when it did. */
+  const takeSize = () => {
+    const w = Math.max(200, container.clientWidth);
+    const h = Math.max(200, container.clientHeight);
+    if (w === width && h === height) return false;
+    resizedFrom ??= arrangement().kind;
+    width = w;
+    height = h;
+    finishIntro();
+    setViewBox();
+    placeRing();
+    resize();
+    return true;
+  };
+
   /** Apply a resize once its reflow is over: the one re-fit it makes. */
   const refit = () => {
+    // A step of the reflow its ResizeObserver has not reported yet (observers run after this
+    // frame's tick): taken now, so the re-fit is laid out at the size the page ends at instead of
+    // being followed by a second one that restarts every glide.
+    takeSize();
     const from = resizedFrom;
     resized = 0;
     resizedFrom = null;
-    moveMs = RESIZE_MOVE_MS;
     if (arrangement().kind !== from) {
+      moveMs = CROSSING_MOVE_MS;
       // Ring to grid or back (#272): the sectors stand somewhere else, so everything is placed
       // afresh around them, each node gliding from where it stands.
       places.clear();
@@ -2771,6 +2795,7 @@ export const createSwarmGraph = (
       placedBy.clear();
       relayout();
     } else {
+      moveMs = RESIZE_MOVE_MS;
       // The layout stretches with the canvas, once: every place scales with the ring, overlaps
       // the new sizes make are cleared, and each node glides there. Back to the old size, back
       // home.
@@ -2783,16 +2808,7 @@ export const createSwarmGraph = (
   };
 
   const observer = new ResizeObserver(() => {
-    const w = Math.max(200, container.clientWidth);
-    const h = Math.max(200, container.clientHeight);
-    if (w === width && h === height) return;
-    resizedFrom ??= arrangement().kind;
-    width = w;
-    height = h;
-    finishIntro();
-    setViewBox();
-    placeRing();
-    resize();
+    if (!takeSize()) return;
     // The nodes move once the canvas stops changing size (`refit`, from the timer).
     resized = performance.now();
   });
