@@ -123,3 +123,80 @@ test('a sector carries its host count unchanged', () => {
   const s = buildSwarmGraph(i).nodes.find((n) => n.id === sectorNodeId('site'));
   assert.deepEqual(s?.sector?.count, { value: 48, unit: 'merged', recent: 3, recentUnit: 'today' });
 });
+
+/** The host's liveness rule, as the arena's `seatIsLive`: working and heard from in 45 minutes. */
+const heardWithin45 = (a: { status: string; lastSeen: string }, nowMs: number) =>
+  a.status === 'working' && nowMs - Date.parse(a.lastSeen) <= 45 * 60_000;
+
+const many = (): SwarmInput => {
+  const base = input();
+  const stale = Array.from({ length: 30 }, (_, i) => ({
+    id: `stale-${i}`,
+    role: 'worker',
+    status: 'working' as const,
+    sector: 'chess',
+    lastSeen: at(-120 - i * 10),
+  }));
+  return {
+    ...base,
+    agents: [
+      ...stale,
+      { id: 'fresh', role: 'worker', status: 'working', sector: 'chess', lastSeen: at(-2) },
+    ],
+    events: stale.map((a, i) => ({
+      id: `e${i}`,
+      kind: 'claim' as const,
+      at: a.lastSeen,
+      agent: a.id,
+      sector: 'chess',
+    })),
+  };
+};
+
+test('a stale `working` seat with an old lastSeen is pruned; a fresh one is kept (#200)', () => {
+  const g = buildSwarmGraph(many(), {
+    lifetimes: LIFETIMES.live,
+    now: at(0),
+    isLive: heardWithin45,
+  });
+  const agents = g.nodes.filter((n) => n.kind === 'agent');
+  assert.deepEqual(
+    agents.map((n) => n.id),
+    [agentNodeId('fresh')],
+  );
+  assert.equal(agents[0].active, true);
+  assert.equal(g.totals.live, 1);
+});
+
+test('a seat that goes quiet while the view is open leaves once it reads stale (#200)', () => {
+  const at0 = { ...many(), agents: many().agents.filter((a) => a.id === 'fresh') };
+  const node = (m: number) =>
+    buildSwarmGraph(at0, {
+      lifetimes: LIFETIMES.live,
+      now: at(m),
+      isLive: heardWithin45,
+    }).nodes.find((n) => n.id === agentNodeId('fresh'));
+  assert.equal(node(40)?.active, true); // heard from 42 minutes ago: still live
+  // Stale at 45 minutes, which is already past `agentMs` from its last activity: gone at once.
+  assert.equal(node(50), undefined);
+});
+
+test('a `working` seat whose work item merged is not working (#200)', () => {
+  const i = input();
+  i.agents = [
+    {
+      id: 'ghost',
+      role: 'worker',
+      status: 'working',
+      sector: 'chess',
+      workItem: 'm',
+      lastSeen: at(-30),
+    },
+  ];
+  const g = buildSwarmGraph(i, { lifetimes: LIFETIMES.live, now: at(0) });
+  assert.equal(
+    g.nodes.find((n) => n.id === agentNodeId('ghost')),
+    undefined,
+  );
+  assert.equal(g.totals.live, 0);
+});

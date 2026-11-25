@@ -56,7 +56,7 @@ import { cn } from '@/lib/utils';
 import type { EngineBoardSource } from './EngineBoard';
 import { useFleetHover } from './FleetHover';
 import { ReplayScrubber } from './ReplayScrubber';
-import { agentHref } from './seats';
+import { agentHref, graphAgentIsLive } from './seats';
 import { SwarmNodeOverlay, type NodeRating } from './SwarmNodeOverlay';
 
 /** Match bursts whose game tally the ticker remembers; the oldest are forgotten first. */
@@ -709,6 +709,8 @@ const SwarmGraph = ({
       buildSwarmGraph(merged, {
         lifetimes: presetId === 'all' ? LIFETIMES.everything : LIFETIMES.live,
         now: pruneFrom ?? new Date(Math.max(clock, Date.parse(merged.asOf))).toISOString(),
+        // A seat that goes quiet while the page is open stops working on the next tick (#200).
+        isLive: graphAgentIsLive,
       }),
     [merged, presetId, pruneFrom, clock],
   );
