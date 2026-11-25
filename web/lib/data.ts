@@ -7,8 +7,11 @@ import {
   type EloPoint,
   type GameId,
   type GameRow,
+  type BoardRecord,
   type LiveGameRow,
   type Message,
+  type MessageKind,
+  type RecordKind,
   type Snapshot,
 } from '@arena/shared';
 import { getSupabase, supabaseConfigured } from './supabase';
@@ -232,4 +235,74 @@ export const liveGames = async (): Promise<Partial<Record<GameId, LiveGameRow>>>
     return {};
   }
   return newestLiveGames((data ?? []) as LiveGameRow[], Date.now());
+};
+
+/** PostgREST returns at most this many rows per request (Supabase `max-rows`). */
+const ROW_CAP = 1000;
+
+/** Every row of one kind in the run, oldest first, paged past the row cap. */
+const allOfKind = async <T>(
+  table: 'records' | 'messages',
+  runId: string,
+  kind: string,
+): Promise<T[]> => {
+  const db = getSupabase();
+  const out: T[] = [];
+  for (let from = 0; ; from += ROW_CAP) {
+    const { data, error } = await db
+      .from(table)
+      .select('*')
+      .eq('run_id', runId)
+      .eq('kind', kind)
+      .order('at', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, from + ROW_CAP - 1);
+    if (error) throw new Error(`${table} ${kind}: ${error.message}`);
+    out.push(...((data ?? []) as T[]));
+    if (!data || data.length < ROW_CAP) return out;
+  }
+};
+
+/**
+ * Every board record of one kind, oldest first (#250). The snapshot's `records` stops at
+ * PostgREST's 1,000-row cap and the run is already past it, so a page that lists one kind, or
+ * derives a number from it, reads it here. Live like the snapshot, with the same short memory
+ * cache (#222): never a prerender, no tag, nothing a browser can expire, no clock in the output.
+ */
+export const getRecordsOfKind = async (kind: RecordKind): Promise<BoardRecord[]> => {
+  'use cache';
+  cacheLife({ stale: 0, revalidate: 2, expire: 15 });
+  if (!supabaseConfigured()) return [];
+  const { run } = await getSnapshot();
+  return allOfKind<BoardRecord>('records', run.id, kind).catch((e) => {
+    console.error('records of kind failed', e);
+    return [];
+  });
+};
+
+/** How many board records of one kind the run holds, counted by the database (#250). */
+export const countRecordsOfKind = async (kind: RecordKind): Promise<number> => {
+  'use cache';
+  cacheLife({ stale: 0, revalidate: 2, expire: 15 });
+  if (!supabaseConfigured()) return 0;
+  const { run } = await getSnapshot();
+  const { count, error } = await getSupabase()
+    .from('records')
+    .select('id', { count: 'exact', head: true })
+    .eq('run_id', run.id)
+    .eq('kind', kind);
+  if (error) console.error('records count failed', error.message);
+  return count ?? 0;
+};
+
+/** Every message of one kind (every retro, say), oldest first, past the row cap (#250). */
+export const getMessagesOfKind = async (kind: MessageKind): Promise<Message[]> => {
+  'use cache';
+  cacheLife({ stale: 0, revalidate: 2, expire: 15 });
+  if (!supabaseConfigured()) return [];
+  const { run } = await getSnapshot();
+  return allOfKind<Message>('messages', run.id, kind).catch((e) => {
+    console.error('messages of kind failed', e);
+    return [];
+  });
 };

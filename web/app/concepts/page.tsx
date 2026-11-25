@@ -1,23 +1,19 @@
 import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import {
-  BookOpen,
-  CircleSlash,
-  FlaskConical,
-  GitMerge,
-  GitPullRequest,
-  Grid3x3,
-  Lightbulb,
-} from 'lucide-react';
+import { CircleSlash, FlaskConical, GitMerge, GitPullRequest } from 'lucide-react';
 import { GAMES, type GameId, type Task } from '@arena/shared';
 import { EngineLogo } from '@/components/arena/EngineLogo';
-import { Panel } from '@/components/ui/Panel';
-import { Typography } from '@/components/ui/Typography';
-import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { NextSteps } from '@/components/arena/NextSteps';
+import { PageSkeleton } from '@/components/arena/PageSkeleton';
+import { Disclosure } from '@/components/ui/Disclosure';
+import { FullBleed } from '@/components/ui/FullBleed';
+import { Section } from '@/components/ui/Section';
+import { SectionHeading } from '@/components/ui/SectionHeading';
+import { SectionNav, type SectionNavItem } from '@/components/ui/SectionNav';
+import { TextLink } from '@/components/ui/TextLink';
 import { getSnapshot } from '@/lib/data';
-import { getConcepts } from '@/lib/source';
+import { getConcepts, type ConceptEvidence } from '@/lib/source';
 import { conceptHref, taskHref } from '@/lib/routes';
 import { pageMeta } from '@/lib/site';
 import { TRACK_ORDER } from '@/lib/tracks';
@@ -29,13 +25,33 @@ export const metadata: Metadata = pageMeta(
   '/concepts',
 );
 
+const CHAPTERS: SectionNavItem[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'matrix', label: 'Concept × game' },
+  { id: 'beliefs', label: 'What we believe' },
+  { id: 'evidence', label: 'Evidence' },
+  { id: 'more', label: 'Further reading' },
+];
+
+/** Evidence lines shown before the rest folds behind a disclosure. */
+const FIRST_EVIDENCE = 8;
+
 type Cell = { task: Task; delta: string | null };
 
 /** The best thing that happened to a concept in one game: shipped beats in review beats tried beats buried. */
 const rank = (t: Task) => ({ landed: 4, review: 3, claimed: 2, open: 1, dead: 0 })[t.status] ?? 0;
 
-const CellView = ({ cell }: { cell: Cell | undefined }) => {
-  if (!cell) return <span className="text-fg-3">·</span>;
+type CellViewProps = {
+  cell: Cell | undefined;
+};
+
+const CellView = ({ cell }: CellViewProps) => {
+  if (!cell)
+    return (
+      <span className="text-fg-3" aria-label="untried">
+        ·
+      </span>
+    );
   const { task, delta } = cell;
   const look = {
     landed: { icon: GitMerge, cls: 'text-good-text', text: delta ?? 'shipped' },
@@ -49,16 +65,43 @@ const CellView = ({ cell }: { cell: Cell | undefined }) => {
     <Link
       href={taskHref(task.id)}
       className={cn(
-        'inline-flex items-center gap-1 font-mono text-xs tabular hover:underline',
+        'inline-flex items-center gap-1.5 font-mono text-[13px] tabular underline-offset-4 hover:underline',
         look.cls,
       )}
       title={task.title}
     >
-      <Icon className="size-3.5" aria-hidden="true" />
+      <Icon className="size-3.5 shrink-0" aria-hidden="true" />
       {look.text}
     </Link>
   );
 };
+
+type EvidenceRowsProps = {
+  lines: ConceptEvidence[];
+};
+
+/** Referee verdicts as hairline rows: date, concept and game, then the outcome. */
+const EvidenceRows = ({ lines }: EvidenceRowsProps) => (
+  <ol className="divide-y divide-line border-y border-line">
+    {lines.map((e, i) => (
+      <li
+        key={`${e.date}-${e.concept}-${i}`}
+        className="grid gap-x-8 gap-y-1 py-5 sm:grid-cols-[7rem_minmax(0,1fr)]"
+      >
+        <span className="font-mono text-[13px] tabular text-fg-3">{e.date}</span>
+        <p className="max-w-[40em] text-[15px] leading-7 text-fg-2 text-pretty">
+          <Link
+            href={conceptHref(e.concept)}
+            className="font-medium text-fg underline underline-offset-4 decoration-line-strong hover:decoration-fg"
+          >
+            {e.concept}
+          </Link>{' '}
+          in {e.game}: {e.outcome}
+        </p>
+      </li>
+    ))}
+  </ol>
+);
 
 const ConceptsContent = async () => {
   const [s, c] = await Promise.all([getSnapshot(), getConcepts()]);
@@ -81,111 +124,151 @@ const ConceptsContent = async () => {
   const transferred = rows.filter(
     (n) => TRACK_ORDER.filter((g) => cells.get(`${n}|${g}`)?.task.status === 'landed').length >= 2,
   );
+  const evidence = [...c.evidence].reverse();
 
   return (
-    <main className="mx-auto w-full max-w-[90rem] px-4 pb-16 pt-8 sm:px-6">
-      <Typography variant="pageTitle">Concepts</Typography>
-      <Typography variant="lede" className="mt-2 max-w-3xl">
-        The four games test the same ideas. When an idea helps one engine, the swarm tries it on the
-        other three.
-      </Typography>
+    <main className="flex w-full flex-col">
+      <SectionNav items={CHAPTERS} />
 
-      <dl className="mt-6 grid grid-cols-3 gap-px overflow-hidden rounded-lg border border-line bg-line sm:max-w-xl">
-        {[
-          ['Concepts tried', tried.length],
-          ['Shipped in 2+ games', transferred.length],
-          ['Evidence lines', c.evidence.length],
-        ].map(([k, v]) => (
-          <div key={k} className="bg-panel px-4 py-3">
-            <dd className="font-mono text-2xl tabular text-fg">{v}</dd>
-            <dt className="text-xs text-fg-3">{k}</dt>
-          </div>
-        ))}
-      </dl>
-
-      <Panel className="mt-6" icon={Grid3x3} title="Concept × game" bodyClassName="overflow-x-auto">
-        <table className="w-full min-w-[44rem] text-left">
-          <thead>
-            <tr className="border-b border-line text-xs text-fg-3">
-              <th scope="col" className="px-4 py-2 font-normal">
-                Concept
-              </th>
-              {TRACK_ORDER.map((g) => (
-                <th key={g} scope="col" className="px-3 py-2 font-normal">
-                  <span className="inline-flex items-center gap-1.5">
-                    <EngineLogo
-                      game={g}
-                      slot={slots[g] ?? 1}
-                      size="sm"
-                      className="size-4 rounded"
-                    />
-                    {GAMES[g].name}
-                  </span>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-line">
-            {rows.map((n) => (
-              <tr key={n} className={cn(!games(n) && 'opacity-60')}>
-                <th scope="row" className="px-4 py-2 align-top font-normal">
-                  <Link href={conceptHref(n)} className="text-[13px] text-fg hover:underline">
-                    {n}
-                  </Link>
-                  {idea.get(n) && <span className="block text-xs text-fg-3">{idea.get(n)}</span>}
-                </th>
-                {TRACK_ORDER.map((g) => (
-                  <td key={g} className="px-3 py-2 align-top">
-                    <CellView cell={cells.get(`${n}|${g}`)} />
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Panel>
-
-      <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <Panel icon={Lightbulb} title="What we believe">
-          <div
-            className="playbook px-4 py-3 text-[13px]"
-            dangerouslySetInnerHTML={{ __html: c.beliefsHtml }}
-          />
-        </Panel>
-        <Panel
-          icon={BookOpen}
-          title="Evidence log"
-          actions={
-            <Link href="/skills/concepts" className="text-xs text-fg-2 hover:text-fg">
-              The concepts skill
-            </Link>
+      {/* 1 · The question the four games ask, and how far the answer has got. */}
+      <Section id="overview" labelledBy="concepts-title" space="roomy">
+        <SectionHeading
+          level="page"
+          space="none"
+          id="concepts-title"
+          title="Concepts"
+          intro={
+            <>
+              The four games test the same ideas. When an idea helps one engine, the swarm tries it
+              on the other three. So far{' '}
+              <span className="font-mono tabular text-fg">{tried.length}</span> concepts have been
+              tried, <span className="font-mono tabular text-fg">{transferred.length}</span> have
+              shipped in two or more games, and the referee has written{' '}
+              <span className="font-mono tabular text-fg">{c.evidence.length}</span> lines of
+              evidence.
+            </>
           }
-        >
-          {c.evidence.length === 0 ? (
-            <Typography variant="small" className="px-4 py-6">
-              The referee adds a line here for every verdict on a task with a concept.
-            </Typography>
-          ) : (
-            <ol className="divide-y divide-line">
-              {[...c.evidence]
-                .reverse()
-                .slice(0, 20)
-                .map((e, i) => (
-                  <li key={`${e.date}-${i}`} className="px-4 py-2 text-[13px]">
-                    <span className="font-mono text-xs text-fg-3">{e.date}</span>{' '}
-                    <Link href={conceptHref(e.concept)} className="text-fg hover:underline">
-                      {e.concept}
-                    </Link>{' '}
-                    <span className="text-fg-3">in</span>{' '}
-                    <span className="text-fg-2">{e.game}</span>:{' '}
-                    <span className="text-fg-2">{e.outcome}</span>
-                  </li>
+          action={
+            <>
+              <TextLink href="#matrix">What transferred</TextLink>
+              <TextLink href="/skills/concepts">The concepts skill</TextLink>
+            </>
+          }
+        />
+      </Section>
+
+      {/* 2 · The matrix, given the full width it needs. */}
+      <Section id="matrix" labelledBy="matrix-title" tone="band">
+        <SectionHeading
+          id="matrix-title"
+          title="Concept × game"
+          intro="Each cell is the best that happened to a concept in one game: shipped, in review, being tried, queued or buried. Each opens its task."
+        />
+        <FullBleed>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[46rem] text-left">
+              <caption className="sr-only">
+                Concepts by game, most widely tried first. A dot means not tried in that game.
+              </caption>
+              <thead>
+                <tr className="border-b border-line-strong text-[13px] text-fg-3">
+                  <th scope="col" className="py-3 pr-6 font-normal">
+                    Concept
+                  </th>
+                  {TRACK_ORDER.map((g) => (
+                    <th key={g} scope="col" className="px-3 py-3 font-normal">
+                      <span className="inline-flex items-center gap-1.5">
+                        <EngineLogo
+                          game={g}
+                          slot={slots[g] ?? 1}
+                          size="sm"
+                          className="size-4 rounded"
+                        />
+                        {GAMES[g].name}
+                      </span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {rows.map((n) => (
+                  <tr key={n}>
+                    <th scope="row" className="max-w-sm py-4 pr-6 align-top font-normal">
+                      <Link
+                        href={conceptHref(n)}
+                        className={cn(
+                          'text-[15px] underline-offset-4 hover:underline',
+                          games(n) ? 'font-medium text-fg' : 'text-fg-2',
+                        )}
+                      >
+                        {n}
+                      </Link>
+                      {idea.get(n) && (
+                        <span className="mt-1 block text-[13px] leading-5 text-fg-3 text-pretty">
+                          {idea.get(n)}
+                        </span>
+                      )}
+                    </th>
+                    {TRACK_ORDER.map((g) => (
+                      <td key={g} className="px-3 py-4 align-top">
+                        <CellView cell={cells.get(`${n}|${g}`)} />
+                      </td>
+                    ))}
+                  </tr>
                 ))}
-            </ol>
-          )}
-        </Panel>
-      </div>
-      <NextSteps links={['skills', 'engines', 'graveyard', 'versions']} />
+              </tbody>
+            </table>
+          </div>
+        </FullBleed>
+      </Section>
+
+      {/* 3 · What the evidence adds up to so far. */}
+      <Section id="beliefs" labelledBy="beliefs-title">
+        <SectionHeading
+          id="beliefs-title"
+          title="What we believe"
+          intro="The swarm's working conclusions, as the concepts skill states them. They change when the evidence does."
+        />
+        <div
+          className="playbook playbook-read"
+          dangerouslySetInnerHTML={{ __html: c.beliefsHtml }}
+        />
+      </Section>
+
+      {/* 4 · The referee's verdicts, newest first. */}
+      <Section id="evidence" labelledBy="evidence-title" tone="band">
+        <SectionHeading
+          id="evidence-title"
+          title="Evidence log"
+          intro="The referee adds a line here for every verdict on a task with a concept. Newest first."
+        />
+        {evidence.length === 0 ? (
+          <p className="border-t border-line pt-5 text-[15px] text-fg-2">
+            No verdict recorded yet.
+          </p>
+        ) : (
+          <>
+            <EvidenceRows lines={evidence.slice(0, FIRST_EVIDENCE)} />
+            {evidence.length > FIRST_EVIDENCE && (
+              <Disclosure
+                className="mt-4"
+                summary={`${evidence.length - FIRST_EVIDENCE} earlier verdicts`}
+              >
+                <EvidenceRows lines={evidence.slice(FIRST_EVIDENCE)} />
+              </Disclosure>
+            )}
+          </>
+        )}
+      </Section>
+
+      {/* Last · Where to go next. */}
+      <Section id="more" labelledBy="next-steps-title" space="compact">
+        <NextSteps
+          variant="list"
+          title="Further reading"
+          links={['skills', 'engines', 'graveyard', 'versions']}
+        />
+      </Section>
     </main>
   );
 };

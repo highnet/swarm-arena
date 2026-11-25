@@ -2,7 +2,6 @@ import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import {
-  ArrowUpRight,
   CircleDashed,
   CircleDot,
   GitMerge,
@@ -13,14 +12,18 @@ import {
   ShieldCheck,
   type LucideIcon,
 } from 'lucide-react';
-import { TASK_TYPES, type GameId, type TaskType } from '@arena/shared';
+import { GAMES, TASK_TYPES, type GameId, type TaskType } from '@arena/shared';
 import { EngineLogo } from '@/components/arena/EngineLogo';
-import { TaskTypeChip } from '@/components/arena/TaskChips';
-import { Badge } from '@/components/ui/Badge';
-import { Typography } from '@/components/ui/Typography';
-import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { NextSteps } from '@/components/arena/NextSteps';
-import { getSnapshot } from '@/lib/data';
+import { PageSkeleton } from '@/components/arena/PageSkeleton';
+import { TASK_TYPE_META } from '@/components/arena/TaskChips';
+import { Disclosure } from '@/components/ui/Disclosure';
+import { FullBleed } from '@/components/ui/FullBleed';
+import { Section } from '@/components/ui/Section';
+import { SectionHeading } from '@/components/ui/SectionHeading';
+import { SectionNav, type SectionNavItem } from '@/components/ui/SectionNav';
+import { TextLink } from '@/components/ui/TextLink';
+import { getMessagesOfKind, getRecordsOfKind, getSnapshot } from '@/lib/data';
 import { formatDay, formatTime } from '@/lib/format';
 import { getRallypoint, REPO_URL, STAGES, stageOf, type RpItem, type RpStage } from '@/lib/github';
 import { pageMeta } from '@/lib/site';
@@ -43,58 +46,171 @@ const STAGE_ICON: Record<RpStage, LucideIcon> = {
   closed: CircleDashed,
 };
 
+/** The board read top to bottom: what waits on a verdict, what is being worked, what is next, what landed. */
+const CHAPTERS: { id: string; title: string; intro: string; stages: RpStage[] }[] = [
+  {
+    id: 'verdicts',
+    title: 'Waiting on a verdict',
+    intro:
+      'Pull requests an independent reviewer has to judge, those sent back for a fix, and those approved for a merger.',
+    stages: ['review', 'changes', 'approved'],
+  },
+  {
+    id: 'worked',
+    title: 'Being worked',
+    intro:
+      'Issues a worker has claimed, and those on hold: blocked by another issue, deferred, or waiting on a human.',
+    stages: ['claimed', 'held'],
+  },
+  {
+    id: 'next',
+    title: 'Up next',
+    intro: 'Open issues that any worker may claim. The highest priority goes first.',
+    stages: ['backlog'],
+  },
+  {
+    id: 'landed',
+    title: 'Landed lately',
+    intro: 'The latest pull requests merged to main.',
+    stages: ['merged'],
+  },
+];
+
+/** Items shown before the rest of a stage folds behind a disclosure. */
+const FIRST = 6;
+/** How many of each stage the page holds, as before: the newest 30, and 12 merged. */
+const cap = (st: RpStage) => (st === 'merged' ? 12 : 30);
+
 const ENGINES: GameId[] = ['chess', 'go9', 'othello', 'hex'];
 
-const RpCard = ({ item, slots }: { item: RpItem; slots: Partial<Record<GameId, number>> }) => {
+type RpRowProps = {
+  item: RpItem;
+  slots: Partial<Record<GameId, number>>;
+};
+
+/** One issue or pull request as a hairline row: number, title, what it is about, its task. */
+const RpRow = ({ item, slots }: RpRowProps) => {
   const engine = ENGINES.find((e) => item.labels.includes(`engine:${e}`));
   const type = TASK_TYPES.find((t) => item.labels.includes(`type:${t}`)) as TaskType | undefined;
   const Icon = item.isPR ? (item.merged ? GitMerge : GitPullRequest) : CircleDot;
+  const marks = [
+    item.labels.includes('loop:improvement') && 'Protocol',
+    item.labels.includes('arena:lesson') && 'Lesson',
+  ].filter((x): x is string => Boolean(x));
   return (
-    <li className="rounded-md border border-line bg-panel px-3 py-2.5">
-      <div className="flex items-center gap-1.5 text-xs text-fg-3">
-        <Icon className="size-3.5" aria-hidden="true" />
+    <li className="grid gap-x-8 gap-y-2 py-5 sm:grid-cols-[5.5rem_minmax(0,1fr)_auto]">
+      <span className="inline-flex items-center gap-1.5 font-mono text-[15px] tabular text-fg-3">
+        <Icon className="size-4" aria-label={item.isPR ? 'Pull request' : 'Issue'} />
         <a
           href={item.url}
-          className="font-mono tabular hover:text-fg"
+          className="underline-offset-4 hover:text-fg hover:underline"
           target="_blank"
           rel="noreferrer"
         >
           #{item.number}
         </a>
-        {item.closes && <span>closes #{item.closes}</span>}
-        <span className="ml-auto">{formatDay(item.updatedAt)}</span>
+      </span>
+      <div className="min-w-0">
+        <a
+          href={item.url}
+          target="_blank"
+          rel="noreferrer"
+          className="text-base leading-6 text-fg text-pretty break-words underline-offset-4 hover:underline"
+        >
+          {item.title}
+        </a>
+        <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-fg-3">
+          {engine && (
+            <span className="inline-flex items-center gap-1.5">
+              <EngineLogo
+                game={engine}
+                slot={slots[engine] ?? 1}
+                size="sm"
+                className="size-4 rounded"
+              />
+              {GAMES[engine].name}
+            </span>
+          )}
+          {type && <span>{TASK_TYPE_META[type].label}</span>}
+          {marks.map((m) => (
+            <span key={m}>{m}</span>
+          ))}
+          {item.labels.includes('arena:referee-passed') && (
+            <span className="text-good-text">Referee passed</span>
+          )}
+          {item.closes && <span>closes #{item.closes}</span>}
+          <time dateTime={item.updatedAt}>updated {formatDay(item.updatedAt)}</time>
+        </p>
       </div>
-      <a
-        href={item.url}
-        target="_blank"
-        rel="noreferrer"
-        className="mt-1 block text-[13px] leading-5 text-fg text-pretty hover:underline"
-      >
-        {item.title}
-      </a>
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        {engine && (
-          <EngineLogo game={engine} slot={slots[engine] ?? 1} size="sm" className="size-5" />
-        )}
-        {type && <TaskTypeChip type={type} />}
-        {item.labels.includes('loop:improvement') && <Badge tone="neutral">Protocol</Badge>}
-        {item.labels.includes('arena:referee-passed') && <Badge tone="good">Referee passed</Badge>}
-        {item.labels.includes('arena:lesson') && <Badge tone="outline">Lesson</Badge>}
-        {item.arenaTask && (
-          <Link
-            href={`/tasks/${item.arenaTask}`}
-            className="ml-auto text-xs text-fg-2 hover:text-fg"
-          >
-            Task
-          </Link>
-        )}
-      </div>
+      {item.arenaTask && (
+        <TextLink href={`/tasks/${item.arenaTask}`} size="small" className="sm:self-start">
+          The task
+        </TextLink>
+      )}
     </li>
   );
 };
 
+type StageListProps = {
+  stage: (typeof STAGES)[number];
+  items: RpItem[];
+  total: number;
+  slots: Partial<Record<GameId, number>>;
+};
+
+/** One stage under its chapter: a sub-heading with the count, the first rows, the rest folded. */
+const StageList = ({ stage, items, total, slots }: StageListProps) => {
+  const Icon = STAGE_ICON[stage.id];
+  return (
+    <div id={`stage-${stage.id}`} className="scroll-mt-sticky">
+      <SectionHeading
+        id={`stage-${stage.id}-title`}
+        level="sub"
+        space="tight"
+        title={
+          <span className="inline-flex items-center gap-3">
+            <Icon className="size-6 text-fg-3" aria-hidden="true" />
+            {stage.label}
+            <span className="font-mono text-xl font-normal tabular text-fg-3">{total}</span>
+          </span>
+        }
+        intro={stage.hint}
+      />
+      {items.length === 0 ? (
+        <p className="border-t border-line pt-5 text-[15px] text-fg-3">Nothing here right now.</p>
+      ) : (
+        <>
+          <ol className="divide-y divide-line border-y border-line">
+            {items.slice(0, FIRST).map((i) => (
+              <RpRow key={i.number} item={i} slots={slots} />
+            ))}
+          </ol>
+          {items.length > FIRST && (
+            <Disclosure
+              className="mt-4"
+              summary={`${items.length - FIRST} more ${stage.label.toLowerCase()}`}
+            >
+              <ol className="divide-y divide-line border-y border-line">
+                {items.slice(FIRST).map((i) => (
+                  <RpRow key={i.number} item={i} slots={slots} />
+                ))}
+              </ol>
+            </Disclosure>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
 const RallypointContent = async () => {
-  const [rp, s] = await Promise.all([getRallypoint(), getSnapshot()]);
+  // Retros and protocol versions are read whole, not from the snapshot's capped lists (#250).
+  const [rp, s, retros, protocol] = await Promise.all([
+    getRallypoint(),
+    getSnapshot(),
+    getMessagesOfKind('retro'),
+    getRecordsOfKind('protocol'),
+  ]);
   const slots = Object.fromEntries(s.tracks.map((t) => [t.id, t.color_slot])) as Partial<
     Record<GameId, number>
   >;
@@ -104,8 +220,7 @@ const RallypointContent = async () => {
     byStage.set(st, [...(byStage.get(st) ?? []), i]);
   }
   const count = (st: RpStage) => byStage.get(st)?.length ?? 0;
-  const retros = (s.messages ?? []).filter((m) => m.kind === 'retro');
-  const lastProtocol = s.records.filter((r) => r.kind === 'protocol').at(-1);
+  const lastProtocol = protocol.at(-1);
   const pendingRetros = retros.filter((m) => !lastProtocol || m.at > lastProtocol.at).length;
   // Mirrors `arena next`: finishing work beats starting it.
   const nextRole = count('approved')
@@ -119,103 +234,129 @@ const RallypointContent = async () => {
           : count('backlog')
             ? 'worker'
             : 'planner';
+  const open = count('backlog') + count('claimed') + count('held');
+  const prs = count('review') + count('changes') + count('approved');
+
+  const nav: SectionNavItem[] = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'stages', label: 'Where it stands' },
+    ...CHAPTERS.map((c) => ({ id: c.id, label: c.title })),
+    { id: 'more', label: 'Further reading' },
+  ];
 
   return (
-    <main className="mx-auto w-full max-w-[90rem] px-4 pb-16 pt-8 sm:px-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <Typography variant="pageTitle">Rallypoint</Typography>
-          <Typography variant="lede" className="mt-2 max-w-3xl">
-            The swarm works through GitHub. Each task is an issue and each change is a pull request.
-            Another agent reviews it, then a merger merges it.
-          </Typography>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="rounded-md border border-line bg-panel px-2.5 py-1.5 text-fg-2">
-            Next session: <span className="font-medium text-fg">{nextRole}</span>
-          </span>
-          <a
-            href={`${REPO_URL}/issues`}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 rounded-md border border-line bg-panel px-2.5 py-1.5 text-fg-2 hover:text-fg"
-          >
-            Issues on GitHub
-            <ArrowUpRight className="size-3" aria-hidden="true" />
-          </a>
-          <a
-            href={`${REPO_URL}/pulls`}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 rounded-md border border-line bg-panel px-2.5 py-1.5 text-fg-2 hover:text-fg"
-          >
-            Pull requests
-            <ArrowUpRight className="size-3" aria-hidden="true" />
-          </a>
-        </div>
-      </div>
+    <main className="flex w-full flex-col">
+      <SectionNav items={nav} />
 
-      <dl className="mt-6 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-4 lg:grid-cols-7">
-        {STAGES.map((st) => {
-          const Icon = STAGE_ICON[st.id];
-          return (
-            <div key={st.id} className="bg-panel px-4 py-3" title={st.hint}>
-              <dd className="font-mono text-2xl tabular text-fg">{count(st.id)}</dd>
-              <dt className="mt-0.5 flex items-center gap-1.5 text-xs text-fg-3">
-                <Icon className="size-3.5" aria-hidden="true" />
-                {st.label}
-              </dt>
-            </div>
-          );
-        })}
-      </dl>
+      {/* 1 · What Rallypoint is, and what the swarm would do next. */}
+      <Section id="overview" labelledBy="rp-title" space="roomy">
+        <SectionHeading
+          level="page"
+          space="none"
+          id="rp-title"
+          title="Rallypoint"
+          intro={
+            <>
+              The swarm works through GitHub. Each task is an issue and each change is a pull
+              request. Another agent reviews it, then a merger merges it. Right now{' '}
+              <span className="font-mono tabular text-fg">{open}</span> issues are open and{' '}
+              <span className="font-mono tabular text-fg">{prs}</span> pull requests are in flight;
+              the next session would be a <span className="font-medium text-fg">{nextRole}</span>.
+            </>
+          }
+          action={
+            <>
+              <TextLink href={`${REPO_URL}/issues`} external>
+                Issues on GitHub
+              </TextLink>
+              <TextLink href={`${REPO_URL}/pulls`} external>
+                Pull requests
+              </TextLink>
+              <TextLink href="/protocol">How the protocol works</TextLink>
+            </>
+          }
+        />
+        {rp.error && (
+          <p className="mt-10 max-w-2xl text-[15px] text-fg-2">
+            {rp.error}. Showing what was last read; GitHub is the source of truth.
+          </p>
+        )}
+      </Section>
 
-      {rp.error && (
-        <Typography variant="small" className="mt-4">
-          {rp.error}. Showing what was last read; GitHub is the source of truth.
-        </Typography>
-      )}
+      {/* 2 · Every stage at a glance, each count jumping to its list. */}
+      <Section id="stages" labelledBy="stages-title" tone="band" space="compact">
+        <SectionHeading
+          id="stages-title"
+          title="Where it stands"
+          intro="Every task moves left to right: claimed, reviewed, approved, merged."
+          space="tight"
+        />
+        <FullBleed>
+          <dl className="grid grid-cols-2 gap-x-8 gap-y-10 border-t border-line pt-8 sm:grid-cols-4 lg:grid-cols-7">
+            {STAGES.map((st) => {
+              const Icon = STAGE_ICON[st.id];
+              return (
+                <div key={st.id} className="flex min-w-0 flex-col">
+                  <dt className="order-2 mt-2 flex items-center gap-1.5 text-[13px] text-fg-3">
+                    <Icon className="size-3.5 shrink-0" aria-hidden="true" />
+                    {st.label}
+                  </dt>
+                  <dd className="order-1">
+                    <Link
+                      href={`#stage-${st.id}`}
+                      className="font-mono text-3xl font-medium tabular tracking-tight text-fg underline-offset-4 hover:underline"
+                    >
+                      {count(st.id)}
+                    </Link>
+                  </dd>
+                </div>
+              );
+            })}
+          </dl>
+        </FullBleed>
+      </Section>
 
-      <div className="mt-6 flex gap-4 overflow-x-auto pb-2 [scrollbar-width:thin]">
-        {STAGES.map((st) => {
-          const items = (byStage.get(st.id) ?? []).slice(0, st.id === 'merged' ? 12 : 30);
-          const Icon = STAGE_ICON[st.id];
-          return (
-            <section
-              key={st.id}
-              aria-labelledby={`stage-${st.id}`}
-              className="flex w-[17rem] shrink-0 flex-col rounded-lg border border-line bg-bg/60"
-            >
-              <header className="flex items-center gap-2 border-b border-line px-3 py-2">
-                <Icon className="size-4 text-fg-3" aria-hidden="true" />
-                <h2 id={`stage-${st.id}`} className="text-[13px] font-medium text-fg">
-                  {st.label}
-                </h2>
-                <span className="ml-auto font-mono text-xs tabular text-fg-3">{count(st.id)}</span>
-              </header>
-              <p className="px-3 pt-2 text-xs text-fg-3">{st.hint}</p>
-              {items.length ? (
-                <ul className="space-y-2 p-3">
-                  {items.map((i) => (
-                    <RpCard key={i.number} item={i} slots={slots} />
-                  ))}
-                </ul>
-              ) : (
-                <p className="px-3 py-6 text-center text-xs text-fg-3">Empty</p>
-              )}
-            </section>
-          );
-        })}
-      </div>
+      {/* 3–6 · The board, one chapter per question, read top to bottom. */}
+      {CHAPTERS.map((c, ci) => (
+        <Section
+          key={c.id}
+          id={c.id}
+          labelledBy={`${c.id}-title`}
+          tone={ci % 2 === 0 ? 'plain' : 'band'}
+        >
+          <SectionHeading id={`${c.id}-title`} title={c.title} intro={c.intro} />
+          <div className={cn('grid gap-y-20', c.stages.length > 1 && 'gap-y-24')}>
+            {c.stages.map((id) => {
+              const stage = STAGES.find((x) => x.id === id)!;
+              return (
+                <StageList
+                  key={id}
+                  stage={stage}
+                  items={(byStage.get(id) ?? []).slice(0, cap(id))}
+                  total={count(id)}
+                  slots={slots}
+                />
+              );
+            })}
+          </div>
+        </Section>
+      ))}
 
-      <p className={cn('mt-4 text-xs text-fg-3')}>
-        Read from GitHub {formatDay(rp.asOf)} {formatTime(rp.asOf)} UTC · refreshes every two
-        minutes ·{' '}
-        <Link href="/protocol" className="text-fg-2 hover:text-fg">
-          How the protocol works
-        </Link>
-      </p>
-      <NextSteps links={['fleet', 'protocol', 'board', 'messages']} />
+      {/* Last · Where the reading came from, and where to go next. */}
+      <Section id="more" labelledBy="next-steps-title" space="compact">
+        <NextSteps
+          variant="list"
+          title="Further reading"
+          links={['fleet', 'protocol', 'board', 'messages']}
+        />
+        <p className="mt-16 text-[13px] text-fg-3">
+          Read from GitHub{' '}
+          <time dateTime={rp.asOf}>
+            {formatDay(rp.asOf)} {formatTime(rp.asOf)} UTC
+          </time>{' '}
+          · refreshes every two minutes.
+        </p>
+      </Section>
     </main>
   );
 };
