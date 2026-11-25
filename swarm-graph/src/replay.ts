@@ -304,6 +304,30 @@ export const stepPlayhead = (p: SwarmPlayhead, total: number, dt: number) => {
  */
 export const parkedAtEnd = (p: SwarmPlayhead, total: number) => !p.playing && p.clock >= total;
 
+/**
+ * Where a seek to "after `index` events" puts the playhead. Seeking past the last event (the
+ * scrubber's End key) is the end of the schedule, `total`, not the last event's time: the end
+ * holds a beat after it, and only `total` parks the replay at its end card (#278).
+ */
+export const seekIndex = (plan: SwarmReplayPlan, index: number) => {
+  const i = Math.max(0, Math.min(index, plan.flows.length));
+  const clock = i >= plan.flows.length && i > 0 ? plan.total : i > 0 ? plan.times[i - 1] : -1;
+  return { index: i, clock };
+};
+
+/** Where a seek to a playback offset (ms) puts the playhead, clamped to the schedule. */
+export const seekOffset = (plan: SwarmReplayPlan, ms: number) => {
+  const clock = Math.max(-1, Math.min(ms, plan.total));
+  return { index: indexAtTime(plan, clock), clock };
+};
+
+/**
+ * The playback offset (ms) at a point on the timeline, `fraction` of its width: its right edge is
+ * the end of the schedule exactly, so dragging there reaches the end card (#278).
+ */
+export const offsetAtFraction = (plan: SwarmReplayPlan, fraction: number) =>
+  Math.max(0, Math.min(1, fraction)) * plan.total;
+
 /** What changed over the whole window, for the end card. */
 export type SwarmReplaySummary = {
   events: number;

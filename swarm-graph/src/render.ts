@@ -46,6 +46,8 @@ import {
   indexAtTime,
   parkedAtEnd,
   planReplay,
+  seekIndex,
+  seekOffset,
   sparksAt,
   stateAt,
   stepPlayhead,
@@ -2563,14 +2565,14 @@ export const createSwarmGraph = (
 
   const seek = (index: number) => {
     if (!run) return;
-    const i = Math.max(0, Math.min(index, run.plan.flows.length));
-    jump(i, i > 0 ? run.plan.times[i - 1] : -1);
+    const to = seekIndex(run.plan, index);
+    jump(to.index, to.clock);
   };
 
   const seekTime = (ms: number) => {
     if (!run) return;
-    const clock = Math.max(-1, Math.min(ms, run.plan.total));
-    jump(indexAtTime(run.plan, clock), clock);
+    const to = seekOffset(run.plan, ms);
+    jump(to.index, to.clock);
   };
 
   const replayClock = () => (run ? Math.max(0, run.clock) : null);

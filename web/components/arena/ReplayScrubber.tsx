@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { Pause, Play, RotateCcw, Radio, Vibrate, X } from 'lucide-react';
 import {
+  offsetAtFraction,
   type SwarmReplayMode,
   type SwarmReplayPlan,
   type SwarmReplayState,
@@ -146,10 +147,12 @@ const ReplayScrubber = ({
     const el = track.current;
     if (!el) return 0;
     const r = el.getBoundingClientRect();
-    return (Math.max(0, Math.min(1, (clientX - r.left) / r.width)) * total) | 0;
+    return offsetAtFraction(plan, (clientX - r.left) / r.width);
   };
 
   const snapped = (ms: number) => {
+    // The end stays the end: released there, the replay parks at its end card.
+    if (ms >= plan.total) return ms;
     const near = plan.milestones
       .map((i) => plan.times[i])
       .find((t) => Math.abs(t - ms) / total < SNAP);
