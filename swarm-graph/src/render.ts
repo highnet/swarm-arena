@@ -45,6 +45,7 @@ import {
   applyFlow,
   indexAtTime,
   planReplay,
+  presentAt,
   sparksAt,
   stateAt,
   type SwarmReplayPlan,
@@ -594,8 +595,12 @@ export const createSwarmGraph = (
     /** Effort changed since the nodes were last resized. */
     dirty: boolean;
     shownAt: number;
+    /** The agent and work nodes shown at the playhead (`presentAt`), as a key; `ALL` for all. */
+    shownKey: string;
   };
   let run: ReplayRun | null = null;
+  /** The host's latest graph; a replay shows the part of it present at the playhead. */
+  let source: SwarmGraph | null = null;
   /** The beam budget: live, replay and catch-up all draw from it (see `./beams`). */
   const beams = createBeamGate();
   type IntroRun = {
@@ -2270,6 +2275,47 @@ export const createSwarmGraph = (
   // ---- public API --------------------------------------------------------------------------
 
   const update = (next: SwarmGraph, updateOptions: SwarmUpdateOptions = {}) => {
+    source = next;
+    if (run) run.shownKey = presenceKey(run);
+    applyGraph(run ? replayView(next, run) : next, updateOptions);
+  };
+
+  /**
+   * The agent and work nodes present at a replay's playhead (#279): the replay opens with what
+   * was active at its window's start and the rest spawn and leave as they did. Sectors and the
+   * trunk always show. Without presence in the plan, everything shows.
+   */
+  const ALL = '*';
+  /** Open issues and pull requests: the live graph keeps them while open, with no lifetime. */
+  const lastingOf = (g: SwarmGraph | null) =>
+    new Set(
+      (g?.nodes ?? [])
+        .filter((n) => n.kind === 'work' && (n.phase === 'issue' || n.phase === 'pr'))
+        .map((n) => n.id),
+    );
+  const presentNow = (r: ReplayRun) => presentAt(r.plan, r.next, lastingOf(source));
+  const presenceKey = (r: ReplayRun) => {
+    const set = presentNow(r);
+    return set ? [...set].sort().join(' ') : ALL;
+  };
+  const replayView = (g: SwarmGraph, r: ReplayRun): SwarmGraph => {
+    const set = presentNow(r);
+    if (!set) return g;
+    const nodes = g.nodes.filter((n) => (n.kind !== 'agent' && n.kind !== 'work') || set.has(n.id));
+    const ids = new Set(nodes.map((n) => n.id));
+    const links = g.links.filter((l) => ids.has(l.source) && ids.has(l.target));
+    return { ...g, nodes, links };
+  };
+  /** Bring the nodes on screen in line with the playhead's presence, when it has changed. */
+  const followPresence = (r: ReplayRun) => {
+    if (!source) return;
+    const key = presenceKey(r);
+    if (key === r.shownKey) return;
+    r.shownKey = key;
+    applyGraph(replayView(source, r), { quiet: true });
+  };
+
+  const applyGraph = (next: SwarmGraph, updateOptions: SwarmUpdateOptions = {}) => {
     // A live refresh mid-intro lands the intro at once.
     finishIntro();
     const first = graph === null;
@@ -2439,13 +2485,16 @@ export const createSwarmGraph = (
     const due = indexAtTime(r.plan, r.clock);
     if (due > r.next) {
       const from = Math.max(r.next, due - FRAME_SPARKS);
-      for (let i = r.next; i < due; i++) {
+      const start = r.next;
+      // The nodes these events touch arrive first, so their sparks have somewhere to go.
+      r.next = due;
+      followPresence(r);
+      for (let i = start; i < due; i++) {
         const f = r.plan.flows[i];
         applyFlow(r.snap, f, r.plan.hubId);
         if (i >= from && sparksAt(r.plan, i)) fireFlow(f, 'replay', now);
         else if (i >= from) options.onFlow?.(f, 'replay');
       }
-      r.next = due;
       r.dirty = true;
     }
     // Hosts re-render on every state; the playhead itself glides on `replayClock()`.
@@ -2463,8 +2512,11 @@ export const createSwarmGraph = (
     }
   };
 
-  const stopReplay = () => {
+  const stopReplay = (restore = true) => {
+    const filtered = Boolean(run && run.shownKey !== ALL);
     run = null;
+    // Back to the whole graph: what the replay held back arrives as it would live.
+    if (restore && filtered && source) applyGraph(source, { quiet: true });
     if (replayOverride) {
       replayOverride = null;
       particles = [];
@@ -2479,12 +2531,13 @@ export const createSwarmGraph = (
   };
 
   const replay = (planOrDuration: SwarmReplayPlan | number = 30_000) => {
-    if (!graph) return;
+    const g = source ?? graph;
+    if (!g) return;
     finishIntro();
-    stopReplay();
+    stopReplay(false);
     const plan =
       typeof planOrDuration === 'number'
-        ? planReplay(graph.flows, graph.hubId, { mode: 'all', durationMs: planOrDuration })
+        ? planReplay(g.flows, g.hubId, { mode: 'all', durationMs: planOrDuration })
         : planOrDuration;
     if (!plan.flows.length) return;
     run = {
@@ -2498,7 +2551,10 @@ export const createSwarmGraph = (
       last: performance.now(),
       dirty: false,
       shownAt: 0,
+      shownKey: ALL,
     };
+    // Frame one: only what was active when the window opened (#279).
+    followPresence(run);
     particles = [];
     showSnapshot(run.snap);
     renderStatic();
@@ -2531,6 +2587,7 @@ export const createSwarmGraph = (
     r.clock = clock;
     r.done = false;
     r.snap = stateAt(r.plan.seed, r.plan.flows, i, r.plan.hubId);
+    followPresence(r);
     r.last = performance.now();
     r.dirty = false;
     r.shownAt = r.last;
@@ -2632,7 +2689,7 @@ export const createSwarmGraph = (
     update,
     anchor,
     replay,
-    stopReplay,
+    stopReplay: () => stopReplay(),
     setPlaying,
     setSpeed,
     seek,

@@ -1004,6 +1004,10 @@ const SwarmGraph = ({
       mode,
       durationMs: 60_000,
       isMilestone: replayMilestone,
+      // Frame one holds only what was active when the window opened, by the live graph's own
+      // lifetimes and liveness rule; the rest spawn at their first event in it (#279).
+      lifetimes: presetId === 'all' ? LIFETIMES.everything : LIFETIMES.live,
+      isLive: graphAgentIsLive,
     });
     if (!plan.flows.length) return;
     const q = tickerQueue.current;
