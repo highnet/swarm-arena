@@ -421,6 +421,50 @@ export const indexAtTime = (plan: SwarmReplayPlan, ms: number) => {
   return lo;
 };
 
+/** The playhead of a running replay: its offset (ms) on the plan's schedule, and how it moves. */
+export type SwarmPlayhead = { clock: number; playing: boolean; speed: number };
+
+/**
+ * One frame of playback: the playhead after `dt` ms of wall time, and whether it played to the
+ * end of the schedule (`total`). A replay that plays to its end is over: the host goes back to
+ * live (#278). A paused playhead never moves and never ends, even parked at the end by a seek.
+ */
+export const stepPlayhead = (p: SwarmPlayhead, total: number, dt: number) => {
+  if (!p.playing) return { clock: p.clock, ended: false };
+  const clock = Math.min(total, p.clock + dt * p.speed);
+  return { clock, ended: clock >= total };
+};
+
+/**
+ * A playhead the viewer left at the end by hand (paused, then seeked there) holds the end card
+ * instead of going live: they are looking at it. Playing from there starts the window over.
+ */
+export const parkedAtEnd = (p: SwarmPlayhead, total: number) => !p.playing && p.clock >= total;
+
+/**
+ * Where a seek to "after `index` events" puts the playhead. Seeking past the last event (the
+ * scrubber's End key) is the end of the schedule, `total`, not the last event's time: the end
+ * holds a beat after it, and only `total` parks the replay at its end card (#278).
+ */
+export const seekIndex = (plan: SwarmReplayPlan, index: number) => {
+  const i = Math.max(0, Math.min(index, plan.flows.length));
+  const clock = i >= plan.flows.length && i > 0 ? plan.total : i > 0 ? plan.times[i - 1] : -1;
+  return { index: i, clock };
+};
+
+/** Where a seek to a playback offset (ms) puts the playhead, clamped to the schedule. */
+export const seekOffset = (plan: SwarmReplayPlan, ms: number) => {
+  const clock = Math.max(-1, Math.min(ms, plan.total));
+  return { index: indexAtTime(plan, clock), clock };
+};
+
+/**
+ * The playback offset (ms) at a point on the timeline, `fraction` of its width: its right edge is
+ * the end of the schedule exactly, so dragging there reaches the end card (#278).
+ */
+export const offsetAtFraction = (plan: SwarmReplayPlan, fraction: number) =>
+  Math.max(0, Math.min(1, fraction)) * plan.total;
+
 /** What changed over the whole window, for the end card. */
 export type SwarmReplaySummary = {
   events: number;

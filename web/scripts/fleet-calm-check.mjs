@@ -171,14 +171,30 @@ await scenario(
   { hold: 10_000 },
 );
 const replay = page.locator('button[title^="Play back the last 24"]');
-if (await replay.count())
+/** After the replay plays to its end, the page is live again on its own (#278). */
+const liveChecks = [];
+if (await replay.count()) {
   // A primary scenario (#221): the whole replay, start to end (the site plays it over 60 s),
-  // then back to live.
-  await scenario('the 24 h replay, start to end', async () => {
+  // and the hand-back to live it makes by itself (#278): nothing pressed.
+  await scenario('the 24 h replay, start to end, back to live', async () => {
     await replay.first().click();
-    await page.waitForTimeout(63_000);
-    await page.keyboard.press('Escape');
+    await page.waitForSelector('[data-slot="replay-scrubber"]', { timeout: 5000 });
+    await page.waitForSelector('[data-slot="replay-scrubber"]', {
+      state: 'detached',
+      timeout: 75_000,
+    });
   });
+  const note = await page.textContent('[data-slot="swarm-live-note"]');
+  liveChecks.push(
+    [
+      'a replay played to its end goes back to live',
+      (await page.locator('[data-slot="replay-scrubber"]').count()) === 0 &&
+        (await replay.first().isVisible()),
+      'scrubber gone, "Replay last 24 h" back',
+    ],
+    ['it says so once, politely', note === 'Replay finished. Back to live.', JSON.stringify(note)],
+  );
+}
 await scenario('a minute of live Realtime and prune ticks', async () => {}, { hold: 60_000 });
 
 const frames = await page.evaluate(() => window.__calm);
@@ -264,7 +280,7 @@ for (const m of marks) {
       (pass ? '' : ` (${[who, oWho].filter(Boolean).join(', ')})`),
   );
 }
-for (const [name, pass, value] of sizeChecks) {
+for (const [name, pass, value] of [...sizeChecks, ...liveChecks]) {
   ok &&= pass;
   console.log(`${pass ? 'ok  ' : 'FAIL'} ${name}: ${value}`);
 }
