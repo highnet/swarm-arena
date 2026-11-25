@@ -48,6 +48,7 @@ const context = await browser.newContext({
 const page = await context.newPage();
 const errors = [];
 page.on('pageerror', (e) => errors.push(String(e)));
+page.on('crash', () => console.log('FAIL the page crashed (renderer)'));
 await page.goto(url, { waitUntil: 'networkidle', timeout: 60_000 });
 await page.waitForSelector('g.sg-node', { timeout: 30_000 });
 await page.waitForTimeout(9000); // the intro, and the layout settling after it
@@ -264,7 +265,11 @@ if (await replay.count())
   });
 await scenario('a minute of live Realtime and prune ticks', async () => {}, { hold: 60_000 });
 
-const frames = await page.evaluate(() => window.__calm);
+// In slices: a long run's frame log is too big to hand over in one piece on a phone-sized page.
+const frames = [];
+const count = await page.evaluate(() => window.__calm.length);
+for (let i = 0; i < count; i += 1500)
+  frames.push(...(await page.evaluate((from) => window.__calm.slice(from, from + 1500), i)));
 const tasks = await page.evaluate(() => window.__tasks);
 const labelSamples = await page.evaluate(() => window.__labels);
 const layouts = await page.evaluate(() =>
