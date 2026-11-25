@@ -66,6 +66,15 @@ jobs:
           curl -fs -o /dev/null http://localhost:3000/ || (npx next start -p 3000 >> ../next-start.log 2>&1 &)
           for i in $(seq 1 60); do curl -fs -o /dev/null http://localhost:3000/ && break; sleep 1; done
           node scripts/overflow-check.mjs http://localhost:3000
+      - name: Real 404s for unknown ids on detail routes
+        # Gates (#268): every detail route answers 404 for an id that names nothing, before its
+        # shell streams. CI builds without Supabase, so there are no known games or seats to try:
+        # the known-id 200s are checked against a build with data (see the script).
+        working-directory: web
+        run: |
+          curl -fs -o /dev/null http://localhost:3000/ || (npx next start -p 3000 >> ../next-start.log 2>&1 &)
+          for i in $(seq 1 60); do curl -fs -o /dev/null http://localhost:3000/ && break; sleep 1; done
+          node scripts/not-found-check.mjs http://localhost:3000 --allow-missing-known
       - name: Keep the detect report
         if: always()
         uses: actions/upload-artifact@v4
