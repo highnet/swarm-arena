@@ -1,5 +1,5 @@
 import type { MetadataRoute } from 'next';
-import { getSnapshot } from '@/lib/data';
+import { getGameIndex, getSnapshot } from '@/lib/data';
 import { snapshotNow } from '@/lib/derive';
 import { SITE_URL } from '@/lib/site';
 import {
@@ -17,7 +17,12 @@ import { TRACK_ORDER } from '@/lib/tracks';
 
 /** Every public page, and every item's own page: records, versions, ideas, tasks, matches, games, messages, concepts, rungs. */
 const sitemap = async (): Promise<MetadataRoute.Sitemap> => {
-  const [s, concepts, news] = await Promise.all([getSnapshot(), getConcepts(), getNews()]);
+  const [s, games, concepts, news] = await Promise.all([
+    getSnapshot(),
+    getGameIndex(),
+    getConcepts(),
+    getNews(),
+  ]);
   const now = snapshotNow(s);
   const page = (
     path: string,
@@ -62,7 +67,7 @@ const sitemap = async (): Promise<MetadataRoute.Sitemap> => {
       .map((m) => item(matchHref(m.id), m.finished_at!, 0.4)),
     ...s.records.map((r) => item(recordHref(r), r.at, r.kind === 'patch_landed' ? 0.5 : 0.3)),
     ...s.tasks.map((t) => item(taskHref(t.id), t.closed_at ?? t.created_at, 0.4)),
-    ...s.games.map((g) => item(gameHref(g.id), g.finished_at, 0.2)),
+    ...games.map((g) => item(gameHref(g.id), g.finished_at, 0.2)),
     ...(s.messages ?? []).filter((m) => !m.reply_to).map((m) => item(messageHref(m.id), m.at, 0.2)),
     ...s.rungs.map((r) => item(rungHref(r), r.cleared_at ?? now, 0.3)),
     ...[

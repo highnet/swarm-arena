@@ -1,4 +1,4 @@
-import type { GameId } from './games/types';
+import type { GameId } from "./games/types";
 
 /**
  * Row shapes shared by the Supabase schema (supabase/migrations), the harness that writes
@@ -34,7 +34,7 @@ export type Rung = {
   cleared_by_match: string | null;
 };
 
-export type AgentStatus = 'working' | 'idle' | 'stopped';
+export type AgentStatus = "working" | "idle" | "stopped";
 
 export type Agent = {
   id: string;
@@ -43,15 +43,15 @@ export type Agent = {
   seat: string;
   track_id: GameId | null;
   role:
-    | 'strategist'
-    | 'builder'
-    | 'tester'
-    | 'referee'
-    | 'worker'
-    | 'reviewer'
-    | 'merger'
-    | 'improver'
-    | 'planner';
+    | "strategist"
+    | "builder"
+    | "tester"
+    | "referee"
+    | "worker"
+    | "reviewer"
+    | "merger"
+    | "improver"
+    | "planner";
   status: AgentStatus;
   last_seen: string;
   sessions: number;
@@ -65,21 +65,22 @@ export type Agent = {
   started_at?: string | null;
 };
 
-export type RallypointRole = 'worker' | 'reviewer' | 'merger' | 'fixer' | 'improver' | 'planner';
+export type RallypointRole =
+  "worker" | "reviewer" | "merger" | "fixer" | "improver" | "planner";
 
-export type TaskStatus = 'open' | 'claimed' | 'review' | 'landed' | 'dead';
+export type TaskStatus = "open" | "claimed" | "review" | "landed" | "dead";
 
 export const TASK_TYPES = [
-  'foundation',
-  'search',
-  'evaluation',
-  'playout',
-  'time',
-  'speed',
-  'tuning',
-  'novel',
-  'fix',
-  'experiment',
+  "foundation",
+  "search",
+  "evaluation",
+  "playout",
+  "time",
+  "speed",
+  "tuning",
+  "novel",
+  "fix",
+  "experiment",
 ] as const;
 export type TaskType = (typeof TASK_TYPES)[number];
 
@@ -107,16 +108,16 @@ export type Task = {
 };
 
 export type RecordKind =
-  | 'strategy'
-  | 'task_opened'
-  | 'task_claimed'
-  | 'progress'
-  | 'patch_landed'
-  | 'patch_rejected'
-  | 'match_verdict'
-  | 'rung_cleared'
-  | 'idea_dead'
-  | 'protocol';
+  | "strategy"
+  | "task_opened"
+  | "task_claimed"
+  | "progress"
+  | "patch_landed"
+  | "patch_rejected"
+  | "match_verdict"
+  | "rung_cleared"
+  | "idea_dead"
+  | "protocol";
 
 /** One structured line on the board. Never a chat transcript. */
 export type BoardRecord = {
@@ -135,20 +136,23 @@ export type BoardRecord = {
 };
 
 export type MessageKind =
-  | 'note'
-  | 'question'
-  | 'proposal'
-  | 'answer'
-  | 'handoff'
-  | 'retro'
-  | 'comment'
-  | 'decision';
+  | "note"
+  | "question"
+  | "proposal"
+  | "answer"
+  | "handoff"
+  | "retro"
+  | "comment"
+  | "decision";
 
 /** A thread is open until someone resolves it (answered, decided) or closes it (moot). */
-export type MessageStatus = 'open' | 'resolved' | 'closed';
+export type MessageStatus = "open" | "resolved" | "closed";
 
 /** What a message points at: another board message, or a GitHub issue / pull request. */
-export type MessageRef = { kind: 'message' | 'pr' | 'issue' | 'github'; n: number };
+export type MessageRef = {
+  kind: "message" | "pr" | "issue" | "github";
+  n: number;
+};
 
 /**
  * The agent discussion board: what agents say to each other, in their own words.
@@ -180,7 +184,7 @@ export type Match = {
   engine_version: string;
   opponent: string;
   opponent_elo: number;
-  purpose: 'gate' | 'ladder' | 'calibration';
+  purpose: "gate" | "ladder" | "calibration";
   wins: number;
   draws: number;
   losses: number;
@@ -238,7 +242,8 @@ export const newestLiveGames = (
     const updated = Date.parse(r.updated_at);
     if (!(nowMs - updated <= staleMs)) continue;
     const seen = out[r.track_id];
-    if (!seen || Date.parse(r.started_at) > Date.parse(seen.started_at)) out[r.track_id] = r;
+    if (!seen || Date.parse(r.started_at) > Date.parse(seen.started_at))
+      out[r.track_id] = r;
   }
   return out;
 };
@@ -261,7 +266,10 @@ export type Snapshot = {
   tasks: Task[];
   records: BoardRecord[];
   matches: Match[];
+  /** Each engine's newest games only, bounded (the site's `SNAPSHOT_GAMES_PER_ENGINE`): never count it. */
   games: GameRow[];
+  /** Games played per engine, counted exactly by the database, unfinished matches included. */
+  gameCounts?: Partial<Record<GameId, number>>;
   elo: EloPoint[];
   messages?: Message[];
   /** When this snapshot was read; the clock runs to here while the board is quiet. */

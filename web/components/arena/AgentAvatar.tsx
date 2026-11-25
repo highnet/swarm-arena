@@ -103,9 +103,7 @@ const AgentTag = ({ id, seat, size = 20, className }: AgentTagProps) => (
   <span className={cn('inline-flex min-w-0 items-center gap-1.5', className)}>
     <AgentAvatar id={id} size={size} />
     <span className="truncate text-fg">{agentName(id)}</span>
-    {seat && seat !== id && (
-      <span className="truncate font-mono text-[11px] text-fg-3">{seat}</span>
-    )}
+    {seat && seat !== id && <span className="truncate font-mono text-xs text-fg-3">{seat}</span>}
   </span>
 );
 

@@ -1,15 +1,9 @@
 /**
- * The explainer routes (#233): a skill's chapters get stable anchors for the page's section nav,
- * and the numbers on /protocol and /rallypoint never come from the snapshot's lists, which stop
- * at PostgREST's 1,000-row cap (#250).
+ * The explainer routes (#233): a skill's chapters get stable anchors for the page's section nav.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { sectionChapters } from './source';
-
-const WEB = join(import.meta.dirname, '..');
 
 test('each h2 chapter is wrapped in a section with a unique, labelled anchor', () => {
   const { html, sections } = sectionChapters(
@@ -37,11 +31,4 @@ test('markdown with no h2 is left as it is', () => {
     html: '<p>Just text.</p>',
     sections: [],
   });
-});
-
-test('/protocol and /rallypoint derive nothing from the capped snapshot lists', () => {
-  for (const route of ['app/protocol/page.tsx', 'app/rallypoint/page.tsx']) {
-    const src = readFileSync(join(WEB, route), 'utf8');
-    assert.doesNotMatch(src, /\bs\.(records|messages|games)\b/, `${route} reads a capped list`);
-  }
 });

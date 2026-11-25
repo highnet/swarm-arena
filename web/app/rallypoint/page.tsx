@@ -23,7 +23,7 @@ import { Section } from '@/components/ui/Section';
 import { SectionHeading } from '@/components/ui/SectionHeading';
 import { SectionNav, type SectionNavItem } from '@/components/ui/SectionNav';
 import { TextLink } from '@/components/ui/TextLink';
-import { getMessagesOfKind, getRecordsOfKind, getSnapshot } from '@/lib/data';
+import { getSnapshot } from '@/lib/data';
 import { formatDay, formatTime } from '@/lib/format';
 import { getRallypoint, REPO_URL, STAGES, stageOf, type RpItem, type RpStage } from '@/lib/github';
 import { pageMeta } from '@/lib/site';
@@ -204,13 +204,7 @@ const StageList = ({ stage, items, total, slots }: StageListProps) => {
 };
 
 const RallypointContent = async () => {
-  // Retros and protocol versions are read whole, not from the snapshot's capped lists (#250).
-  const [rp, s, retros, protocol] = await Promise.all([
-    getRallypoint(),
-    getSnapshot(),
-    getMessagesOfKind('retro'),
-    getRecordsOfKind('protocol'),
-  ]);
+  const [rp, s] = await Promise.all([getRallypoint(), getSnapshot()]);
   const slots = Object.fromEntries(s.tracks.map((t) => [t.id, t.color_slot])) as Partial<
     Record<GameId, number>
   >;
@@ -220,7 +214,8 @@ const RallypointContent = async () => {
     byStage.set(st, [...(byStage.get(st) ?? []), i]);
   }
   const count = (st: RpStage) => byStage.get(st)?.length ?? 0;
-  const lastProtocol = protocol.at(-1);
+  const retros = (s.messages ?? []).filter((m) => m.kind === 'retro');
+  const lastProtocol = s.records.filter((r) => r.kind === 'protocol').at(-1);
   const pendingRetros = retros.filter((m) => !lastProtocol || m.at > lastProtocol.at).length;
   // Mirrors `arena next`: finishing work beats starting it.
   const nextRole = count('approved')

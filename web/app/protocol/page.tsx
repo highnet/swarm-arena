@@ -14,7 +14,7 @@ import { SectionHeading } from '@/components/ui/SectionHeading';
 import { SectionNav, type SectionNavItem } from '@/components/ui/SectionNav';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { TextLink } from '@/components/ui/TextLink';
-import { countRecordsOfKind, getMessagesOfKind, getRecordsOfKind, getSnapshot } from '@/lib/data';
+import { getSnapshot } from '@/lib/data';
 import { formatDay, formatTime } from '@/lib/format';
 import { messageHref, recordHref } from '@/lib/routes';
 import { getRallypoint, REPO, stageOf } from '@/lib/github';
@@ -174,23 +174,23 @@ const VersionRows = ({ versions }: VersionRowsProps) => (
 
 /** The live chapters: roles with what waits for each, the numbers, and how the protocol changed. */
 const ProtocolData = async () => {
-  // Every number here is read whole, never from the snapshot's 1,000-row lists (#250).
-  const [s, rp, protocol, claims, progress, allRetros] = await Promise.all([
-    getSnapshot(),
-    getRallypoint(),
-    getRecordsOfKind('protocol'),
-    getRecordsOfKind('task_claimed'),
-    countRecordsOfKind('progress'),
-    getMessagesOfKind('retro'),
-  ]);
+  const [s, rp] = await Promise.all([getSnapshot(), getRallypoint()]);
   const seats = Object.fromEntries(s.agents.map((a) => [a.id, a.seat]));
-  const versions = [...protocol].sort((a, b) => b.at.localeCompare(a.at));
+  const versions = s.records
+    .filter((r) => r.kind === 'protocol')
+    .sort((a, b) => b.at.localeCompare(a.at));
   const lastAt = versions[0]?.at;
-  const retros = [...allRetros].sort((a, b) => b.at.localeCompare(a.at));
+  const retros = (s.messages ?? [])
+    .filter((m) => m.kind === 'retro')
+    .sort((a, b) => b.at.localeCompare(a.at));
   const pending = retros.filter((m) => !lastAt || m.at > lastAt);
-  const claimedAt = new Map(claims.map((r) => [r.task_id, r.at]));
+  const claimedAt = new Map(
+    s.records.filter((r) => r.kind === 'task_claimed').map((r) => [r.task_id, r.at]),
+  );
   const m = metrics(s.tasks, claimedAt);
-  const progressPerTask = s.tasks.length ? (progress / s.tasks.length).toFixed(1) : '0';
+  const progressPerTask = s.tasks.length
+    ? (s.records.filter((r) => r.kind === 'progress').length / s.tasks.length).toFixed(1)
+    : '0';
   const stages = rp.items.map(stageOf);
   const live: Record<string, number> = {
     Merger: stages.filter((x) => x === 'approved').length,
