@@ -54,6 +54,7 @@ await page.waitForTimeout(9000); // the intro, and the layout settling after it
 
 await page.evaluate(() => {
   window.__calm = [];
+  window.__labels = [];
   window.__tasks = [];
   try {
     new PerformanceObserver((list) => {
@@ -84,6 +85,49 @@ await page.evaluate(() => {
       ];
     }
     window.__calm.push({ t: performance.now(), pos });
+    // Labels (#241, #272), every 6th frame: no shown label on another label, or on a node other
+    // than its own (its body, ring and icon: the circle round its bounding box).
+    if (window.__calm.length % 6 === 0) {
+      const texts = [...document.querySelectorAll('text.sg-label, text.sg-sub')]
+        .filter((t) => t.textContent && t.getAttribute('display') !== 'none')
+        .map((t) => ({ t, id: t.__data__?.id, b: t.getBoundingClientRect() }))
+        .filter((x) => x.b.width > 0 && Number(getComputedStyle(x.t).opacity) > 0.05);
+      // A node still fading in (or out) is not yet an obstacle the placer can see.
+      const nodes = [...document.querySelectorAll('g.sg-node')]
+        .filter((g) => Number(g.style.opacity === '' ? 1 : g.style.opacity) > 0.5)
+        .map((g) => ({
+          id: g.__data__?.id,
+          b: g.querySelector('path.sg-body')?.getBoundingClientRect(),
+        }))
+        .filter((x) => x.b?.width > 0);
+      const clashes = [];
+      const m = 1; // a glyph box's line-height padding
+      for (let i = 0; i < texts.length; i++) {
+        const a = texts[i].b;
+        for (let j = i + 1; j < texts.length; j++) {
+          const b = texts[j].b;
+          if (
+            texts[i].id !== texts[j].id &&
+            a.left + m < b.right &&
+            b.left + m < a.right &&
+            a.top + m < b.bottom &&
+            b.top + m < a.bottom
+          )
+            clashes.push(`"${texts[i].t.textContent}" × "${texts[j].t.textContent}"`);
+        }
+        for (const o of nodes) {
+          if (o.id === texts[i].id) continue;
+          const cx = (o.b.left + o.b.right) / 2;
+          const cy = (o.b.top + o.b.bottom) / 2;
+          const r = Math.max(o.b.width, o.b.height) / 2;
+          const nx = Math.max(a.left + m, Math.min(cx, a.right - m));
+          const ny = Math.max(a.top + m, Math.min(cy, a.bottom - m));
+          if (Math.hypot(cx - nx, cy - ny) < r)
+            clashes.push(`"${texts[i].t.textContent}" on ${o.id}`);
+        }
+      }
+      window.__labels.push({ t: performance.now(), clashes });
+    }
     requestAnimationFrame(step);
   };
   requestAnimationFrame(step);
@@ -222,6 +266,7 @@ await scenario('a minute of live Realtime and prune ticks', async () => {}, { ho
 
 const frames = await page.evaluate(() => window.__calm);
 const tasks = await page.evaluate(() => window.__tasks);
+const labelSamples = await page.evaluate(() => window.__labels);
 const layouts = await page.evaluate(() =>
   performance
     .getEntriesByName('swarm-graph layout')
@@ -277,7 +322,15 @@ for (const m of marks) {
     0,
     ...tasks.filter((t) => t.end >= m.acted && t.t <= m.end).map((t) => t.ms),
   );
+  // Label clashes seen in this scenario, once the moves it set off are over (a label rides on its
+  // moving node, and is re-placed each frame, so it may brush another for a frame in flight).
+  const clashes = new Set(
+    labelSamples
+      .filter((f) => f.t >= m.acted + MAX_SETTLE_MS && f.t <= m.end)
+      .flatMap((f) => f.clashes),
+  );
   const pass =
+    clashes.size === 0 &&
     overshoot <= MAX_OVERSHOOT &&
     settleMs <= MAX_SETTLE_MS &&
     (m.refit || still < MAX_STILL) &&
@@ -292,6 +345,7 @@ for (const m of marks) {
     perFrame,
     layout,
     task,
+    labelClashes: [...clashes],
     pass,
   });
   console.log(
@@ -300,7 +354,8 @@ for (const m of marks) {
       `overshoot ${overshoot.toFixed(1)} px, time-to-stable ${Math.round(settleMs)} ms, ` +
       `peak ${perFrame.toFixed(1)} px/frame, longest layout ${layout.toFixed(1)} ms ` +
       `(any task ${Math.round(task)} ms)` +
-      (pass ? '' : ` (${[who, oWho].filter(Boolean).join(', ')})`),
+      `, label clashes ${clashes.size}` +
+      (pass ? '' : ` (${[who, oWho, ...[...clashes].slice(0, 4)].filter(Boolean).join(', ')})`),
   );
 }
 for (const [name, pass, value] of sizeChecks) {
