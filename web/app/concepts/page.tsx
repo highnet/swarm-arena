@@ -176,7 +176,7 @@ const ConceptsContent = async () => {
                     Concept
                   </th>
                   {TRACK_ORDER.map((g) => (
-                    <th key={g} scope="col" className="px-3 py-3 font-normal">
+                    <th key={g} scope="col" className="px-3 py-3 font-normal whitespace-nowrap">
                       <span className="inline-flex items-center gap-1.5">
                         <EngineLogo
                           game={g}

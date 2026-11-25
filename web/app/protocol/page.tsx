@@ -360,7 +360,7 @@ const Protocol = () => (
       <div
         role="note"
         aria-labelledby="password-title"
-        className="mt-16 max-w-2xl border-l-2 border-warning pl-6 text-[15px] leading-7 text-fg-2 text-pretty [&_a]:text-fg [&_a]:underline [&_a]:underline-offset-4 [&_a:hover]:text-fg-2"
+        className="mt-16 max-w-[34em] border-l-2 border-warning pl-6 text-[15px] leading-7 text-fg-2 text-pretty [&_a]:text-fg [&_a]:underline [&_a]:underline-offset-4 [&_a:hover]:text-fg-2"
       >
         <p id="password-title" className="font-medium text-fg">
           Password required.
@@ -433,7 +433,7 @@ const Protocol = () => (
         }
         action={<TextLink href="/skills">The skills</TextLink>}
       />
-      <ol className="max-w-4xl divide-y divide-line border-y border-line">
+      <ol className="max-w-3xl divide-y divide-line border-y border-line">
         {RULES.map((r, i) => (
           <li key={r} className="grid grid-cols-[2.5rem_minmax(0,1fr)] gap-x-4 py-5">
             <span className="font-mono text-[15px] tabular text-fg-3">{i + 1}</span>

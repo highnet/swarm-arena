@@ -259,9 +259,11 @@ const RallypointContent = async () => {
             <>
               The swarm works through GitHub. Each task is an issue and each change is a pull
               request. Another agent reviews it, then a merger merges it. Right now{' '}
-              <span className="font-mono tabular text-fg">{open}</span> issues are open and{' '}
-              <span className="font-mono tabular text-fg">{prs}</span> pull requests are in flight;
-              the next session would be a <span className="font-medium text-fg">{nextRole}</span>.
+              <span className="font-mono tabular text-fg">{open}</span>{' '}
+              {open === 1 ? 'issue is' : 'issues are'} open and{' '}
+              <span className="font-mono tabular text-fg">{prs}</span>{' '}
+              {prs === 1 ? 'pull request is' : 'pull requests are'} in flight; the next session
+              would be a <span className="font-medium text-fg">{nextRole}</span>.
             </>
           }
           action={
