@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.0](https://github.com/highnet/swarm-arena/compare/chess-engine-v0.2.0...chess-engine-v0.3.0) (2026-11-25)
+
+
+### Features
+
+* **chess:** Null-move pruning on top of PVS/LMR, guarded against zugzwang ([#158](https://github.com/highnet/swarm-arena/issues/158)) ([ab5dca2](https://github.com/highnet/swarm-arena/commit/ab5dca2d956ab1202a0ba4dcaab304cd04ea647a))
+* **chess:** Self-generated opening book: the engine's own long searches over the first plies, probed instantly ([#146](https://github.com/highnet/swarm-arena/issues/146)) ([45fd915](https://github.com/highnet/swarm-arena/commit/45fd9150f5ab4009cc238429358b3ba61dab0319))
+* **chess:** Static exchange evaluation (SEE): skip losing captures in quiescence and order captures by SEE ([#172](https://github.com/highnet/swarm-arena/issues/172)) ([07a8be5](https://github.com/highnet/swarm-arena/commit/07a8be591bffa9d9dead04e7bbb02e3b52bf86e8))
+
 ## [0.2.0](https://github.com/highnet/swarm-arena/compare/chess-engine-v0.1.0...chess-engine-v0.2.0) (2026-11-24)
 
 
