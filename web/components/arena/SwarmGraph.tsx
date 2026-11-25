@@ -1178,7 +1178,9 @@ const SwarmGraph = ({
             >
               <History className="size-3.5" aria-hidden="true" />
               {/* Shorter on a phone, so the toolbar stays one row (#272). */}
-              Replay <span className="max-sm:hidden">last</span> 24 h
+              <span>
+                Replay<span className="max-sm:hidden"> last</span> 24 h
+              </span>
             </Button>
           )}
           <Button
