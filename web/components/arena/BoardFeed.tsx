@@ -66,7 +66,7 @@ const RecordRow = ({ record, fresh, slot, seat }: RecordRowProps) => {
           </Typography>
         </Link>
         {record.detail && (
-          <Typography variant="meta" as="p" className="mt-0.5 max-w-prose text-pretty">
+          <Typography variant="meta" as="p" className="mt-0.5 max-w-[34em] text-pretty">
             {record.detail}
           </Typography>
         )}

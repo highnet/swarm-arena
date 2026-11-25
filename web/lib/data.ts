@@ -8,7 +8,9 @@ import {
   type GameId,
   type GameRow,
   type LiveGameRow,
+  type BoardRecord,
   type Message,
+  type RecordKind,
   type Snapshot,
 } from '@arena/shared';
 import { getSupabase, supabaseConfigured } from './supabase';
@@ -149,6 +151,101 @@ export const getSnapshot = async (): Promise<Snapshot> => {
     if (live) return live;
   }
   return notStarted();
+};
+
+/** Every kind of board record, so the board can count each one exactly. */
+const RECORD_KINDS: RecordKind[] = [
+  'strategy',
+  'task_opened',
+  'task_claimed',
+  'progress',
+  'patch_landed',
+  'patch_rejected',
+  'match_verdict',
+  'rung_cleared',
+  'idea_dead',
+  'protocol',
+];
+
+export type RecordTotals = {
+  /** Records in the run, counted exactly (the snapshot's list stops at PostgREST's row cap). */
+  total: number;
+  byKind: Record<RecordKind, number>;
+  /** When the run's first record was written, or null before any. */
+  since: string | null;
+};
+
+/**
+ * Exact record counts for the run, per kind, and its earliest record. Counted by the database
+ * (`head`, `count: 'exact'`), never from the snapshot's capped list. Live like the snapshot, so the
+ * same short memory cache (#222): never a prerender, no tag, nothing a browser can expire.
+ */
+export const getRecordTotals = async (): Promise<RecordTotals> => {
+  'use cache';
+  cacheLife({ stale: 0, revalidate: 2, expire: 15 });
+  const byKind = Object.fromEntries(RECORD_KINDS.map((k) => [k, 0])) as Record<RecordKind, number>;
+  const empty: RecordTotals = { total: 0, byKind, since: null };
+  if (!supabaseConfigured()) return empty;
+  const s = await getSnapshot();
+  const db = getSupabase();
+  const counted = await Promise.all(
+    RECORD_KINDS.map(async (kind) => {
+      const { count, error } = await db
+        .from('records')
+        .select('id', { count: 'exact', head: true })
+        .eq('run_id', s.run.id)
+        .eq('kind', kind);
+      if (error) throw new Error(`records count: ${error.message}`);
+      return [kind, count ?? 0] as const;
+    }),
+  ).catch((e) => {
+    console.error('record totals failed', e);
+    return null;
+  });
+  if (!counted) return empty;
+  for (const [kind, n] of counted) byKind[kind] = n;
+  const { data: first } = await db
+    .from('records')
+    .select('at')
+    .eq('run_id', s.run.id)
+    .order('at', { ascending: true })
+    .limit(1);
+  return {
+    total: counted.reduce((sum, [, n]) => sum + n, 0),
+    byKind,
+    since: (first?.[0]?.at as string | undefined) ?? null,
+  };
+};
+
+/**
+ * Every record of one task, oldest first, paged past PostgREST's row cap. Cached per task under
+ * its own tag (`task:<id>`), briefly: a task still being worked gains records. Nothing expires it
+ * on demand (#222).
+ */
+export const getTaskRecords = async (taskId: string): Promise<BoardRecord[]> => {
+  'use cache';
+  cacheTag(`task:${taskId}`);
+  cacheLife({ stale: 0, revalidate: 2, expire: 15 });
+  if (!supabaseConfigured()) return [];
+  const db = getSupabase();
+  const page = 1000;
+  const out: BoardRecord[] = [];
+  for (let from = 0; ; from += page) {
+    const { data, error } = await db
+      .from('records')
+      .select('*')
+      .eq('task_id', taskId)
+      .order('at', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, from + page - 1);
+    if (error) {
+      console.error('task records failed', error.message);
+      return out;
+    }
+    out.push(...((data ?? []) as BoardRecord[]));
+    if (!data || data.length < page) break;
+  }
+  return out;
 };
 
 /**
