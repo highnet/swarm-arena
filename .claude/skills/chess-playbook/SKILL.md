@@ -213,7 +213,13 @@ Moves into "Architecture now" only if the referee passes it.
   (120/60 ms, wall clock): Italian d7 → d8, fen3 d5 → d6, the rest the same depth.
 - Local `arena versus chess` vs main (v0.8): +21 −14 =5 over 40 games, 200 ms (seed 271507162).
 
-## Buried (not shipped): spend the clock (#186)
+## Candidate (not shipped): spend the clock (#186, resubmitted unchanged as #208)
+
+Resubmitted by #208 on the sequential head-to-head gate (#195, pr#201): `engines/chess/src` is
+byte-for-byte commit 3476103 (`git diff 3476103 <branch> -- engines/chess/src` is empty; the
+crate's CHANGELOG and Cargo.toml version are main's release-please bump, kept). No tuning. The
+verdict of that run goes in the results log; the notes below are the original #186 record.
+
 
 Referee: 15–22–3 vs Stockfish level 6 (seed 1390027670), rated 1539 ± 109, not above v0.9's 1547
 (17–23), although it beat main +28 −6 =6 locally. The code is in the history of
