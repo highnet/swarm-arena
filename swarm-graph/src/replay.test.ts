@@ -6,10 +6,16 @@ import {
   burstsOf,
   emptySnapshot,
   indexAtTime,
+  offsetAtFraction,
+  parkedAtEnd,
   planReplay,
+  seekIndex,
+  seekOffset,
   stateAt,
   sparksAt,
+  stepPlayhead,
   summarizeReplay,
+  type SwarmPlayhead,
 } from './replay';
 
 const HOUR = 3_600_000;
@@ -189,4 +195,69 @@ test('a milestone inside a burst still gets its own beat and hold', () => {
   assert.deepEqual(plan.milestones, [2]);
   assert.ok(plan.times[2] - plan.times[1] > 70, 'the rating is not squeezed into the burst');
   assert.ok(plan.times[3] - plan.times[2] >= 500, 'and holds after');
+});
+
+test('a replay that plays to its end is over: the graph goes back to live (#278)', () => {
+  const plan = planReplay(series(0, 0, 2 * HOUR, 10 * MIN), 'hub', { durationMs: 60_000 });
+  const p: SwarmPlayhead = { clock: 0, playing: true, speed: 1 };
+  let ended = false;
+  let frames = 0;
+  // Frames of wall time, as the renderer's timer would give them, until the replay says it ended.
+  while (!ended && frames < 10_000) {
+    const s = stepPlayhead(p, plan.total, 16);
+    p.clock = s.clock;
+    ended = s.ended;
+    frames++;
+  }
+  assert.ok(ended, 'it ends');
+  assert.equal(p.clock, plan.total, 'on the last frame, never past it');
+  assert.equal(indexAtTime(plan, p.clock), plan.flows.length, 'with every event played');
+  // Faster playback ends sooner; a frame that overshoots lands exactly on the end.
+  assert.deepEqual(
+    stepPlayhead({ clock: plan.total - 5, playing: true, speed: 8 }, plan.total, 16),
+    {
+      clock: plan.total,
+      ended: true,
+    },
+  );
+});
+
+test('a paused playhead never ends, even seeked to the end by hand; a playing one there does', () => {
+  const total = 60_000;
+  const paused: SwarmPlayhead = { clock: 30_000, playing: false, speed: 1 };
+  assert.deepEqual(stepPlayhead(paused, total, 1000), { clock: 30_000, ended: false });
+  assert.equal(parkedAtEnd(paused, total), false);
+  // Paused, then scrubbed to the end: the replay holds there (the end card) instead of going live.
+  const parked = { ...paused, clock: total };
+  assert.deepEqual(stepPlayhead(parked, total, 1000), { clock: total, ended: false });
+  assert.equal(parkedAtEnd(parked, total), true);
+  // Scrubbed to the end while playing: that is playing to the end, so the next frame ends it.
+  const playing = { ...parked, playing: true };
+  assert.equal(parkedAtEnd(playing, total), false);
+  assert.equal(stepPlayhead(playing, total, 16).ended, true);
+});
+
+test('paused, the End key and a drag to the right edge both park the replay at its end card (#278)', () => {
+  const plan = planReplay(series(0, 0, 2 * HOUR, 10 * MIN), 'hub', { durationMs: 60_000 });
+  assert.ok(plan.total > plan.times.at(-1)!, 'the end holds a beat past the last event');
+  const parks = (to: { index: number; clock: number }) =>
+    parkedAtEnd({ clock: to.clock, playing: false, speed: 1 }, plan.total);
+  // The End key seeks past the last event: that is the end of the schedule, not the last event.
+  const end = seekIndex(plan, plan.flows.length);
+  assert.deepEqual(end, { index: plan.flows.length, clock: plan.total });
+  assert.ok(parks(end), 'End parks at the end card');
+  assert.deepEqual(seekIndex(plan, plan.flows.length + 5), end, 'past the end clamps to it');
+  // Dragged to (or past) the right edge of the timeline: the same end, every event played.
+  for (const fraction of [1, 1.2]) {
+    const drag = seekOffset(plan, offsetAtFraction(plan, fraction));
+    assert.deepEqual(drag, { index: plan.flows.length, clock: plan.total });
+    assert.ok(parks(drag), 'a drag to the right edge parks at the end card');
+  }
+  // Anywhere short of the end is not the end card, even with every event played.
+  const last = seekIndex(plan, plan.flows.length - 1);
+  assert.equal(last.clock, plan.times[plan.flows.length - 2]);
+  assert.ok(!parks(last));
+  assert.ok(!parks(seekOffset(plan, plan.times.at(-1)!)), 'the last event is not yet the end');
+  assert.ok(!parks(seekOffset(plan, offsetAtFraction(plan, 0.999))));
+  assert.deepEqual(seekIndex(plan, 0), { index: 0, clock: -1 }, 'Home is the start');
 });
