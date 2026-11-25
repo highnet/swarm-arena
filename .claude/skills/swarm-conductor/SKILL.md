@@ -69,7 +69,13 @@ work is in this checkout); otherwise `git fetch -q origin main && git checkout -
 node .rallypoint/scripts/report.mjs
 node .rallypoint/scripts/improvement.mjs status
 npm run arena -- status
+npm run arena -- messages --unanswered --older 60
 ```
+
+The last line is the board's backlog: questions and proposals open for over an hour with no reply,
+and hand-offs no later session acknowledged. List them in the tick's report. Reply on one for the
+operator only when the operator has answered it (quote them); otherwise the role it waits on
+answers it (a planner for questions, the next worker on that engine for a hand-off).
 
 Read them exactly as `orchestrator.md` says: the claimable pool, each open pull request's
 `review.mjs check` code, the session leases (`<role>=covered|free|unknown`), the disagreement
@@ -190,7 +196,8 @@ stop the loop (`stop: true`) only when the operator asked for a bounded run and 
 ## Hard limits (every tick)
 
 - The conductor's only writes: leases it holds, sessions it starts, its own ledger, and archiving
-  or releasing what it started. Nothing on `main`, no labels, no comments, no verdicts, no merges.
+  or releasing what it started. Nothing on `main`, no labels, no GitHub comments, no verdicts, no
+  merges. On the discussion board, only a reply that relays an answer the operator gave.
 - One role, one target, one session. Never two sessions on one target.
 - `unknown` is never free; `needs:human` is never dispatched around.
 - Under `maxOpenPullRequests` or not, a jammed review queue gets reviewers and mergers, not workers.

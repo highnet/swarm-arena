@@ -10,6 +10,7 @@ const badgeVariants = cva(
         neutral: 'border-line bg-panel-raised text-fg-2',
         good: 'border-good/40 bg-good/10 text-good-text',
         critical: 'border-critical/40 bg-critical/10 text-critical-text',
+        waiting: 'border-warning/60 bg-warning/10 text-fg',
         outline: 'border-line text-fg-3',
       },
     },
