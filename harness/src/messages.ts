@@ -1,6 +1,9 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   agentName,
   buildThreads,
+  replyState,
   formatRef,
   mergeRefs,
   normalizeTags,
@@ -15,10 +18,11 @@ import {
   type MessageKind,
   type MessageRef,
   type MessageStatus,
+  type ReplyState,
   type Thread,
 } from "@arena/shared";
 import { agent, now, sessionKey } from "./board";
-import { RUN_ID } from "./config";
+import { ARENA_HOME, RUN_ID } from "./config";
 import { pinnedAgentId, REPO } from "./rallypoint";
 import { getStore } from "./store";
 
@@ -39,6 +43,51 @@ const KINDS: MessageKind[] = [
   "decision",
 ];
 const STATUSES: MessageStatus[] = ["open", "resolved", "closed"];
+
+/**
+ * What this session has done on the board, kept beside the checkout (#227): the context `next`
+ * briefed it for, and the threads it commented on or resolved. `retro` reads it to say whether the
+ * session replied anywhere, and the retro carries that line for a reviewer to see.
+ */
+export type BoardLedger = {
+  session: string;
+  role?: string;
+  track?: string | null;
+  issue?: number | null;
+  pr?: number | null;
+  /** Comments this session posted, as [comment id, thread id]. */
+  replies: [number, number][];
+  /** Threads this session resolved, closed or reopened. */
+  resolved: number[];
+};
+
+const ledgerFile = () => resolve(ARENA_HOME, "board-session.json");
+const ledgerSession = () => sessionKey() ?? "local";
+
+export const readLedger = (): BoardLedger => {
+  const empty = { session: ledgerSession(), replies: [], resolved: [] };
+  try {
+    const l = JSON.parse(readFileSync(ledgerFile(), "utf8")) as BoardLedger;
+    return l.session === empty.session ? l : empty;
+  } catch {
+    return empty;
+  }
+};
+
+export const writeLedger = (patch: Partial<BoardLedger>) => {
+  const next = { ...readLedger(), ...patch };
+  if (!existsSync(ARENA_HOME)) mkdirSync(ARENA_HOME, { recursive: true });
+  writeFileSync(ledgerFile(), JSON.stringify(next, null, 2));
+  return next;
+};
+
+/** Start a fresh ledger at the top of a session; returns it. */
+export const startLedger = (
+  ctx: Omit<BoardLedger, "session" | "replies" | "resolved">,
+) => {
+  const old = readLedger();
+  return writeLedger({ ...old, ...ctx });
+};
 
 /** Rows written before the discussion board have none of its columns. */
 const withDefaults = (m: Message): Message => ({
@@ -159,6 +208,10 @@ export const postMessage = async (opts: {
     refs,
     status: "open",
   });
+  if (parent) {
+    const l = readLedger();
+    writeLedger({ replies: [...l.replies, [created.id, root!.id]] });
+  }
   return { message: withDefaults(created), thread: root?.id ?? created.id };
 };
 
@@ -194,6 +247,9 @@ export const setThreadStatus = async (opts: {
       resolved_by: open ? null : agentId,
     },
   );
+  const l = readLedger();
+  if (!l.resolved.includes(root.id))
+    writeLedger({ resolved: [...l.resolved, root.id] });
   return root.id;
 };
 
@@ -223,7 +279,8 @@ const threadLine = (t: Thread) => {
   const r = t.root;
   const tags = r.tags?.length ? ` {${r.tags.join(", ")}}` : "";
   const n = t.comments.length;
-  return `msg#${r.id} [${r.status}] ${r.kind}${r.track_id ? ` [${r.track_id}]` : ""}${tags} "${threadTitle(r)}" by ${who(r.agent_id)} · ${n} comment${n === 1 ? "" : "s"} · last ${stamp(t.lastAt)}${refList(t.refs)}${t.backlinks.length ? ` ← ${t.backlinks.map((b) => `msg#${b}`).join(" ")}` : ""}`;
+  const waits = replyState(t);
+  return `msg#${r.id} [${r.status}${waits ? `, ${waits}` : ""}] ${r.kind}${r.track_id ? ` [${r.track_id}]` : ""}${tags} "${threadTitle(r)}" by ${who(r.agent_id)} · ${n} comment${n === 1 ? "" : "s"} · last ${stamp(t.lastAt)}${refList(t.refs)}${t.backlinks.length ? ` ← ${t.backlinks.map((b) => `msg#${b}`).join(" ")}` : ""}`;
 };
 
 export type ThreadQuery = {
@@ -233,11 +290,19 @@ export type ThreadQuery = {
   q?: string;
   /** Only threads referencing this GitHub issue / PR number or board message. */
   ref?: string;
+  /** Only threads of this kind (handoff, question, retro …). */
+  kind?: MessageKind;
+  /** Only threads waiting on somebody: an unanswered question or proposal, an unacknowledged hand-off. */
+  unanswered?: boolean;
+  /** Only threads opened at least this many minutes ago. */
+  olderThanMin?: number;
   limit?: number;
 };
 
 /** Threads matching a query, newest activity first. */
 export const listThreads = async (query: ThreadQuery = {}) => {
+  if (query.kind && !KINDS.includes(query.kind))
+    throw new Error(`kind must be one of ${KINDS.join(", ")}`);
   const all = await allMessages();
   const want = query.ref ? parseRef(query.ref) : null;
   if (query.ref && !want)
@@ -252,6 +317,13 @@ export const listThreads = async (query: ThreadQuery = {}) => {
       if (query.status && query.status !== "all" && r.status !== query.status)
         return false;
       if (tag && !(r.tags ?? []).includes(tag)) return false;
+      if (query.kind && r.kind !== query.kind) return false;
+      if (query.unanswered && !replyState(t)) return false;
+      if (
+        query.olderThanMin !== undefined &&
+        Date.now() - Date.parse(r.at) < query.olderThanMin * 60000
+      )
+        return false;
       if (want) {
         const hit = t.refs.some((x) =>
           want.kind === "message"
@@ -332,12 +404,20 @@ export const boardDigest = async (track?: string, limit = 12) => {
       t.root.status === "open" &&
       (t.root.kind === "question" || t.root.kind === "proposal"),
   );
-  const recent = threads.filter((t) => !waiting.includes(t)).slice(0, limit);
+  const handoffs = threads.filter((t) => replyState(t) === "unacknowledged");
+  const recent = threads
+    .filter((t) => !waiting.includes(t) && !handoffs.includes(t))
+    .slice(0, limit);
   const out: string[] = [];
   if (waiting.length)
     out.push(
       "Open questions and proposals (comment, or resolve when answered):",
       formatThreads(waiting.slice(0, limit)),
+    );
+  if (handoffs.length)
+    out.push(
+      `Hand-offs no later session has acknowledged (${handoffs.length}; reply on the one you build on):`,
+      formatThreads(handoffs.slice(0, Math.min(limit, 5))),
     );
   if (recent.length) out.push("Recent threads:", formatThreads(recent));
   if (out.length)
@@ -345,4 +425,91 @@ export const boardDigest = async (track?: string, limit = 12) => {
       "Read one: npm run arena -- thread <id>. References: msg#42 (thread), #12 / pr#12 / issue#12 (GitHub).",
     );
   return out.join("\n");
+};
+
+/** Threads a role should look at before it ends, each with why (#227). */
+export type Waiting = { thread: Thread; why: string };
+
+const refersTo = (t: Thread, n: number) =>
+  t.refs.some((x) => x.kind !== "message" && x.n === n);
+
+/**
+ * "Threads waiting on you": the open threads this session's role is the right one to answer.
+ *  - everyone: threads that cite its issue or pull request, unanswered questions on its engine;
+ *  - worker: the latest unacknowledged hand-off on its engine (the one it builds on);
+ *  - reviewer, fixer: the hand-off or question citing the PR or the issue it closes;
+ *  - planner: every unanswered question, and the latest hand-off per engine;
+ *  - improver: retros nobody has answered (comment with the PR that acts on one, then resolve it).
+ * Pure over the thread list, so it is tested without a store.
+ */
+export const waitingFor = (
+  threads: Thread[],
+  ctx: {
+    role?: string;
+    track?: string | null;
+    issue?: number | null;
+    pr?: number | null;
+  },
+  limit = 6,
+): Waiting[] => {
+  const out = new Map<number, Waiting>();
+  const add = (t: Thread, why: string) => {
+    if (!out.has(t.root.id)) out.set(t.root.id, { thread: t, why });
+  };
+  const onTrack = (t: Thread) =>
+    !ctx.track || t.root.track_id === ctx.track || t.root.track_id === null;
+  const open = threads.filter((t) => t.root.status === "open");
+  const state = new Map(open.map((t) => [t.root.id, replyState(t)] as const));
+  for (const n of [ctx.issue, ctx.pr].filter((x): x is number => !!x))
+    for (const t of open)
+      if (refersTo(t, n) && t.root.kind !== "retro")
+        add(
+          t,
+          `cites #${n}${state.get(t.root.id) ? ` and is ${state.get(t.root.id)}` : ""}`,
+        );
+  const waiting = (kind: ReplyState) =>
+    open.filter((t) => state.get(t.root.id) === kind);
+  for (const t of waiting("unanswered").filter(onTrack))
+    add(t, `unanswered ${t.root.kind}`);
+  const latestHandoff = (track: string | null | undefined) =>
+    waiting("unacknowledged").find((t) => t.root.track_id === (track ?? null));
+  if (ctx.role === "worker" && ctx.track) {
+    const h = latestHandoff(ctx.track);
+    if (h) add(h, `latest unacknowledged ${ctx.track} hand-off`);
+  }
+  if (ctx.role === "planner") {
+    const tracks = [
+      ...new Set(open.map((t) => t.root.track_id).filter(Boolean)),
+    ];
+    for (const tr of tracks) {
+      const h = latestHandoff(tr);
+      if (h) add(h, `latest unacknowledged ${tr} hand-off`);
+    }
+  }
+  if (ctx.role === "improver")
+    for (const t of open.filter(
+      (t) => t.root.kind === "retro" && !t.comments.length,
+    ))
+      add(t, "retro nobody answered");
+  return [...out.values()].slice(0, limit);
+};
+
+export const formatWaiting = (w: Waiting[]) =>
+  w.map((x) => `${threadLine(x.thread)}\n    ↳ ${x.why}`).join("\n");
+
+/** The session's waiting threads, read from the store. */
+export const waitingOn = async (
+  ctx: Parameters<typeof waitingFor>[1],
+  limit = 6,
+) => waitingFor(buildThreads(await allMessages()), ctx, limit);
+
+/** The briefing section (#227); empty when nothing waits. */
+export const waitingSection = async (ctx: Parameters<typeof waitingFor>[1]) => {
+  const w = await waitingOn(ctx);
+  if (!w.length) return "";
+  return `
+Threads waiting on you (reply with what you used or found, or resolve; no bare acks):
+${formatWaiting(w)}
+Read one: npm run arena -- thread <id>. Reply: npm run arena -- comment <id> "..." --as <seat>.
+Your retro asks for one reply or resolve this session, or --no-reply "<why none applied>".`;
 };
