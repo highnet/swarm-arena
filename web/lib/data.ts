@@ -13,6 +13,7 @@ import {
   type RecordKind,
   type Snapshot,
 } from '@arena/shared';
+import { readAll, ROW_CAP } from './paged';
 import { getSupabase, supabaseConfigured } from './supabase';
 
 /** Before the first run: the four ladders at the start line, nothing played. */
@@ -51,6 +52,17 @@ const notStarted = (): Snapshot => {
   };
 };
 
+/**
+ * Games the snapshot carries per engine: the newest, by `finished_at`. A run plays thousands, far
+ * past PostgREST's row cap, and the snapshot is re-read every few seconds, so this list stays
+ * bounded on purpose (#250). Totals come from the matches (`counters`), the /games list from
+ * `getGamesPage`, the sitemap from `getGameIndex`, the download from `getAllGames`.
+ */
+export const SNAPSHOT_GAMES_PER_ENGINE = 75;
+
+const GAME_COLUMNS =
+  'id,run_id,match_id,track_id,ply_count,engine_first,outcome,termination,finished_at';
+
 const fromSupabase = async (): Promise<Snapshot | null> => {
   const db = getSupabase();
   const { data: runs, error } = await db
@@ -61,43 +73,50 @@ const fromSupabase = async (): Promise<Snapshot | null> => {
   if (error) throw new Error(`runs: ${error.message}`);
   const run = runs?.[0];
   if (!run) return null;
+  /** Every row of the run, paged past the row cap in id order (#250). */
   const byRun = <T>(table: string, columns = '*') =>
+    readAll<T>(table, (from, to) =>
+      db
+        .from(table)
+        .select(columns)
+        .eq('run_id', run.id)
+        .order('id', { ascending: true })
+        .range(from, to)
+        .then((r) => ({ data: r.data as T[] | null, error: r.error })),
+    );
+  /** One engine's newest games, newest first: bounded, see `SNAPSHOT_GAMES_PER_ENGINE`. */
+  const latestGames = (track: GameId) =>
     db
-      .from(table)
-      .select(columns)
+      .from('games')
+      .select(GAME_COLUMNS)
       .eq('run_id', run.id)
-      .limit(5000)
-      .then((r) => (r.data ?? []) as T[]);
+      .eq('track_id', track)
+      .order('finished_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(SNAPSHOT_GAMES_PER_ENGINE)
+      .then((r) => {
+        if (r.error) throw new Error(`games: ${r.error.message}`);
+        return (r.data ?? []) as unknown as GameRow[];
+      });
 
-  const [tracks, rungs, agents, tasks, records, matches, games, elo, messages] = await Promise.all([
-    byRun<Snapshot['tracks'][number]>('tracks'),
-    byRun<Snapshot['rungs'][number]>('rungs'),
-    byRun<Snapshot['agents'][number]>('agents'),
-    byRun<Snapshot['tasks'][number]>('tasks'),
-    byRun<Snapshot['records'][number]>('records'),
-    byRun<Snapshot['matches'][number]>('matches'),
-    byRun<GameRow>(
-      'games',
-      'id,run_id,match_id,track_id,ply_count,engine_first,outcome,termination,finished_at',
-    ),
-    byRun<Snapshot['elo'][number]>('elo_points'),
-    byRun<Message>('messages'),
-  ]);
+  const [tracks, rungs, agents, tasks, records, matches, perEngine, elo, messages] =
+    await Promise.all([
+      byRun<Snapshot['tracks'][number]>('tracks'),
+      byRun<Snapshot['rungs'][number]>('rungs'),
+      byRun<Snapshot['agents'][number]>('agents'),
+      byRun<Snapshot['tasks'][number]>('tasks'),
+      byRun<Snapshot['records'][number]>('records'),
+      byRun<Snapshot['matches'][number]>('matches'),
+      Promise.all(TRACKS.map((t) => latestGames(t.id))),
+      byRun<Snapshot['elo'][number]>('elo_points'),
+      byRun<Message>('messages'),
+    ]);
+  const games = perEngine.flat();
 
-  const newest = [...games].sort((a, b) => b.finished_at.localeCompare(a.finished_at));
-  const latestIds = new Set<string>();
-  const seenTracks = new Set<string>();
-  for (const g of newest) {
-    if (!seenTracks.has(g.track_id)) {
-      seenTracks.add(g.track_id);
-      latestIds.add(g.id);
-    }
-  }
-  const { data: withMoves } = latestIds.size
-    ? await db
-        .from('games')
-        .select('id,moves')
-        .in('id', [...latestIds])
+  // Each engine's newest game, with its moves (the lists are newest first).
+  const latestIds = perEngine.flatMap((list) => (list[0] ? [list[0].id] : []));
+  const { data: withMoves } = latestIds.length
+    ? await db.from('games').select('id,moves').in('id', latestIds)
     : { data: [] };
   const moves = new Map((withMoves ?? []).map((g) => [g.id as string, g.moves as string[]]));
 
@@ -258,8 +277,19 @@ export const getMatchGames = async (matchId: string, finished: boolean): Promise
   if (finished) cacheLife('max');
   else cacheLife({ stale: 0, revalidate: 2, expire: 15 });
   if (!supabaseConfigured()) return [];
-  const { data } = await getSupabase().from('games').select('*').eq('match_id', matchId);
-  return (data ?? []) as GameRow[];
+  const db = getSupabase();
+  return readAll<GameRow>('match games', (from, to) =>
+    db
+      .from('games')
+      .select('*')
+      .eq('match_id', matchId)
+      .order('id', { ascending: true })
+      .range(from, to)
+      .then((r) => ({ data: r.data as GameRow[] | null, error: r.error })),
+  ).catch((e) => {
+    console.error('match games failed', e);
+    return [];
+  });
 };
 
 /**
@@ -290,20 +320,83 @@ export const getAllGames = async (): Promise<GameRow[]> => {
   if (!supabaseConfigured()) return [];
   const s = await getSnapshot();
   const db = getSupabase();
-  const page = 1000;
-  const out: GameRow[] = [];
-  for (let from = 0; ; from += page) {
-    const { data, error } = await db
+  return readAll<GameRow>('games', (from, to) =>
+    db
       .from('games')
       .select('*')
       .eq('run_id', s.run.id)
       .order('finished_at', { ascending: true })
-      .range(from, from + page - 1);
-    if (error) throw new Error(`games: ${error.message}`);
-    out.push(...((data ?? []) as GameRow[]));
-    if (!data || data.length < page) break;
+      .order('id', { ascending: true })
+      .range(from, to)
+      .then((r) => ({ data: r.data as GameRow[] | null, error: r.error })),
+  );
+};
+
+export type GamesPage = {
+  /** This page's games, newest first, without moves. */
+  games: GameRow[];
+  /** Games in the run (for one engine, when one is named), counted exactly by the database. */
+  total: number;
+};
+
+/**
+ * One page of the run's games, newest first, with an exact total: the /games list, read a page at
+ * a time instead of from the snapshot's bounded games (#250). Live like the snapshot, so the same
+ * short memory cache (#222): never a prerender, no tag, nothing a browser can expire.
+ */
+export const getGamesPage = async (
+  engine: GameId | null,
+  page: number,
+  size: number,
+): Promise<GamesPage> => {
+  'use cache';
+  cacheLife({ stale: 0, revalidate: 2, expire: 15 });
+  if (!supabaseConfigured()) return { games: [], total: 0 };
+  const s = await getSnapshot();
+  const from = (Math.max(1, page) - 1) * Math.min(size, ROW_CAP);
+  const { data, count, error } = await getSupabase()
+    .from('games')
+    .select(GAME_COLUMNS, { count: 'exact' })
+    .match(engine ? { run_id: s.run.id, track_id: engine } : { run_id: s.run.id })
+    .order('finished_at', { ascending: false })
+    .order('id', { ascending: false })
+    .range(from, from + Math.min(size, ROW_CAP) - 1);
+  if (error) {
+    console.error('games page failed', error.message);
+    return { games: [], total: 0 };
   }
-  return out;
+  const games = ((data ?? []) as unknown as Omit<GameRow, 'moves'>[]).map((g) => ({
+    ...g,
+    moves: [],
+  }));
+  return { games, total: count ?? games.length };
+};
+
+/** A game's address and when it finished: all the sitemap needs of each. */
+export type GameIndexEntry = Pick<GameRow, 'id' | 'finished_at'>;
+
+/**
+ * Every game of the run, as `id` and `finished_at` only, paged past the row cap: the sitemap's
+ * list (#250). Live like the snapshot, so the same short memory cache (#222).
+ */
+export const getGameIndex = async (): Promise<GameIndexEntry[]> => {
+  'use cache';
+  cacheLife({ stale: 0, revalidate: 2, expire: 15 });
+  if (!supabaseConfigured()) return [];
+  const s = await getSnapshot();
+  const db = getSupabase();
+  return readAll<GameIndexEntry>('game index', (from, to) =>
+    db
+      .from('games')
+      .select('id,finished_at')
+      .eq('run_id', s.run.id)
+      .order('id', { ascending: true })
+      .range(from, to)
+      .then((r) => ({ data: r.data as GameIndexEntry[] | null, error: r.error })),
+  ).catch((e) => {
+    console.error('game index failed', e);
+    return [];
+  });
 };
 
 /**
