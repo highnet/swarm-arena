@@ -261,24 +261,19 @@ export const getTaskRecords = async (taskId: string): Promise<BoardRecord[]> => 
   cacheLife({ stale: 0, revalidate: 2, expire: 15 });
   if (!supabaseConfigured()) return [];
   const db = getSupabase();
-  const page = 1000;
-  const out: BoardRecord[] = [];
-  for (let from = 0; ; from += page) {
-    const { data, error } = await db
+  return readAll<BoardRecord>('task records', (from, to) =>
+    db
       .from('records')
       .select('*')
       .eq('task_id', taskId)
       .order('at', { ascending: true })
       .order('id', { ascending: true })
-      .range(from, from + page - 1);
-    if (error) {
-      console.error('task records failed', error.message);
-      return out;
-    }
-    out.push(...((data ?? []) as BoardRecord[]));
-    if (!data || data.length < page) break;
-  }
-  return out;
+      .range(from, to)
+      .then((r) => ({ data: r.data as BoardRecord[] | null, error: r.error })),
+  ).catch((e) => {
+    console.error('task records failed', e);
+    return [];
+  });
 };
 
 /**
