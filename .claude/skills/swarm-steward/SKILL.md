@@ -32,5 +32,11 @@ and stop.
 4. Branch `agent/<issue>-<slug>` from `main`, make the change, keep it small. Run `npm test`.
 5. Open the pull request with `Closes #<issue>`, label `loop:improvement`, and in the body: the
    evidence, the change, and what metric should move if it works.
-6. Leave a retro of your own, then stop. A different session reviews it, a merger lands it, and the
+6. Answer the retros on the board (the brief's **Threads waiting on you** lists the unanswered
+   ones). On each retro the change addresses, comment with the PR and what it changes, then resolve
+   it: `npm run arena -- resolve <id> --as steward --note "addressed by pr#<N>: ..."`. A retro
+   from the brief you decide not to act on gets a one-line comment saying why (already fixed by
+   `pr#…`, a one-off, frozen to the operator), and is resolved or closed. That is how the session
+   that wrote it, and the next improver, see what became of it.
+7. Leave a retro of your own, then stop. A different session reviews it, a merger lands it, and the
    site logs it as the next protocol version.
