@@ -117,3 +117,15 @@ test("no total is counted from the snapshot's bounded games", () => {
   );
   assert.doesNotMatch(fn, /s\.games/, 'counters() counts games from the matches');
 });
+
+test('games played come from the exact counts, not the bounded list', async () => {
+  const { gamesPlayed } = await import('./derive');
+  const s = {
+    games: [{ track_id: 'chess' }],
+    gameCounts: { chess: 3001, go9: 86 },
+    matches: [{ track_id: 'chess', wins: 1, draws: 0, losses: 0 }],
+  } as unknown as Parameters<typeof gamesPlayed>[0];
+  assert.equal(gamesPlayed(s), 3087);
+  assert.equal(gamesPlayed(s, 'chess'), 3001);
+  assert.equal(gamesPlayed({ ...s, gameCounts: undefined }), 1, 'falls back to the match tallies');
+});

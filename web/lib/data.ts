@@ -99,7 +99,19 @@ const fromSupabase = async (): Promise<Snapshot | null> => {
         return (r.data ?? []) as unknown as GameRow[];
       });
 
-  const [tracks, rungs, agents, tasks, records, matches, perEngine, elo, messages] =
+  /** One engine's games, counted exactly by the database (`head`: no rows travel). */
+  const countGames = (track: GameId) =>
+    db
+      .from('games')
+      .select('id', { count: 'exact', head: true })
+      .eq('run_id', run.id)
+      .eq('track_id', track)
+      .then((r) => {
+        if (r.error) throw new Error(`games count: ${r.error.message}`);
+        return [track, r.count ?? 0] as const;
+      });
+
+  const [tracks, rungs, agents, tasks, records, matches, perEngine, counts, elo, messages] =
     await Promise.all([
       byRun<Snapshot['tracks'][number]>('tracks'),
       byRun<Snapshot['rungs'][number]>('rungs'),
@@ -108,6 +120,7 @@ const fromSupabase = async (): Promise<Snapshot | null> => {
       byRun<Snapshot['records'][number]>('records'),
       byRun<Snapshot['matches'][number]>('matches'),
       Promise.all(TRACKS.map((t) => latestGames(t.id))),
+      Promise.all(TRACKS.map((t) => countGames(t.id))),
       byRun<Snapshot['elo'][number]>('elo_points'),
       byRun<Message>('messages'),
     ]);
@@ -129,6 +142,7 @@ const fromSupabase = async (): Promise<Snapshot | null> => {
     records,
     matches,
     games: games.map((g) => ({ ...g, moves: moves.get(g.id) ?? [] })),
+    gameCounts: Object.fromEntries(counts),
     elo: perVersion(elo),
     messages,
     asOf: new Date().toISOString(),
