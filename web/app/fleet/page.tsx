@@ -35,9 +35,8 @@ export const metadata: Metadata = pageMeta(
 );
 
 const CHAPTERS: SectionNavItem[] = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'working', label: 'At work' },
   { id: 'graph', label: 'Where the effort goes' },
+  { id: 'working', label: 'At work' },
   { id: 'further', label: 'Further' },
 ];
 
@@ -62,7 +61,7 @@ type WorkingRowProps = {
 /**
  * One working seat as a hairline row, not a card: who it is on the left, what it is doing in
  * large type on the right, its latest steps one click away. Hovering it lights the seat in the
- * graph below (`FleetHoverItem`).
+ * graph above (`FleetHoverItem`).
  */
 const WorkingRow = ({ w, asOf, slots, steps }: WorkingRowProps) => {
   const a: Agent = w.agent;
@@ -220,8 +219,9 @@ const FleetContent = async ({ searchParams }: FleetContentProps) => {
       <main className="flex w-full flex-col">
         <SectionNav items={CHAPTERS} />
 
-        {/* 1 · Overview: what the fleet is, and how many are at work. */}
-        <Section id="overview" labelledBy="fleet-title" space="default">
+        {/* 1 · Where the effort goes: the page title, then the full-width graph straight away
+            (#264). The graph's own layout is its own (#221); only its place on the page is set here. */}
+        <Section id="graph" labelledBy="fleet-title" space="compact">
           <SectionHeading
             level="page"
             space="none"
@@ -235,7 +235,37 @@ const FleetContent = async ({ searchParams }: FleetContentProps) => {
               </>
             }
           />
-          <p className="mt-16 max-w-2xl text-2xl font-medium tracking-tight text-fg text-balance sm:text-3xl">
+          <h2 id="graph-title" className="sr-only">
+            Where the effort goes
+          </h2>
+          <FullBleed className="mt-10">
+            <SwarmGraph
+              {...graph}
+              engines={engineNodes(s)}
+              liveGames={live}
+              view={typeof view === 'string' ? view : null}
+              seatIds={s.agents.map((a) => a.id)}
+              engineIds={s.tracks.map((t) => t.id)}
+              repoUrl={REPO_URL}
+              titled={false}
+            />
+          </FullBleed>
+          <p className="mt-8 max-w-2xl text-[15px] leading-7 text-fg-2 text-pretty">
+            Rallypoint, live: issues are claimed into <span className="font-mono">agent/</span>{' '}
+            branches forked from <span className="font-mono">{graph.input.integrationBranch}</span>,
+            worked, opened as pull requests, reviewed, and merged back into the part of the codebase
+            they change.
+          </p>
+        </Section>
+
+        {/* 2 · At work: how many, then each working seat given a row of its own. */}
+        <Section id="working" labelledBy="working-title" tone="band">
+          <SectionHeading
+            id="working-title"
+            title="At work now"
+            intro="Each seat holds one Rallypoint role for one session: what it is on, and what it says it is doing. Hover a seat to find it in the graph above."
+          />
+          <p className="mb-10 max-w-2xl text-2xl font-medium tracking-tight text-fg text-balance sm:text-3xl">
             {working.length === 0 ? (
               'Nobody is working right now.'
             ) : (
@@ -245,15 +275,6 @@ const FleetContent = async ({ searchParams }: FleetContentProps) => {
               </>
             )}
           </p>
-        </Section>
-
-        {/* 2 · At work: each working seat given a row of its own. */}
-        <Section id="working" labelledBy="working-title" tone="band">
-          <SectionHeading
-            id="working-title"
-            title="At work now"
-            intro="Each seat holds one Rallypoint role for one session: what it is on, and what it says it is doing. Hover a seat to find it in the graph."
-          />
           {working.length === 0 ? (
             <div className="border-y border-line py-10">
               <p className="max-w-xl text-[15px] leading-7 text-fg-2 text-pretty">
@@ -278,37 +299,8 @@ const FleetContent = async ({ searchParams }: FleetContentProps) => {
           )}
         </Section>
 
-        {/* 3 · Where the effort goes: the full-width graph. Its layout is the graph's own (#221). */}
-        <Section id="graph" labelledBy="graph-title" space="roomy">
-          <SectionHeading
-            id="graph-title"
-            title="Where the effort goes"
-            intro={
-              <>
-                Rallypoint, live: issues are claimed into <span className="font-mono">agent/</span>{' '}
-                branches forked from{' '}
-                <span className="font-mono">{graph.input.integrationBranch}</span>, worked, opened
-                as pull requests, reviewed, and merged back into the part of the codebase they
-                change.
-              </>
-            }
-          />
-          <FullBleed>
-            <SwarmGraph
-              {...graph}
-              engines={engineNodes(s)}
-              liveGames={live}
-              view={typeof view === 'string' ? view : null}
-              seatIds={s.agents.map((a) => a.id)}
-              engineIds={s.tracks.map((t) => t.id)}
-              repoUrl={REPO_URL}
-              titled={false}
-            />
-          </FullBleed>
-        </Section>
-
         {/* 4 · Further reading. */}
-        <Section id="further" labelledBy="next-steps-title" tone="band" space="compact">
+        <Section id="further" labelledBy="next-steps-title" space="compact">
           <NextSteps
             variant="list"
             title="Further"
