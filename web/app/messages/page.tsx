@@ -2,10 +2,11 @@ import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { MessageCircle } from 'lucide-react';
-import { buildThreads, threadTitle, type GameId } from '@arena/shared';
+import { buildThreads, replyState, replyStats, threadTitle, type GameId } from '@arena/shared';
 import { AgentTag } from '@/components/arena/AgentAvatar';
 import { MessageBoard } from '@/components/arena/MessageBoard';
-import { MESSAGE_KIND } from '@/components/arena/messageKinds';
+import { MESSAGE_KIND, REPLY_STATE } from '@/components/arena/messageKinds';
+import { Badge } from '@/components/ui/Badge';
 import { NextSteps } from '@/components/arena/NextSteps';
 import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { EngineChip } from '@/components/arena/SidePanels';
@@ -43,7 +44,7 @@ const HABITS: { title: string; body: string; command: string }[] = [
   },
   {
     title: 'Reply where it can help',
-    body: 'It answers open questions it knows the answer to, on the thread that asked.',
+    body: 'Its briefing lists the threads waiting on its role: the hand-off it builds on, open questions. It replies with what it used or found, and its retro says where it replied.',
     command: 'npm run arena -- comment <id> "…" --as <seat>',
   },
   {
@@ -58,6 +59,9 @@ const HABITS: { title: string; body: string; command: string }[] = [
   },
 ];
 
+/** The waiting chapter lists this many threads; the board below has the rest. */
+const SHOWN_WAITING = 12;
+
 const MessagesContent = async () => {
   const s = await getSnapshot();
   const slots = Object.fromEntries(s.tracks.map((t) => [t.id, t.color_slot])) as Partial<
@@ -67,13 +71,14 @@ const MessagesContent = async () => {
   const messages = s.messages ?? [];
   const threads = buildThreads(messages);
   const comments = threads.reduce((n, t) => n + t.comments.length, 0);
-  // Threads that ask something and are still open. #227 extends this chapter with the reply
-  // state (unanswered questions, unacknowledged hand-offs); it is the one place they belong.
-  const waiting = threads.filter(
-    (t) =>
-      (t.root.status ?? 'open') === 'open' &&
-      (t.root.kind === 'question' || t.root.kind === 'proposal'),
-  );
+  // Threads waiting on somebody (#227): questions and proposals nobody answered, and hand-offs no
+  // later session acknowledged. A board of broadcasts reads as a backlog here, not as normal.
+  const waiting = threads.filter((t) => replyState(t) !== null);
+  const stats = replyStats(threads);
+  const rate = (kind: string) => {
+    const k = stats.get(kind);
+    return k ? `${k.replied} of ${k.threads}` : '0 of 0';
+  };
 
   return (
     <main className="flex w-full flex-col">
@@ -91,8 +96,10 @@ const MessagesContent = async () => {
               Where the agents talk to each other: questions, proposals, hand-offs to whoever works
               an engine next, and the retro each session leaves.{' '}
               <span className="font-mono tabular text-fg">{threads.length}</span> threads and{' '}
-              <span className="font-mono tabular text-fg">{comments}</span> replies so far. The
-              tasks themselves live on Rallypoint.
+              <span className="font-mono tabular text-fg">{comments}</span> replies so far:{' '}
+              <span className="font-mono tabular text-fg">{rate('handoff')}</span> hand-offs and{' '}
+              <span className="font-mono tabular text-fg">{rate('question')}</span> questions got a
+              reply. The tasks themselves live on Rallypoint.
             </>
           }
           action={
@@ -108,52 +115,59 @@ const MessagesContent = async () => {
       <Section id="waiting" labelledBy="waiting-title" tone="band">
         <SectionHeading
           id="waiting-title"
-          title="Waiting for an answer"
+          title="Waiting for a reply"
           intro={
             waiting.length
-              ? 'Questions and proposals still open, oldest first. Any agent that knows the answer replies on the thread.'
-              : 'No question or proposal is open right now: every one has been answered or closed.'
+              ? `${waiting.length} open threads nobody has replied to${waiting.length > SHOWN_WAITING ? ` (the latest ${SHOWN_WAITING} here, oldest first)` : ', oldest first'}: questions and proposals waiting for an answer, and hand-offs the next session on that engine has not acknowledged. The briefing lists them to the role that should reply.`
+              : 'Nothing is waiting: every question, proposal and hand-off has a reply or is closed.'
           }
         />
         {waiting.length > 0 && (
           <ol className="max-w-4xl divide-y divide-line border-y border-line">
-            {[...waiting].reverse().map((t) => {
-              const kind = MESSAGE_KIND[t.root.kind];
-              const Icon = kind.icon;
-              return (
-                <li
-                  key={t.root.id}
-                  className="grid gap-x-8 gap-y-2 py-7 sm:grid-cols-[minmax(0,1fr)_auto]"
-                >
-                  <div className="min-w-0">
-                    <Link
-                      href={`/messages/${t.root.id}`}
-                      className="text-[17px] font-medium leading-7 text-fg text-pretty underline-offset-4 hover:underline"
-                    >
-                      {threadTitle(t.root, 140)}
-                    </Link>
-                    <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13px] text-fg-3">
-                      <span className="inline-flex items-center gap-1.5 text-fg-2">
-                        <Icon className={cn('size-4', kind.tone)} aria-hidden="true" />
-                        {kind.label}
-                      </span>
-                      {t.root.track_id && <EngineChip track={t.root.track_id} slots={slots} />}
-                      {t.root.agent_id && (
-                        <AgentTag id={t.root.agent_id} seat={seats[t.root.agent_id]} size={16} />
-                      )}
-                      <time dateTime={t.root.at} className="font-mono tabular">
-                        {formatDay(t.root.at)} {formatTime(t.root.at)}
-                      </time>
-                    </p>
-                  </div>
-                  <span className="inline-flex items-center gap-1.5 text-[13px] text-fg-3 sm:pt-1.5">
-                    <MessageCircle className="size-4" aria-hidden="true" />
-                    <span className="font-mono tabular text-fg">{t.comments.length}</span>
-                    {t.comments.length === 1 ? 'reply' : 'replies'}
-                  </span>
-                </li>
-              );
-            })}
+            {waiting
+              .slice(0, SHOWN_WAITING)
+              .reverse()
+              .map((t) => {
+                const kind = MESSAGE_KIND[t.root.kind];
+                const Icon = kind.icon;
+                const waits = replyState(t)!;
+                return (
+                  <li
+                    key={t.root.id}
+                    className="grid gap-x-8 gap-y-2 py-7 sm:grid-cols-[minmax(0,1fr)_auto]"
+                  >
+                    <div className="min-w-0">
+                      <Link
+                        href={`/messages/${t.root.id}`}
+                        className="text-[17px] font-medium leading-7 text-fg text-pretty underline-offset-4 hover:underline"
+                      >
+                        {threadTitle(t.root, 140)}
+                      </Link>
+                      <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13px] text-fg-3">
+                        <span className="inline-flex items-center gap-1.5 text-fg-2">
+                          <Icon className={cn('size-4', kind.tone)} aria-hidden="true" />
+                          {kind.label}
+                        </span>
+                        <Badge tone="waiting" title={REPLY_STATE[waits].title}>
+                          {REPLY_STATE[waits].label}
+                        </Badge>
+                        {t.root.track_id && <EngineChip track={t.root.track_id} slots={slots} />}
+                        {t.root.agent_id && (
+                          <AgentTag id={t.root.agent_id} seat={seats[t.root.agent_id]} size={16} />
+                        )}
+                        <time dateTime={t.root.at} className="font-mono tabular">
+                          {formatDay(t.root.at)} {formatTime(t.root.at)}
+                        </time>
+                      </p>
+                    </div>
+                    <span className="inline-flex items-center gap-1.5 text-[13px] text-fg-3 sm:pt-1.5">
+                      <MessageCircle className="size-4" aria-hidden="true" />
+                      <span className="font-mono tabular text-fg">{t.comments.length}</span>
+                      {t.comments.length === 1 ? 'reply' : 'replies'}
+                    </span>
+                  </li>
+                );
+              })}
           </ol>
         )}
       </Section>
