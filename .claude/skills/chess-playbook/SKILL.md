@@ -408,3 +408,4 @@ differently. Never re-propose an idea from this list unchanged.
 - 2026-11-24 12:41 UTC · v0.9 passed the referee · Static exchange evaluation (SEE): skip losing captures in quiescence and order captures by SEE · rated 1547 (+55)
 - 2026-11-24 14:04 UTC · buried · Piece mobility and passed pawns in the chess evaluation, tapered by phase · Rated 1520 ± 111, not above 1547.
 - 2026-11-24 15:12 UTC · buried · Spend the clock: predict the next iteration's cost instead of stopping at 30%/60% of go · Rated 1539 ± 109, not above 1547.
+- 2026-11-25 11:51 UTC · v0.10 passed the referee · Resubmit #186 unchanged on the sequential gate: spend the clock (commit 3476103) · rated 1530 (-17)
