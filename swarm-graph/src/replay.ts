@@ -284,6 +284,26 @@ export const indexAtTime = (plan: SwarmReplayPlan, ms: number) => {
   return lo;
 };
 
+/** The playhead of a running replay: its offset (ms) on the plan's schedule, and how it moves. */
+export type SwarmPlayhead = { clock: number; playing: boolean; speed: number };
+
+/**
+ * One frame of playback: the playhead after `dt` ms of wall time, and whether it played to the
+ * end of the schedule (`total`). A replay that plays to its end is over: the host goes back to
+ * live (#278). A paused playhead never moves and never ends, even parked at the end by a seek.
+ */
+export const stepPlayhead = (p: SwarmPlayhead, total: number, dt: number) => {
+  if (!p.playing) return { clock: p.clock, ended: false };
+  const clock = Math.min(total, p.clock + dt * p.speed);
+  return { clock, ended: clock >= total };
+};
+
+/**
+ * A playhead the viewer left at the end by hand (paused, then seeked there) holds the end card
+ * instead of going live: they are looking at it. Playing from there starts the window over.
+ */
+export const parkedAtEnd = (p: SwarmPlayhead, total: number) => !p.playing && p.clock >= total;
+
 /** What changed over the whole window, for the end card. */
 export type SwarmReplaySummary = {
   events: number;

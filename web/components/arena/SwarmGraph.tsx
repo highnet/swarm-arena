@@ -750,6 +750,11 @@ const SwarmGraph = ({
   const [replay, setReplay] = useState<SwarmReplayState | null>(null);
   const [replayPlan, setReplayPlan] = useState<SwarmReplayPlan | null>(null);
   const replaying = replayPlan !== null;
+  /** Said once, politely, when a replay played to its end and the graph went back to live. */
+  const [liveNote, setLiveNote] = useState('');
+  const section = useRef<HTMLElement>(null);
+  /** Focus was on the replay controls when they went away: it moves to "Replay last 24 h". */
+  const refocusReplay = useRef(false);
   const liveBoards = useLiveBoards(liveGames);
 
   // Callbacks read the latest props through a ref so the renderer is created once.
@@ -895,11 +900,19 @@ const SwarmGraph = ({
         }
         offerTick({ ...flow, source, key, line });
       },
-      onReplay: (state) => {
+      onReplay: (state, ended) => {
         setReplay(state);
         if (!state) setReplayPlan(null);
         // At the replay's "now" end the live pruning applies again.
         if (!state || state.done) setPruneFrom(null);
+        if (ended === 'end') {
+          // Played to its end: back to live, exactly as before it started (#278). Captions
+          // already up dissolve on their own timers.
+          setLiveNote('Replay finished. Back to live.');
+          refocusReplay.current = Boolean(
+            document.activeElement?.closest('[data-slot="replay-scrubber"]'),
+          );
+        }
       },
     });
     renderer.current = r;
@@ -1006,6 +1019,7 @@ const SwarmGraph = ({
       isMilestone: replayMilestone,
     });
     if (!plan.flows.length) return;
+    setLiveNote('');
     const q = tickerQueue.current;
     clearTimeout(q.timer);
     Object.assign(q, { shownKey: '', shownAt: -Infinity, next: null, more: 0, timer: 0 });
@@ -1022,6 +1036,11 @@ const SwarmGraph = ({
     setReplay(null);
     setCaptions([]);
   };
+  useEffect(() => {
+    if (replaying || !refocusReplay.current) return;
+    refocusReplay.current = false;
+    section.current?.querySelector<HTMLButtonElement>('[data-replay-start]')?.focus();
+  }, [replaying]);
   const replayPlaying = Boolean(replay?.playing);
   useEffect(() => {
     effects.current?.setReplaying(replayPlaying);
@@ -1106,11 +1125,15 @@ const SwarmGraph = ({
 
   return (
     <section
+      ref={section}
       data-slot="swarm-graph"
       aria-label={titled ? undefined : 'Swarm graph'}
       className={cn('relative overflow-hidden rounded-lg border border-line bg-panel', className)}
     >
       <div className="swarm-graph-ground pointer-events-none absolute inset-0" aria-hidden="true" />
+      <p className="sr-only" role="status" data-slot="swarm-live-note">
+        {liveNote}
+      </p>
 
       <div
         className={cn(
@@ -1167,6 +1190,7 @@ const SwarmGraph = ({
             </Button>
           ) : (
             <Button
+              data-replay-start
               size="sm"
               onClick={() => startReplay('window')}
               disabled={shownGraph.flows.length === 0 || catchUp !== null}

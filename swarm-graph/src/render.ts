@@ -44,9 +44,11 @@ import {
 import {
   applyFlow,
   indexAtTime,
+  parkedAtEnd,
   planReplay,
   sparksAt,
   stateAt,
+  stepPlayhead,
   type SwarmReplayPlan,
   type SwarmReplaySnapshot,
 } from './replay';
@@ -77,7 +79,10 @@ export type SwarmReplayState = {
   total: number;
   playing: boolean;
   speed: number;
-  /** The playhead reached the end; the replay stays up until stopped. */
+  /**
+   * The viewer left the playhead at the end by hand (paused, then seeked there): the replay holds
+   * there until played again or stopped. One that plays to its end goes back to live instead.
+   */
   done: boolean;
   /** The state at the playhead: seed plus the events played. */
   snapshot: SwarmReplaySnapshot;
@@ -130,7 +135,11 @@ export type SwarmGraphRendererOptions = {
   onSelect?: (node: SwarmNode) => void;
   /** A new event reached the graph (live) or was played back (replay). */
   onFlow?: (flow: SwarmFlow, source: 'live' | 'replay') => void;
-  onReplay?: (state: SwarmReplayState | null) => void;
+  /**
+   * The replay's state on every change; `null` once it is over. `ended` says why: `'end'` when it
+   * played to its end and the graph went back to live on its own, `'stop'` when it was stopped.
+   */
+  onReplay?: (state: SwarmReplayState | null, ended?: 'end' | 'stop') => void;
   /** An event landed (or a spark crossed a node): for a host's particle layer. */
   onEffect?: (effect: SwarmEffect) => void;
   /**
@@ -2435,7 +2444,8 @@ export const createSwarmGraph = (
     const dt = Math.min(250, Math.max(0, now - r.last));
     r.last = now;
     if (!r.playing) return;
-    r.clock += dt * r.speed;
+    const step = stepPlayhead(r, r.plan.total, dt);
+    r.clock = step.clock;
     const due = indexAtTime(r.plan, r.clock);
     if (due > r.next) {
       const from = Math.max(r.next, due - FRAME_SPARKS);
@@ -2455,12 +2465,20 @@ export const createSwarmGraph = (
       showSnapshot(r.snap);
       emitReplay();
     }
-    if (r.clock >= r.plan.total && !r.done) {
-      r.clock = r.plan.total;
-      r.playing = false;
-      r.done = true;
-      emitReplay();
-    }
+    if (step.ended) finishReplay();
+  };
+
+  /**
+   * The replay played to its end, which is now: hand the graph back to live (#278). The last frame
+   * is the live state, so nothing jumps: sizes go back to live effort (the same at the end), and
+   * whatever is still in flight lands on its own instead of being swept away.
+   */
+  const finishReplay = () => {
+    run = null;
+    replayOverride = null;
+    resize();
+    renderStatic();
+    options.onReplay?.(null, 'end');
   };
 
   const stopReplay = () => {
@@ -2474,7 +2492,7 @@ export const createSwarmGraph = (
       clearEffects();
       resize();
       renderStatic();
-      options.onReplay?.(null);
+      options.onReplay?.(null, 'stop');
     }
   };
 
@@ -2529,7 +2547,7 @@ export const createSwarmGraph = (
     const i = Math.max(0, Math.min(index, r.plan.flows.length));
     r.next = i;
     r.clock = clock;
-    r.done = false;
+    r.done = parkedAtEnd(r, r.plan.total);
     r.snap = stateAt(r.plan.seed, r.plan.flows, i, r.plan.hubId);
     r.last = performance.now();
     r.dirty = false;
