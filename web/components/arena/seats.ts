@@ -22,6 +22,10 @@ export const roleLabel = (a: Agent) => ROLE_LABEL[a.rp_role ?? a.role] ?? a.role
 
 export const isLive = (a: Agent, asOf: string) => seatIsLive(a, Date.parse(asOf));
 
+/** `isLive` for a fleet-graph agent at a ticking clock: the graph's one liveness rule (#200). */
+export const graphAgentIsLive = (a: { status: string; lastSeen: string }, nowMs: number) =>
+  isLive({ status: a.status, last_seen: a.lastSeen } as Agent, new Date(nowMs).toISOString());
+
 export const isStale = (a: Agent, asOf: string) => a.status === 'working' && !isLive(a, asOf);
 
 /** Seats live at `asOf`: the one rule every "working now" count and list on the site uses. */
