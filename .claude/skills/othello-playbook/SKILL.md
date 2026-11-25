@@ -186,7 +186,7 @@ Move into "Architecture now" only once the referee passes it. A rebuild of #44's
 **Referee (#195 sequential head-to-head vs main v0.6, go 200, balanced suite): first run
 inconclusive at the 200-game cap, 91–98–11 (48.3%, −12 Elo, LLR −1.62 in [−2.89, 2.25], seed
 9956026); resubmitted once with fresh openings and buried, 78–93–15 over 186 games (46.0%,
-−28 Elo, LLR −3.01, seed 265856593).** Together 169–191–26 over 386 games (~47.7%). Not in the
+−28 Elo, LLR −3.01, seed 265856593).** Together 169–191–26 over 386 games (47.2%). Not in the
 engine. The submitted `engines/othello/src` was commit 7024682 byte for byte (`SolveTt`
 2^18 × 16 B, `SOLVE_EMPTIES` 15, `SOLVE_TT_MIN` 6; design and measurements in the #160 note
 below; the build is on branch `agent/209-resubmit-160-unchanged-on-the-sequential-g`, commit
