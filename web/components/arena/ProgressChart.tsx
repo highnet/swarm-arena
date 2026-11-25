@@ -254,29 +254,32 @@ const ProgressChart = ({
         </div>
       )}
 
-      <table className="sr-only">
-        <caption>Elo after each landed version</caption>
-        <thead>
-          <tr>
-            <th>Track</th>
-            <th>Version</th>
-            <th>Time (UTC)</th>
-            <th>Elo</th>
-          </tr>
-        </thead>
-        <tbody>
-          {series.flatMap((s) =>
-            s.points.map((p) => (
-              <tr key={`${s.id}-${p.t}`}>
-                <td>{s.name}</td>
-                <td>{p.version}</td>
-                <td>{new Date(p.t).toISOString()}</td>
-                <td>{Math.round(p.elo)}</td>
-              </tr>
-            )),
-          )}
-        </tbody>
-      </table>
+      {/* sr-only on a wrapper: a table ignores width: 1px and widens the page on phones (#249). */}
+      <div className="sr-only">
+        <table>
+          <caption>Elo after each landed version</caption>
+          <thead>
+            <tr>
+              <th>Track</th>
+              <th>Version</th>
+              <th>Time (UTC)</th>
+              <th>Elo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {series.flatMap((s) =>
+              s.points.map((p) => (
+                <tr key={`${s.id}-${p.t}`}>
+                  <td>{s.name}</td>
+                  <td>{p.version}</td>
+                  <td>{new Date(p.t).toISOString()}</td>
+                  <td>{Math.round(p.elo)}</td>
+                </tr>
+              )),
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 };

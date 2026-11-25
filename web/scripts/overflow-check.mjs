@@ -80,9 +80,14 @@ export const DETAIL_ROUTES = [
   { type: '/engines/[id]/play', from: ['/engines/chess'], pattern: /^\/engines\/[^/]+\/play$/ },
 ];
 
-/** Runs in the page: what sticks out past the viewport, and the document's own scroll width. */
-const measure = () => {
-  const vw = window.innerWidth;
+/**
+ * Runs in the page: what sticks out past the device's width, and the document's own scroll width.
+ * The device width, not `innerWidth`, is the yardstick: with the viewport meta honoured, content
+ * wider than the phone enlarges the layout viewport itself (`innerWidth` 358 on a 320 px phone),
+ * so `scrollWidth <= innerWidth` holds even while the page is zoomed out and pans sideways.
+ */
+const measure = (deviceWidth) => {
+  const vw = deviceWidth;
   const doc = document.documentElement;
   const clipped = (el) => {
     for (let a = el.parentElement; a && a !== document.body && a !== doc; a = a.parentElement) {
@@ -111,6 +116,8 @@ const measure = () => {
     const s = getComputedStyle(el);
     if (s.position === 'fixed' && s.visibility === 'hidden') continue;
     if (s.visibility === 'hidden' || s.display === 'none') continue;
+    // A fixed layer sizes to the layout viewport, so it is wide because the page is, not why.
+    if (s.position === 'fixed') continue;
     // Off-screen on purpose (skip links, visually-hidden labels).
     if (r.right <= 0 || r.left >= vw) continue;
     if (clipped(el)) continue;
@@ -124,6 +131,7 @@ const measure = () => {
   });
   return {
     vw,
+    innerWidth: window.innerWidth,
     scrollWidth: doc.scrollWidth,
     masked,
     offenders: offenders.slice(0, 6).map((o) => `${describe(o.el)} [${o.left}..${o.right}]`),
@@ -131,25 +139,25 @@ const measure = () => {
 };
 
 /** Opens every closed disclosure and every collapsed control, one at a time, measuring each. */
-const interactiveStates = async (page) => {
+const interactiveStates = async (page, width) => {
   const results = [];
   const details = await page.locator('details:not([open])').count();
   if (details) {
     await page.$$eval('details:not([open])', (els) => els.forEach((d) => (d.open = true)));
     await page.waitForTimeout(150);
-    results.push({ state: `${details} <details> open`, ...(await page.evaluate(measure)) });
+    results.push({ state: `${details} <details> open`, ...(await page.evaluate(measure, width)) });
   }
   const toggles = page.locator('[aria-expanded="false"]:visible');
   const n = Math.min(await toggles.count(), 8);
   for (let i = 0; i < n; i++) {
-    const t = toggles.nth(0);
+    const t = toggles.nth(i);
     const label = ((await t.getAttribute('aria-label')) ?? (await t.textContent()) ?? '')
       .trim()
       .slice(0, 30);
     try {
       await t.click({ timeout: 2000 });
       await page.waitForTimeout(200);
-      results.push({ state: `expanded "${label}"`, ...(await page.evaluate(measure)) });
+      results.push({ state: `expanded "${label}"`, ...(await page.evaluate(measure, width)) });
       await page.keyboard.press('Escape');
       if ((await t.getAttribute('aria-expanded')) === 'true')
         await t.click({ timeout: 2000 }).catch(() => {});
@@ -162,11 +170,13 @@ const interactiveStates = async (page) => {
 
 const failures = [];
 const report = (where, m, resting = true) => {
-  const over = m.scrollWidth > m.vw;
+  const over = Math.max(m.scrollWidth, m.innerWidth) > m.vw;
   const bad = over || m.offenders.length > 0;
   if (bad) {
     failures.push(where);
-    console.log(`FAIL ${where}: scrollWidth ${m.scrollWidth} / ${m.vw}`);
+    console.log(
+      `FAIL ${where}: scrollWidth ${m.scrollWidth}, layout ${m.innerWidth} on a ${m.vw} px screen`,
+    );
     for (const o of m.offenders) console.log(`       ${o}`);
   }
   // A modal menu locks scrolling with body overflow: hidden while open; only the resting page counts.
@@ -246,9 +256,9 @@ try {
             continue;
           }
         }
-        const bad = report(where, await page.evaluate(measure));
+        const bad = report(where, await page.evaluate(measure, device.viewport.width));
         if (!bad) {
-          for (const s of await interactiveStates(page)) {
+          for (const s of await interactiveStates(page, device.viewport.width)) {
             const { state, ...m } = s;
             report(`${where} (${state})`, m, false);
           }
