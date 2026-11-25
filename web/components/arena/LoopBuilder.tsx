@@ -198,7 +198,7 @@ const Field = ({ label, hint, children }: FieldProps) => (
       <Typography variant="label" as="h3">
         {label}
       </Typography>
-      {hint && <span className="text-[11px] text-fg-3">{hint}</span>}
+      {hint && <span className="text-xs text-fg-3">{hint}</span>}
     </div>
     <div
       role="group"
@@ -436,7 +436,7 @@ const LoopBuilder = ({ repo }: LoopBuilderProps) => {
             ))}
           </code>
         </pre>
-        <p className="mt-2 text-xs text-fg-3">
+        <p className="mt-2 max-w-prose text-xs text-fg-3">
           Paste into a Claude Code session on the repository. Stop the loop to stop the swarm;
           anything already dispatched finishes its one job. More in{' '}
           <code className="font-mono">docs/LOOPS.md</code>.

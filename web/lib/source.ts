@@ -98,14 +98,77 @@ export const getEngineSource = async (id: GameId): Promise<SourceFile[]> => {
 
 const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
 
+export type SkillSection = {
+  /** The anchor of the `<section>` that wraps one `##` chapter of the skill. */
+  id: string;
+  title: string;
+};
+
 export type Skill = {
   name: string;
+  /** The skill's own `# heading` ("Chess playbook"), or its name when it has none. */
+  title: string;
   description: string;
   path: string;
+  /** The body without its `# heading`, each `##` chapter wrapped in `<section id>`. */
   html: string;
+  sections: SkillSection[];
+};
+
+/** Anchors the skill page already uses for its own chapters. */
+const RESERVED_IDS = new Set(['overview', 'skill', 'more']);
+
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" };
+
+/** Heading HTML to plain text, for a nav label. */
+const plain = (html: string) =>
+  html.replace(/<[^>]+>/g, '').replace(/&(amp|lt|gt|quot|#39);/g, (_, e: string) => ENTITIES[e]);
+
+/**
+ * Wraps each `<h2>` chapter of rendered markdown in a `<section>` with a stable anchor, so a page
+ * can link to and track its chapters (the skill page's `SectionNav`). Text before the first h2
+ * stays as it is.
+ */
+export const sectionChapters = (html: string): { html: string; sections: SkillSection[] } => {
+  const sections: SkillSection[] = [];
+  const used = new Set(RESERVED_IDS);
+  const parts = html.split(/(?=<h2>)/).map((part) => {
+    const m = /^<h2>([\s\S]*?)<\/h2>/.exec(part);
+    if (!m) return part;
+    const title = plain(m[1]).trim();
+    const base =
+      title
+        .toLowerCase()
+        .normalize('NFKD')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '') || 'chapter';
+    let id = base;
+    for (let n = 2; used.has(id); n++) id = `${base}-${n}`;
+    used.add(id);
+    sections.push({ id, title });
+    return `<section id="${id}" aria-labelledby="${id}-title">${part.replace(
+      '<h2>',
+      `<h2 id="${id}-title">`,
+    )}</section>`;
+  });
+  return { html: parts.join(''), sections };
 };
 
 /** Every agent skill in the repository: the swarm's own roles and each game's playbook. */
+/** The first `# ` heading outside fenced code, so a `# comment` in a code block is never a title. */
+export const firstHeading = (body: string): { title: string; rest: string } | null => {
+  // Blank out fenced blocks, keeping offsets, so the match is never taken from code.
+  const prose = body.replace(/^(```|~~~)[^\n]*\n[\s\S]*?^\1[^\n]*$/gm, (m) =>
+    m.replace(/[^\n]/g, ' '),
+  );
+  const m = /^# (.+)$/m.exec(prose);
+  if (!m) return null;
+  return {
+    title: m[1].trim(),
+    rest: body.slice(0, m.index) + body.slice(m.index + m[0].length),
+  };
+};
+
 export const getSkills = async (): Promise<Skill[]> => {
   'use cache';
   cacheLife('hours');
@@ -120,11 +183,17 @@ export const getSkills = async (): Promise<Skill[]> => {
     if (!raw) continue;
     const front = raw.match(/^---\n([\s\S]*?)\n---\n/);
     const description = front?.[1].match(/^description:\s*(.*)$/m)?.[1] ?? '';
+    const body = raw.replace(/^---\n[\s\S]*?\n---\n/, '');
+    // The page's one h1 is the skill's own heading; the body keeps everything after it.
+    const heading = firstHeading(body);
+    const { html, sections } = sectionChapters(md.render(heading ? heading.rest : body));
     skills.push({
       name,
+      title: heading?.title ?? name,
       description,
       path: `.claude/skills/${name}/SKILL.md`,
-      html: md.render(raw.replace(/^---\n[\s\S]*?\n---\n/, '')),
+      html,
+      sections,
     });
   }
   return skills;

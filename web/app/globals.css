@@ -362,6 +362,85 @@ a {
   color: var(--fg);
 }
 
+/*
+ * `.playbook-read`: the same agent-written markdown, set for reading on a page whose job is the
+ * document itself (a skill on its own page, the concepts' beliefs). Reading size and a 38em
+ * measure (about 70 characters a line), subheads that read as subheads, and a `section` per h2
+ * that clears the sticky bars when its anchor is followed.
+ */
+.playbook-read {
+  max-width: 38em;
+  font-size: 16px;
+  line-height: 1.8;
+}
+@media (min-width: 640px) {
+  .playbook-read {
+    font-size: 17px;
+  }
+}
+.playbook-read > * + *,
+.playbook-read > section > * + * {
+  margin-top: 1.25rem;
+}
+.playbook-read > section + section {
+  margin-top: 4rem;
+}
+.playbook-read > section {
+  scroll-margin-top: var(--spacing-sticky);
+}
+.playbook-read h2 {
+  margin-top: 4rem;
+  font-size: 1.5rem;
+  line-height: 1.25;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+.playbook-read h2:first-child,
+.playbook-read > section > h2:first-child {
+  margin-top: 0;
+}
+.playbook-read h3 {
+  margin-top: 2.5rem;
+  font-size: 1.125rem;
+  line-height: 1.4;
+  font-weight: 600;
+}
+.playbook-read code {
+  font-size: 0.88em;
+}
+.playbook-read pre {
+  font-size: 14px;
+  line-height: 1.6;
+}
+.playbook-read li + li {
+  margin-top: 0.5rem;
+}
+.playbook-read a {
+  text-underline-offset: 4px;
+  overflow-wrap: anywhere;
+}
+/* A markdown table scrolls inside its own box, never the page. */
+.playbook-read table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 15px;
+  line-height: 1.6;
+}
+.playbook-read th,
+.playbook-read td {
+  border-bottom: 1px solid var(--line);
+  padding: 0.6rem 1.25rem 0.6rem 0;
+  text-align: left;
+  vertical-align: top;
+}
+.playbook-read th {
+  font-weight: 500;
+  color: var(--fg);
+}
+
 /* News stories: long-form reading. 16px on phones, 17px from `sm`, at a 34em column (about 65-75
    characters a line in Geist), with subheads that open a new passage. */
 .article {
