@@ -40,7 +40,7 @@ export const trackSummaries = (s: Snapshot): TrackSummary[] => {
         rungs,
         nextRung: rungs.find((r) => !r.cleared_at) ?? null,
         matches: matches.length,
-        games: matches.reduce((n, m) => n + m.wins + m.draws + m.losses, 0),
+        games: gamesPlayed(s, t.id),
         atWork: busy.has(t.id),
       };
     });
@@ -49,8 +49,21 @@ export const trackSummaries = (s: Snapshot): TrackSummary[] => {
 /** What "now" means for a snapshot: the one clock (`working.ts` `snapshotAsOf`). */
 export const snapshotNow = snapshotAsOf;
 
+/**
+ * Games played, for one engine or all four: the database's exact count when the snapshot has it,
+ * else the finished matches' tallies (which leave out the games of a match still open). Never a
+ * count of `s.games`, which holds only each engine's newest games (#250).
+ */
+export const gamesPlayed = (s: Snapshot, track?: GameId) => {
+  const ids = track ? [track] : TRACK_ORDER;
+  if (s.gameCounts) return ids.reduce((n, id) => n + (s.gameCounts?.[id] ?? 0), 0);
+  return s.matches
+    .filter((m) => !track || m.track_id === track)
+    .reduce((n, m) => n + m.wins + m.draws + m.losses, 0);
+};
+
 export const counters = (s: Snapshot) => ({
-  games: s.matches.reduce((n, m) => n + m.wins + m.draws + m.losses, 0),
+  games: gamesPlayed(s),
   matches: s.matches.length,
   landed: s.records.filter((r) => r.kind === 'patch_landed').length,
   dead: s.records.filter((r) => r.kind === 'idea_dead').length,

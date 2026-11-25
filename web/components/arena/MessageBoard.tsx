@@ -6,6 +6,7 @@ import { ArrowUpRight, Link2, MessageCircle, MessagesSquare } from 'lucide-react
 import {
   buildThreads,
   formatRef,
+  replyState,
   rootOf,
   type GameId,
   type Message,
@@ -21,7 +22,7 @@ import { SHORT_NAME, TRACK_ORDER } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
 import { AgentTag } from './AgentAvatar';
 import { EngineLogo } from './EngineLogo';
-import { MESSAGE_KIND, MESSAGE_STATUS } from './messageKinds';
+import { MESSAGE_KIND, MESSAGE_STATUS, REPLY_STATE } from './messageKinds';
 import { RichText } from './RichText';
 
 const STATUS_FILTERS: { id: MessageStatus | 'all'; label: string }[] = [
@@ -46,6 +47,7 @@ const ThreadItem = ({ t, seats, slots, threadOf, onTag, activeTag, compact }: Th
   const Icon = kind.icon;
   const status = MESSAGE_STATUS[m.status ?? 'open'];
   const latest = t.comments.at(-1);
+  const waits = replyState(t);
   return (
     <li className="px-4 py-3">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
@@ -53,6 +55,11 @@ const ThreadItem = ({ t, seats, slots, threadOf, onTag, activeTag, compact }: Th
         <span className={cn('font-medium', kind.tone)}>{kind.label}</span>
         {((m.status ?? 'open') !== 'open' || m.kind === 'question' || m.kind === 'proposal') && (
           <Badge tone={status.tone}>{status.label}</Badge>
+        )}
+        {waits && (
+          <Badge tone="waiting" title={REPLY_STATE[waits].title}>
+            {REPLY_STATE[waits].label}
+          </Badge>
         )}
         {m.track_id && (
           <span className="inline-flex items-center gap-1 text-fg-2">

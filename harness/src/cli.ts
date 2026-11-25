@@ -38,6 +38,11 @@ import {
   listThreads,
   postMessage,
   setThreadStatus,
+  startLedger,
+  waitingOn,
+  formatWaiting,
+  waitingSection,
+  readLedger,
 } from "./messages";
 import {
   currentVersion,
@@ -53,6 +58,7 @@ import {
   metrics,
   next,
   retro,
+  RetroRefused,
   ROLES,
   verdict,
   type Role,
@@ -85,7 +91,10 @@ Agent sessions (run inside a Claude Code session on this repo):
                                 reviewer: record one verdict through review.mjs
   merge <pr>                    merger: merge an approved PR and land its arena task
   land <task-id>                apply a merged task's measured result (merge does this)
-  retro "<text>" --as <seat>    at the end of a session: what slowed you down, what should change
+  retro "<text>" --as <seat> [--no-reply "<why>"]
+                                at the end of a session: what slowed you down, what should change.
+                                It ends with the threads the session replied on or resolved; with none
+                                while threads wait on the role it is refused (exit 2) unless --no-reply
   heartbeat [--stop]            show (or stop) this session's seat heartbeat; any arena command that
                                 leaves the session holding a working seat starts it, retro ends it
   metrics                       the protocol's own numbers: ship rate, time to close, burial reasons
@@ -94,8 +103,12 @@ Agent sessions (run inside a Claude Code session on this repo):
   progress <task-id> "<text>" [--detail "<more>"]
                                 log a step on your task; it shows live on the task's page
 Discussion board (threads, comments, tags, references):
-  messages [track] [--tag T] [--status open|resolved|closed|all] [--ref R] [--q text] [--limit N]
-                                list threads, newest activity first (engine-wide threads included)
+  messages [track] [--track T] [--kind K] [--tag T] [--status open|resolved|closed|all] [--ref R]
+           [--q text] [--unanswered] [--older MIN] [--latest] [--limit N]
+                                list threads, newest activity first (engine-wide threads included);
+                                --unanswered: open questions/proposals with no reply and hand-offs no
+                                later session acknowledged; --latest: only the newest match
+  waiting                       the threads waiting on this session's role (the brief lists them too)
   thread <id>                   read a thread: post, comments, references and backlinks
   post "<text>" --as <seat> [--title "..."] [--tags a,b] [--track T] [--ref R ...]
        [--kind note|question|proposal|handoff|decision] [--reply ID]
@@ -153,6 +166,32 @@ const mover = async (spec: string, game: GameId, seed: number) =>
   existsSync(fromCaller(spec))
     ? arenaEngine(spec, fromCaller(spec), game, MOVE_MS)
     : reference(spec, game, MOVE_MS, seed);
+
+/**
+ * After a brief: remember what this session was briefed for (role, engine, issue, PR) and print
+ * the threads waiting on it (#227). The retro reads the same context back.
+ */
+const boardBrief = async (
+  brief: string,
+  given: { pr?: string; issue?: string; track?: string },
+) => {
+  const role = /^ROLE (\w+)/.exec(brief)?.[1];
+  if (!role || role === "none") return "";
+  const num = (x: string | undefined) => (x ? Number(x) : null);
+  const head = brief.split("\n").slice(0, 3).join("\n");
+  const ctx = {
+    role,
+    track: given.track ?? /crate engines\/(\w+)/.exec(brief)?.[1] ?? null,
+    issue: num(given.issue) ?? num(/issue #(\d+)/i.exec(head)?.[1]),
+    pr:
+      num(given.pr) ??
+      (["merger", "fixer", "reviewer"].includes(role)
+        ? num(/#(\d+)/.exec(brief.split("\n")[1] ?? "")?.[1])
+        : null),
+  };
+  startLedger(ctx);
+  return await waitingSection(ctx).catch(() => "");
+};
 
 const main = async () => {
   const [cmd, ...args] = process.argv.slice(2);
@@ -260,15 +299,14 @@ Run \`git checkout --detach origin/main\` (or \`npm run arena -- prepare\`, whic
         process.exitCode = 75;
         return;
       }
-      console.log(
-        await next({
-          role: role as Role | undefined,
-          pr: pr ? Number(pr) : undefined,
-          issue: issue ? Number(issue) : undefined,
-          track,
-          only,
-        }),
-      );
+      const brief = await next({
+        role: role as Role | undefined,
+        pr: pr ? Number(pr) : undefined,
+        issue: issue ? Number(issue) : undefined,
+        track,
+        only,
+      });
+      console.log(brief + (await boardBrief(brief, { pr, issue, track })));
       return;
     }
     case "adopt": {
@@ -302,12 +340,23 @@ Run \`git checkout --detach origin/main\` (or \`npm run arena -- prepare\`, whic
     case "retro": {
       const as = args.indexOf("--as");
       const seat = as >= 0 ? args[as + 1] : undefined;
-      const body = args.filter((_, i) => i !== as && i !== as + 1).join(" ");
+      const nr = args.indexOf("--no-reply");
+      const noReply = nr >= 0 ? args[nr + 1] : undefined;
+      const skip = new Set(
+        [as, nr].filter((i) => i >= 0).flatMap((i) => [i, i + 1]),
+      );
+      const body = args.filter((_, i) => !skip.has(i)).join(" ");
       if (!seat || !body)
         throw new Error(
-          'usage: retro "<what slowed you down or should change>" --as <seat>',
+          'usage: retro "<what slowed you down or should change>" --as <seat> [--no-reply "<why>"]',
         );
-      await retro(seat, body);
+      try {
+        await retro(seat, body, noReply);
+      } catch (e) {
+        if (!(e instanceof RetroRefused)) throw e;
+        console.error(e.message);
+        process.exitCode = 2;
+      }
       return;
     }
     case "heartbeat": {
@@ -347,15 +396,26 @@ Run \`git checkout --detach origin/main\` (or \`npm run arena -- prepare\`, whic
       if ("inconclusive" in result) process.exitCode = 3;
       return;
     }
+    case "waiting": {
+      const w = await waitingOn(readLedger(), flag("limit", 10));
+      console.log(
+        formatWaiting(w) || "Nothing on the board waits on this session.",
+      );
+      return;
+    }
     case "messages": {
-      const track = args[0] && !args[0].startsWith("--") ? args[0] : undefined;
+      const track =
+        args[0] && !args[0].startsWith("--") ? args[0] : opt("track");
       const threads = await listThreads({
         track,
         tag: opt("tag"),
+        kind: opt("kind") as never,
+        unanswered: args.includes("--unanswered"),
+        olderThanMin: opt("older") ? Number(opt("older")) : undefined,
         status: (opt("status") as never) ?? "all",
         ref: opt("ref"),
         q: opt("q"),
-        limit: flag("limit", 20),
+        limit: args.includes("--latest") ? 1 : flag("limit", 20),
       });
       console.log(formatThreads(threads) || "No threads match.");
       return;

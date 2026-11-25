@@ -18,7 +18,7 @@ import { SectionHeading } from '@/components/ui/SectionHeading';
 import { SectionNav, type SectionNavItem } from '@/components/ui/SectionNav';
 import { TextLink } from '@/components/ui/TextLink';
 import { getSnapshot } from '@/lib/data';
-import { formatDay, formatTime } from '@/lib/format';
+import { formatDay, formatInt, formatTime } from '@/lib/format';
 import { taskHref } from '@/lib/routes';
 import { REPO_URL } from '@/lib/github';
 import { pageMeta } from '@/lib/site';
@@ -61,10 +61,10 @@ const AgentContent = async ({ params }: AgentPageProps) => {
   const stale = isStale(a, asOf);
   const track = a.track_id ? s.tracks.find((t) => t.id === a.track_id) : undefined;
   const titles = new Map(s.tasks.map((t) => [t.id, t.title]));
-  const steps = s.records
+  const logged = s.records
     .filter((r) => r.agent_id === a.id && r.kind !== 'task_opened')
-    .sort((x, y) => y.at.localeCompare(x.at) || y.id - x.id)
-    .slice(0, STEP_LIMIT);
+    .sort((x, y) => y.at.localeCompare(x.at) || y.id - x.id);
+  const steps = logged.slice(0, STEP_LIMIT);
   const shown = steps.slice(0, STEPS_SHOWN);
   const earlier = steps.slice(STEPS_SHOWN);
 
@@ -208,7 +208,7 @@ const AgentContent = async ({ params }: AgentPageProps) => {
           intro={
             steps.length === 0
               ? 'Nothing logged yet.'
-              : 'Everything this seat has logged on the board, newest first: claims, reviews, verdicts and merges, each linked to its record.'
+              : `${logged.length > STEP_LIMIT ? `The latest ${STEP_LIMIT} of the ${formatInt(logged.length)} steps this seat has logged` : 'Everything this seat has logged'} on the board, newest first: claims, reviews, verdicts and merges, each linked to its record.`
           }
         />
         {shown.length > 0 && <RecordTimeline records={shown} taskTitles={titles} />}

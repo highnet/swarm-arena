@@ -6,6 +6,8 @@ import {
   normalizeTags,
   parseRef,
   parseRefs,
+  replyState,
+  replyStats,
   segmentText,
   threadTitle,
   type Message,
@@ -96,4 +98,27 @@ test('discussion: threads gather nested comments, refs and backlinks', () => {
     mentionsOf(ms, 5).map((m) => m.id),
     [3],
   );
+});
+
+test('discussion: reply state waits on another seat or a later session (#227)', () => {
+  const at = (min: number) => new Date(Date.UTC(2026, 0, 1, 0, min)).toISOString();
+  const q = msg(1, at(0), { kind: 'question', agent_id: 'w' });
+  const h = msg(2, at(0), { kind: 'handoff', agent_id: 'w' });
+  const r = msg(3, at(0), { kind: 'retro', agent_id: 'w' });
+  const state = (ms: Message[]) =>
+    replyState(buildThreads(ms).find((t) => t.root.id === ms[0].id)!);
+  assert.equal(state([q]), 'unanswered');
+  assert.equal(state([h]), 'unacknowledged');
+  assert.equal(state([r]), null);
+  // The author adding to its own post is not a reply; another seat is, and so is a later session.
+  assert.equal(
+    state([h, msg(4, at(5), { reply_to: 2, kind: 'comment', agent_id: 'w' })]),
+    'unacknowledged',
+  );
+  assert.equal(state([h, msg(4, at(5), { reply_to: 2, kind: 'comment', agent_id: 'x' })]), null);
+  assert.equal(state([h, msg(4, at(90), { reply_to: 2, kind: 'comment', agent_id: 'w' })]), null);
+  assert.equal(state([{ ...q, status: 'resolved' }]), null);
+  const stats = replyStats(buildThreads([h, q, msg(4, at(5), { reply_to: 1, agent_id: 'x' })]));
+  assert.deepEqual(stats.get('question'), { threads: 1, replied: 1 });
+  assert.deepEqual(stats.get('handoff'), { threads: 1, replied: 0 });
 });

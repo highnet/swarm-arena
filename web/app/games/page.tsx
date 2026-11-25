@@ -11,8 +11,8 @@ import { SectionHeading } from '@/components/ui/SectionHeading';
 import { SectionNav, type SectionNavItem } from '@/components/ui/SectionNav';
 import { TextLink } from '@/components/ui/TextLink';
 import { Typography } from '@/components/ui/Typography';
-import { getSnapshot } from '@/lib/data';
-import { counters } from '@/lib/derive';
+import { getGamesPage, getSnapshot } from '@/lib/data';
+import { counters, gamesPlayed } from '@/lib/derive';
 import { formatDay, formatInt, formatTime } from '@/lib/format';
 import { EXPORT_FORMATS, FORMAT_GAME, FORMAT_LABEL, type ExportFormat } from '@/lib/gameExport';
 import { pageMeta } from '@/lib/site';
@@ -57,12 +57,13 @@ const GamesContent = async ({ searchParams }: GamesPageProps) => {
     Record<GameId, number>
   >;
   const matches = new Map(s.matches.map((m) => [m.id, m]));
-  const all = [...s.games]
-    .filter((g) => !engine || g.track_id === engine)
-    .sort((a, b) => b.finished_at.localeCompare(a.finished_at));
-  const pages = Math.max(1, Math.ceil(all.length / PAGE));
-  const page = Math.min(pages, Math.max(1, Number(params.page) || 1));
-  const shown = all.slice((page - 1) * PAGE, page * PAGE);
+  // A page at a time from the database, with an exact total (#250): the snapshot holds only each
+  // engine's newest games.
+  const asked = Math.max(1, Math.floor(Number(params.page)) || 1);
+  let { games: shown, total } = await getGamesPage(engine, asked, PAGE);
+  const pages = Math.max(1, Math.ceil(total / PAGE));
+  const page = Math.min(pages, asked);
+  if (page !== asked) ({ games: shown, total } = await getGamesPage(engine, page, PAGE));
   const href = (e: GameId | null, p = 1) => {
     const q = new URLSearchParams();
     if (e) q.set('engine', e);
@@ -78,13 +79,15 @@ const GamesContent = async ({ searchParams }: GamesPageProps) => {
   const formats = EXPORT_FORMATS.filter(
     (f) => !engine || !FORMAT_GAME[f] || FORMAT_GAME[f] === engine,
   );
-  // From the matches, as `counters()` counts: the snapshot's games are capped at 1,000 rows.
+  // Games counted exactly by the database (`gamesPlayed`), results from the matches' tallies: a
+  // match still open has played games but scored none yet.
   const tally = TRACK_ORDER.map((id) => {
     const ms = s.matches.filter((m) => m.track_id === id);
     const won = ms.reduce((n, m) => n + m.wins, 0);
     const lost = ms.reduce((n, m) => n + m.losses, 0);
     const drawn = ms.reduce((n, m) => n + m.draws, 0);
-    return { id, games: won + lost + drawn, won, lost, drawn };
+    const games = gamesPlayed(s, id);
+    return { id, games, won, lost, drawn, open: Math.max(0, games - won - lost - drawn) };
   });
 
   return (
@@ -141,6 +144,13 @@ const GamesContent = async ({ searchParams }: GamesPageProps) => {
                       {t.won}–{t.lost}–{t.drawn}
                     </span>{' '}
                     W–L–D
+                    {t.open > 0 && (
+                      <>
+                        {' '}
+                        · <span className="font-mono tabular">{formatInt(t.open)}</span> in
+                        unfinished matches
+                      </>
+                    )}
                   </span>
                 </Link>
               </li>
@@ -154,7 +164,7 @@ const GamesContent = async ({ searchParams }: GamesPageProps) => {
         <SectionHeading
           id="list-title"
           title={engine ? `Recent ${SHORT_NAME[engine]} games` : 'Recent games'}
-          intro={`The ${formatInt(all.length)} most recent, newest first${pages > 1 ? `, ${PAGE} to a page` : ''}. Each row opens the game's replay; the last column opens its match.`}
+          intro={`All ${formatInt(total)}, newest first${pages > 1 ? `, ${PAGE} to a page` : ''}. Each row opens the game's replay; the last column opens its match.`}
           action={engine && <TextLink href={href(null)}>All four engines</TextLink>}
         />
         {shown.length === 0 ? (

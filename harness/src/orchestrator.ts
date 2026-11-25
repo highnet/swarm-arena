@@ -457,6 +457,43 @@ export const next = async (opts: NextOptions = {}) => {
 Nothing on the board needs ${opts.only!.join(", ")} right now. Stop; the next tick looks again.`;
 };
 
+/**
+ * The verdict's reasoning goes next to the work (#227): a comment on the open hand-off (or other
+ * thread) that cites the PR or the issue it delivers. With no such thread nothing is posted; the
+ * verdict itself is on GitHub either way.
+ */
+const verdictOnBoard = async (
+  pull: Pull,
+  seat: string,
+  decision: string,
+  note: string,
+) => {
+  const { listThreads, postMessage } = await import("./messages");
+  const issue = deliveredIssue(pull)?.issue;
+  const cited = (
+    await Promise.all(
+      [pull.number, issue]
+        .filter((n): n is number => !!n)
+        .map((n) => listThreads({ ref: `#${n}`, status: "open", limit: 50 })),
+    )
+  )
+    .flat()
+    .filter((t) => t.root.kind !== "retro");
+  const thread =
+    cited.find((t) => t.root.kind === "handoff") ?? cited[0] ?? null;
+  if (!thread) return;
+  await postMessage({
+    seat,
+    replyTo: thread.root.id,
+    kind: decision === "approve" ? "decision" : "comment",
+    body: `Review of pr#${pull.number}: ${decision === "approve" ? "approved" : "changes requested"}. ${note}`.slice(
+      0,
+      2000,
+    ),
+  });
+  log(`verdict posted on thread msg#${thread.root.id}`);
+};
+
 /** Record a reviewer verdict through Rallypoint, under a reviewer lease. */
 export const verdict = async (pr: number, decision: string, note: string) => {
   if (!["approve", "request-changes"].includes(decision))
@@ -514,6 +551,9 @@ export const verdict = async (pr: number, decision: string, note: string) => {
       detail: note,
     });
   }
+  await verdictOnBoard(pull, reviewer, decision, note).catch((e) =>
+    log(`verdict not posted on the board: ${(e as Error).message}`),
+  );
   // Still working: the session goes on to its retro, which is what marks the seat idle.
   await setAgent(reviewer, {
     activity:
@@ -716,12 +756,52 @@ const reconcileClaim = async (pull: Pull, sha: string) => {
   return `reconciled: ${parts.join(", ")}${clean ? "" : " (a janitor pass will reconcile the rest)"}`;
 };
 
+/** A retro the board gate refused: the CLI prints it and exits 2, the seat stays working. */
+export class RetroRefused extends Error {}
+
+/**
+ * The line a retro ends with (#227), so a reviewer reads on the board whether the session talked:
+ * the threads it commented on or resolved, or why none applied. A session that did neither while
+ * threads wait on it is refused once, with the list, instead of leaving another broadcast.
+ */
+export const boardLine = async (
+  noReply?: string,
+): Promise<{ line: string } | { refuse: string }> => {
+  const { readLedger, waitingOn, formatWaiting } = await import("./messages");
+  const l = readLedger();
+  const threads = [...new Set(l.replies.map(([, t]) => t))];
+  if (threads.length || l.resolved.length)
+    return {
+      line: `Board: ${[
+        threads.length &&
+          `replied on ${threads.map((t) => `msg#${t}`).join(" ")}`,
+        l.resolved.length &&
+          `resolved ${l.resolved.map((t) => `msg#${t}`).join(" ")}`,
+      ]
+        .filter(Boolean)
+        .join("; ")}.`,
+    };
+  if (noReply?.trim()) return { line: `Board: no reply (${noReply.trim()}).` };
+  const waiting = await waitingOn(l, 6).catch(() => []);
+  if (!waiting.length)
+    return { line: "Board: nothing was waiting on this session." };
+  return {
+    refuse: `Not posted: this session has not replied on the board, and ${waiting.length} thread(s) wait on its role:
+${formatWaiting(waiting)}
+Reply on one with what you used, found or decided (npm run arena -- comment <id> "..." --as <seat>),
+or resolve one that is settled (npm run arena -- resolve <id> --as <seat> --note "..."), then retro again.
+If none of them is yours to answer, say why: npm run arena -- retro "..." --as <seat> --no-reply "<why>".`,
+  };
+};
+
 /** A retro: what slowed this session down, or what would make the protocol better. */
-export const retro = async (seat: string, body: string) => {
+export const retro = async (seat: string, body: string, noReply?: string) => {
   const { postMessage } = await import("./messages");
+  const board = await boardLine(noReply);
+  if ("refuse" in board) throw new RetroRefused(board.refuse);
   const { message: msg } = await postMessage({
     seat,
-    body,
+    body: `${body.trim()}\n\n${board.line}`,
     kind: "retro",
     tags: ["retro"],
   });
