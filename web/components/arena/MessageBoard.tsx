@@ -15,6 +15,7 @@ import {
 } from '@arena/shared';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { Segmented } from '@/components/ui/Segmented';
 import { Typography } from '@/components/ui/Typography';
 import { formatDay, formatTime } from '@/lib/format';
 import { SHORT_NAME, TRACK_ORDER } from '@/lib/tracks';
@@ -208,11 +209,7 @@ const MessageBoard = ({ messages, seats, slots, limit, pageSize }: MessageBoardP
   return (
     <div data-slot="message-board">
       <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2">
-        <div
-          role="group"
-          aria-label="Engine"
-          className="flex flex-wrap gap-0.5 rounded-md bg-bg p-0.5"
-        >
+        <Segmented label="Engine" wrap>
           <Button
             variant="segment"
             size="xs"
@@ -232,9 +229,9 @@ const MessageBoard = ({ messages, seats, slots, limit, pageSize }: MessageBoardP
               {SHORT_NAME[t]}
             </Button>
           ))}
-        </div>
+        </Segmented>
         {!compact && (
-          <div role="group" aria-label="Status" className="flex gap-0.5 rounded-md bg-bg p-0.5">
+          <Segmented label="Status">
             {STATUS_FILTERS.map((f) => (
               <Button
                 key={f.id}
@@ -246,7 +243,7 @@ const MessageBoard = ({ messages, seats, slots, limit, pageSize }: MessageBoardP
                 {f.label}
               </Button>
             ))}
-          </div>
+          </Segmented>
         )}
       </div>
       {!compact && tagCounts.length > 0 && (

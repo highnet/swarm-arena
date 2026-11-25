@@ -7,7 +7,12 @@
 #
 # After the build, Impeccable's `detect` scans every page route at 1440 and 390 px against the
 # production server (#218) and writes one table per route to the job summary. It reports, it does
-# not gate: each route's redesign (#229-#233) quotes its row before and after.
+# not gate: each route's redesign (#229-#233) quotes its row before and after. Then the
+# horizontal-overflow sweep (#249, web/scripts/overflow-check.mjs) does gate: no route may scroll
+# sideways on a 320 or 390 px phone. To keep it cheap it installs only the playwright npm
+# package and drives the runner's preinstalled Google Chrome (OVERFLOW_CHROME_CHANNEL=chrome);
+# `playwright install --with-deps chromium` would add about 2.5 min of apt and download to every
+# web pull request, so do not bring it back.
 name: web-checks
 
 on:
@@ -50,6 +55,17 @@ jobs:
           npx next start -p 3000 > ../next-start.log 2>&1 &
           for i in $(seq 1 60); do curl -fs -o /dev/null http://localhost:3000/ && break; sleep 1; done
           node scripts/impeccable-routes.mjs http://localhost:3000 --json ../impeccable-routes.json
+      - name: Horizontal overflow, every route at 320 and 390 px
+        # Gates (#249): real phone emulation (iPhone SE, iPhone 13), both themes, menus and
+        # disclosures opened. Fails when anything scrolls the page sideways.
+        working-directory: web
+        env:
+          OVERFLOW_CHROME_CHANNEL: chrome
+        run: |
+          npm i --no-save --no-audit --no-fund playwright@1.63.0 > /dev/null
+          curl -fs -o /dev/null http://localhost:3000/ || (npx next start -p 3000 >> ../next-start.log 2>&1 &)
+          for i in $(seq 1 60); do curl -fs -o /dev/null http://localhost:3000/ && break; sleep 1; done
+          node scripts/overflow-check.mjs http://localhost:3000
       - name: Keep the detect report
         if: always()
         uses: actions/upload-artifact@v4

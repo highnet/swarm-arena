@@ -353,6 +353,36 @@ a {
   background: var(--bg);
   padding: 0.75rem;
 }
+/*
+ * Rendered Markdown must never be wider than its column on a phone (#249): a wide table scrolls
+ * inside itself, media shrink to fit, and long unbroken tokens (SHAs, branch names, URLs, agent
+ * ids) break instead of pushing the page sideways.
+ */
+:is(.playbook, .article) {
+  overflow-wrap: anywhere;
+}
+.article pre {
+  overflow-x: auto;
+  overflow-wrap: normal;
+}
+:is(.playbook, .article) table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+:is(.playbook, .article) :is(th, td) {
+  border-bottom: 1px solid var(--line);
+  padding: 0.375rem 0.75rem 0.375rem 0;
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: normal;
+}
+:is(.playbook, .article) :is(img, video, svg, canvas, iframe) {
+  max-width: 100%;
+  height: auto;
+}
 .playbook a {
   color: var(--fg);
   text-decoration: underline;

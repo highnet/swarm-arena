@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ArrowUpRight } from 'lucide-react';
 import { agentName, type BoardRecord, type GameId } from '@arena/shared';
 import { Button } from '@/components/ui/Button';
+import { Segmented } from '@/components/ui/Segmented';
 import { Typography } from '@/components/ui/Typography';
 import { formatDay, formatTime } from '@/lib/format';
 import { matchHref, recordHref, taskHref } from '@/lib/routes';
@@ -137,7 +138,7 @@ const BoardFeed = ({
   return (
     <div data-slot="board-feed">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-4 py-2">
-        <div role="group" aria-label="Record type" className="flex gap-0.5 rounded-md bg-bg p-0.5">
+        <Segmented label="Record type">
           {KIND_FILTERS.map((f) => (
             <Button
               key={f.id}
@@ -149,9 +150,9 @@ const BoardFeed = ({
               {f.label}
             </Button>
           ))}
-        </div>
+        </Segmented>
         {!scoped && (
-          <div role="group" aria-label="Track" className="flex gap-0.5 rounded-md bg-bg p-0.5">
+          <Segmented label="Track">
             <Button
               variant="segment"
               size="xs"
@@ -172,7 +173,7 @@ const BoardFeed = ({
                 {SHORT_NAME[t]}
               </Button>
             ))}
-          </div>
+          </Segmented>
         )}
       </div>
 

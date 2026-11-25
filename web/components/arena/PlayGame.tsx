@@ -5,6 +5,7 @@ import { Chess } from 'chess.js';
 import { RotateCcw } from 'lucide-react';
 import { GAMES, goParse, goSquare, type ChessState, type GameId } from '@arena/shared';
 import { Button } from '@/components/ui/Button';
+import { Segmented } from '@/components/ui/Segmented';
 import { Typography } from '@/components/ui/Typography';
 import { useEngine } from '@/lib/useEngine';
 import { cn } from '@/lib/utils';
@@ -202,11 +203,7 @@ const PlayGame = ({ game, wasmUrl, engineLabel }: PlayGameProps) => {
           <Typography variant="label" as="h3" className="mt-4">
             Engine thinking time
           </Typography>
-          <div
-            role="group"
-            aria-label="Engine thinking time"
-            className="mt-2 flex gap-0.5 rounded-md bg-bg p-0.5"
-          >
+          <Segmented label="Engine thinking time" className="mt-2">
             {THINK.map((t) => (
               <Button
                 key={t.ms}
@@ -218,7 +215,7 @@ const PlayGame = ({ game, wasmUrl, engineLabel }: PlayGameProps) => {
                 {t.label}
               </Button>
             ))}
-          </div>
+          </Segmented>
         </div>
 
         {moves.length > 0 && (

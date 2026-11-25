@@ -4,6 +4,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { Check, Copy, Gavel, Hammer, Radar, Wrench, type LucideIcon } from 'lucide-react';
 import type { GameId } from '@arena/shared';
 import { Button } from '@/components/ui/Button';
+import { Segmented } from '@/components/ui/Segmented';
 import { Typography } from '@/components/ui/Typography';
 import { SHORT_NAME, TRACK_ORDER } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
@@ -200,13 +201,9 @@ const Field = ({ label, hint, children }: FieldProps) => (
       </Typography>
       {hint && <span className="text-xs text-fg-3">{hint}</span>}
     </div>
-    <div
-      role="group"
-      aria-label={label}
-      className="mt-1.5 flex flex-wrap gap-0.5 rounded-md bg-bg p-0.5"
-    >
+    <Segmented label={label} wrap className="mt-1.5">
       {children}
-    </div>
+    </Segmented>
   </div>
 );
 
