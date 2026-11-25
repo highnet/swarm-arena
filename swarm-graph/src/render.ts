@@ -640,18 +640,18 @@ export const createSwarmGraph = (
     { from: LayoutPoint; to: LayoutPoint; start: number; ms: number }
   >();
   /**
-   * A switch between ring and grid waiting for the canvas to stop changing size (#272): the time
-   * of the last resize, or 0. The page reflows over a few frames, so the graph is re-placed once,
-   * at the size it ends at, rather than once per intermediate size.
+   * A resize waiting for the canvas to stop changing size (#272): when it last changed (0: none
+   * pending), and the arrangement the graph was laid out in before it. A page reflow resizes the
+   * canvas in a few steps over a few hundred ms, so the graph is re-fitted once, at the size it
+   * ends at, rather than once per step (each would turn every glide in flight).
    */
-  let regrid = 0;
-  /**
-   * Quiet time before a pending ring/grid switch is re-placed, and its glide (ms). A page reflow
-   * resizes the canvas over a few hundred ms with gaps of up to ~80 ms between steps.
-   */
-  const REGRID_QUIET_MS = 90;
-  const REGRID_MOVE_MS = 320;
-  /** The glide the next layout gives its moves: shorter for a ring/grid switch. */
+  let resized = 0;
+  let resizedFrom: SectorArrangement['kind'] | null = null;
+  /** Quiet time before a pending resize is applied (the gaps between reflow steps reach ~80 ms). */
+  const RESIZE_QUIET_MS = 90;
+  /** The glide of a resize's re-fit: one quick move, so it is over soon after the page settles. */
+  const RESIZE_MOVE_MS = 320;
+  /** The glide the next layout gives its moves. */
   let moveMs: number = MOVE.durationMs;
 
   const colorOf = (n: SwarmNode) => n.color ?? theme.neutral;
@@ -2080,15 +2080,7 @@ export const createSwarmGraph = (
   const timer = d3.timer(() => {
     const now = performance.now();
     if (intro) stepIntro(now);
-    if (regrid && now - regrid >= REGRID_QUIET_MS) {
-      regrid = 0;
-      places.clear();
-      homes.clear();
-      placedBy.clear();
-      moveMs = REGRID_MOVE_MS;
-      relayout();
-      moveMs = MOVE.durationMs;
-    }
+    if (resized && now - resized >= RESIZE_QUIET_MS) refit();
     if (pending) runLayout(SLICE_MS);
     const moved = stepMoves(now);
     if (stepLife(now) || moved) draw();
@@ -2745,29 +2737,44 @@ export const createSwarmGraph = (
     if (on) bursts = [];
   };
 
+  /** Apply a resize once its reflow is over: the one re-fit it makes. */
+  const refit = () => {
+    const from = resizedFrom;
+    resized = 0;
+    resizedFrom = null;
+    moveMs = RESIZE_MOVE_MS;
+    if (arrangement().kind !== from) {
+      // Ring to grid or back (#272): the sectors stand somewhere else, so everything is placed
+      // afresh around them, each node gliding from where it stands.
+      places.clear();
+      homes.clear();
+      placedBy.clear();
+      relayout();
+    } else {
+      // The layout stretches with the canvas, once: every place scales with the ring, overlaps
+      // the new sizes make are cleared, and each node glides there. Back to the old size, back
+      // home.
+      const R = ringRadii();
+      for (const [id, h] of homes)
+        if (places.has(id)) places.set(id, { x: h.x * R.x, y: h.y * R.y });
+      relayout(true);
+    }
+    moveMs = MOVE.durationMs;
+  };
+
   const observer = new ResizeObserver(() => {
     const w = Math.max(200, container.clientWidth);
     const h = Math.max(200, container.clientHeight);
     if (w === width && h === height) return;
-    const kind = arrangement().kind;
+    resizedFrom ??= arrangement().kind;
     width = w;
     height = h;
     finishIntro();
     setViewBox();
     placeRing();
     resize();
-    if (arrangement().kind !== kind || regrid) {
-      // Ring to grid or back (#272): the sectors stand somewhere else, so everything is placed
-      // afresh around them, once the canvas has stopped changing size, each node gliding from
-      // where it stands (see the timer).
-      regrid = performance.now();
-      return;
-    }
-    // The layout stretches with the canvas, once: every place scales with the ring, overlaps the
-    // new sizes make are cleared, and each node glides there. Back to the old size, back home.
-    const R = ringRadii();
-    for (const [id, h] of homes) if (places.has(id)) places.set(id, { x: h.x * R.x, y: h.y * R.y });
-    relayout(true);
+    // The nodes move once the canvas stops changing size (`refit`, from the timer).
+    resized = performance.now();
   });
   observer.observe(container);
 
