@@ -645,8 +645,11 @@ export const createSwarmGraph = (
    * at the size it ends at, rather than once per intermediate size.
    */
   let regrid = 0;
-  /** Quiet time before a pending ring/grid switch is re-placed, and its glide (ms). */
-  const REGRID_QUIET_MS = 32;
+  /**
+   * Quiet time before a pending ring/grid switch is re-placed, and its glide (ms). A page reflow
+   * resizes the canvas over a few hundred ms with gaps of up to ~80 ms between steps.
+   */
+  const REGRID_QUIET_MS = 90;
   const REGRID_MOVE_MS = 320;
   /** The glide the next layout gives its moves: shorter for a ring/grid switch. */
   let moveMs: number = MOVE.durationMs;
