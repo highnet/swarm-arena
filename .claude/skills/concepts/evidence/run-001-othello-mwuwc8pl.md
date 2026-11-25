@@ -1,0 +1,1 @@
+- 2026-11-25 · **endgame solver** · Othello · buried: The sequential test against v0.6 decided no gain: 93 pairs (186 games), score 46.0% (-28 Elo vs main), LLR -3.01 in [-2.89, 2.25], H0 -20 vs H1 +30, α = 0.1, β = 0.05. · Resubmit #160 unchanged on the sequential gate: transposition table in the exact endgame solver (commit 7024682)

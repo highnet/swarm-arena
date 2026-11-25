@@ -485,3 +485,4 @@ within the noise.
 - 2026-11-24 10:59 UTC · v0.6 passed the referee · Transposition table in the midgame search, ported from chess's shipped TT and judged against v0.5 · rated 1427 (+153)
 - 2026-11-24 14:38 UTC · buried · Transposition table inside the exact endgame solver, then raise SOLVE_EMPTIES if the saving buys a ply · Rated 1413 ± 116, not above 1427.
 - 2026-11-24 15:35 UTC · buried · PVS and history-heuristic move ordering in the Othello midgame search, ported from chess v0.5 · Rated 1295 ± 138, not above 1427.
+- 2026-11-25 13:33 UTC · buried · Resubmit #160 unchanged on the sequential gate: transposition table in the exact endgame solver (commit 7024682) · The sequential test against v0.6 decided no gain: 93 pairs (186 games), score 46.0% (-28 Elo vs main), LLR -3.01 in [-2.89, 2.25], H0 -20 vs H1 +30, α = 0.1, β = 0.05.
