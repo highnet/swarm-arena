@@ -6,6 +6,7 @@ import { MatchFacts } from '@/components/arena/Detail';
 import { GameReplay } from '@/components/arena/GameReplay';
 import { NextSteps, engineSteps } from '@/components/arena/NextSteps';
 import { PageSkeleton } from '@/components/arena/PageSkeleton';
+import { SidesLegend } from '@/components/arena/SideSwatch';
 import { Disclosure } from '@/components/ui/Disclosure';
 import { Section } from '@/components/ui/Section';
 import { SectionHeading } from '@/components/ui/SectionHeading';
@@ -15,6 +16,7 @@ import { Typography } from '@/components/ui/Typography';
 import { getMatchGames, getSnapshot } from '@/lib/data';
 import { gameHref, rungHref, versionHref, versionOf } from '@/lib/routes';
 import { formatDay, formatElo, formatTime } from '@/lib/format';
+import { gameSides, sideNames } from '@/lib/sides';
 import { SERIES } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
 
@@ -54,13 +56,13 @@ const MatchContent = async ({ params }: MatchPageProps) => {
   );
   const total = match.wins + match.draws + match.losses;
   const points = match.wins + match.draws / 2;
-  const firstLabel = track.id === 'chess' ? 'White' : 'Black';
   const shipped = s.records.some(
     (r) =>
       r.kind === 'patch_landed' && r.track_id === track.id && versionOf(r) === match.engine_version,
   );
   const rung = s.rungs.find((r) => r.track_id === track.id && r.label === match.opponent);
-  const engine = `${track.name} ${match.engine_version}`;
+  // One naming scheme for both sides, everywhere on the page (#263).
+  const { engine, opponent } = sideNames(track.id, match.engine_version, match.opponent);
   const stored = games.length === total ? `All ${total}` : `${games.length} of ${total}`;
 
   return (
@@ -73,11 +75,11 @@ const MatchContent = async ({ params }: MatchPageProps) => {
           level="page"
           space="none"
           id="match-title"
-          title={`${engine} vs ${match.opponent}`}
+          title={`${engine} vs ${opponent}`}
           intro={
             total > 0
-              ? `${engine} scored ${points} of ${total} against ${match.opponent}, a performance of ${formatElo(match.elo)}.`
-              : `${engine} against ${match.opponent}. No games have finished yet.`
+              ? `${engine} scored ${points} of ${total} against ${opponent}, a performance of ${formatElo(match.elo)}.`
+              : `${engine} against ${opponent}. No games have finished yet.`
           }
         />
         <p className="mt-10 flex flex-wrap items-center gap-x-3 gap-y-1 text-[15px] text-fg-3">
@@ -137,9 +139,16 @@ const MatchContent = async ({ params }: MatchPageProps) => {
                   summary={
                     <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-4 gap-y-1">
                       <span>Game {i + 1}</span>
-                      <span className="text-[15px] font-normal text-fg-2">
-                        {firstLabel}: {g.engine_first ? match.engine_version : match.opponent}
-                      </span>
+                      <SidesLegend
+                        game={track.id}
+                        sides={gameSides(
+                          track.id,
+                          match.engine_version,
+                          match.opponent,
+                          g.engine_first,
+                        )}
+                        className="text-[15px] font-normal text-fg-2"
+                      />
                       <span
                         className={cn(
                           'font-mono text-[15px] font-normal tabular',
@@ -164,11 +173,7 @@ const MatchContent = async ({ params }: MatchPageProps) => {
                     />
                     <div>
                       <Typography variant="intro">
-                        {score === 1
-                          ? `${engine} won`
-                          : score === 0
-                            ? `${match.opponent} won`
-                            : 'A draw'}
+                        {score === 1 ? `${engine} won` : score === 0 ? `${opponent} won` : 'A draw'}
                         {g.termination !== 'rules' ? ` (${g.termination})` : ''}, in {g.ply_count}{' '}
                         plies.
                       </Typography>
@@ -202,7 +207,7 @@ const MatchContent = async ({ params }: MatchPageProps) => {
                     {match.engine_version}, the version
                   </TextLink>
                 )}
-                {rung && <TextLink href={rungHref(rung)}>{match.opponent}, the opponent</TextLink>}
+                {rung && <TextLink href={rungHref(rung)}>{opponent}, the opponent</TextLink>}
               </>
             )
           }

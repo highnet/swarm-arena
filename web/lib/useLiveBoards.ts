@@ -34,6 +34,7 @@ const gameOf = (r: LiveGameRow) => ({
   track: r.track_id,
   moves: r.moves,
   opponent: r.opponent,
+  engineFirst: r.engine_first,
   finishedAt: r.updated_at,
 });
 

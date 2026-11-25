@@ -51,7 +51,7 @@ const Stone = ({ c, x, y, r }: StoneProps) => (
     cy={y}
     r={r}
     fill={c === 'b' ? 'var(--stone-black)' : 'var(--stone-white)'}
-    stroke={c === 'b' ? 'oklch(0.45 0.008 265)' : 'oklch(0.7 0.006 265)'}
+    stroke={c === 'b' ? 'var(--stone-black)' : 'var(--stone-rim)'}
     strokeWidth={1}
   />
 );
@@ -193,14 +193,23 @@ type GoBoardProps = {
 const GoBoard = ({ view, motion, ...interaction }: GoBoardProps) => {
   const n = view.cols;
   const s = 34;
-  const pad = 26;
+  const pad = 32;
+  /** The ground stops short of the coordinates, so they sit on the panel, not the board. */
+  const inset = 14;
   const size = (n - 1) * s + pad * 2;
   const stars = [2 * n + 2, 2 * n + 6, 4 * n + 4, 6 * n + 2, 6 * n + 6];
   return (
     <svg viewBox={`0 0 ${size} ${size}`} className="block h-auto w-full">
-      <rect x={0} y={0} width={size} height={size} rx={6} fill="var(--square-light)" />
+      <rect
+        x={inset}
+        y={inset}
+        width={size - 2 * inset}
+        height={size - 2 * inset}
+        rx={6}
+        fill="var(--square-light)"
+      />
       {Array.from({ length: n }, (_, i) => (
-        <g key={i} stroke="oklch(0.22 0.006 265)" strokeWidth={1}>
+        <g key={i} stroke="var(--board-line)" strokeWidth={1}>
           <line x1={pad} y1={pad + i * s} x2={pad + (n - 1) * s} y2={pad + i * s} />
           <line x1={pad + i * s} y1={pad} x2={pad + i * s} y2={pad + (n - 1) * s} />
         </g>
@@ -211,7 +220,7 @@ const GoBoard = ({ view, motion, ...interaction }: GoBoardProps) => {
           cx={pad + (i % n) * s}
           cy={pad + Math.floor(i / n) * s}
           r={2.5}
-          fill="oklch(0.22 0.006 265)"
+          fill="var(--board-line)"
         />
       ))}
       {view.cells.map((c, i) => {
@@ -250,10 +259,10 @@ const GoBoard = ({ view, motion, ...interaction }: GoBoardProps) => {
       ))}
       {Array.from({ length: n }, (_, i) => (
         <g key={i} className="fill-fg-3 font-mono text-[10px]">
-          <text x={pad + i * s} y={size - 7} textAnchor="middle">
+          <text x={pad + i * s} y={size - 4} textAnchor="middle">
             {GO_COLS[i]}
           </text>
-          <text x={9} y={pad + i * s + 3.5} textAnchor="middle">
+          <text x={7} y={pad + i * s + 3.5} textAnchor="middle">
             {n - i}
           </text>
         </g>
@@ -274,7 +283,7 @@ const OthelloBoard = ({ view, motion, ...interaction }: OthelloBoardProps) => {
     <svg viewBox={`0 0 ${8 * s + pad} ${8 * s + pad}`} className="block h-auto w-full">
       <rect x={pad} y={0} width={8 * s} height={8 * s} rx={4} fill="var(--square-light)" />
       {Array.from({ length: 9 }, (_, i) => (
-        <g key={i} stroke="oklch(0.25 0.006 265)" strokeWidth={1}>
+        <g key={i} stroke="var(--board-line)" strokeWidth={1}>
           <line x1={pad} y1={i * s} x2={pad + 8 * s} y2={i * s} />
           <line x1={pad + i * s} y1={0} x2={pad + i * s} y2={8 * s} />
         </g>
@@ -357,45 +366,69 @@ const HexBoard = ({ view, motion, ...interaction }: HexBoardProps) => {
       return `${k ? 'L' : 'M'}${(x + r * Math.cos(a)).toFixed(2)} ${(y + r * Math.sin(a)).toFixed(2)}`;
     }).join('') + 'Z';
   const edge = 5;
+  // The rhombus the cells fill, and a ground around it wide enough to hold each side's goal edge.
+  const ground = [
+    [cx(0, 0) - w / 2, cy(0) - r / 2],
+    [cx(0, n - 1) + w / 2, cy(0) - r / 2],
+    [cx(n - 1, n - 1) + w / 2, cy(n - 1) + r / 2],
+    [cx(n - 1, 0) - w / 2, cy(n - 1) + r / 2],
+  ]
+    .map(([px, py]) => `${px.toFixed(2)},${py.toFixed(2)}`)
+    .join(' ');
+  // Black connects top and bottom, White left and right (rules library, #263): each goal edge in
+  // its own side's colour, on the board's ground so both colours stand out.
+  const goals: { side: 'b' | 'w'; x1: number; y1: number; x2: number; y2: number }[] = [
+    {
+      side: 'b',
+      x1: cx(0, 0) - w / 2,
+      y1: cy(0) - r - edge,
+      x2: cx(0, n - 1) + w / 2,
+      y2: cy(0) - r - edge,
+    },
+    {
+      side: 'b',
+      x1: cx(n - 1, 0) - w / 2,
+      y1: cy(n - 1) + r + edge,
+      x2: cx(n - 1, n - 1) + w / 2,
+      y2: cy(n - 1) + r + edge,
+    },
+    {
+      side: 'w',
+      x1: cx(0, 0) - w / 2 - edge,
+      y1: cy(0) - r / 2,
+      x2: cx(n - 1, 0) - w / 2 - edge,
+      y2: cy(n - 1) + r / 2,
+    },
+    {
+      side: 'w',
+      x1: cx(0, n - 1) + w / 2 + edge,
+      y1: cy(0) - r / 2,
+      x2: cx(n - 1, n - 1) + w / 2 + edge,
+      y2: cy(n - 1) + r / 2,
+    },
+  ];
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="block h-auto w-full">
-      {/* Black connects top-bottom, White connects left-right. */}
-      <line
-        x1={cx(0, 0) - w / 2}
-        y1={cy(0) - r - edge}
-        x2={cx(0, n - 1) + w / 2}
-        y2={cy(0) - r - edge}
-        stroke="var(--stone-black)"
-        strokeWidth={4}
-        strokeLinecap="round"
+      <polygon
+        points={ground}
+        fill="var(--square-dark)"
+        stroke="var(--square-dark)"
+        strokeWidth={2 * (r + edge)}
+        strokeLinejoin="round"
       />
-      <line
-        x1={cx(n - 1, 0) - w / 2}
-        y1={cy(n - 1) + r + edge}
-        x2={cx(n - 1, n - 1) + w / 2}
-        y2={cy(n - 1) + r + edge}
-        stroke="var(--stone-black)"
-        strokeWidth={4}
-        strokeLinecap="round"
-      />
-      <line
-        x1={cx(0, 0) - w / 2 - edge}
-        y1={cy(0) - r / 2}
-        x2={cx(n - 1, 0) - w / 2 - edge}
-        y2={cy(n - 1) + r / 2}
-        stroke="var(--stone-white)"
-        strokeWidth={4}
-        strokeLinecap="round"
-      />
-      <line
-        x1={cx(0, n - 1) + w / 2 + edge}
-        y1={cy(0) - r / 2}
-        x2={cx(n - 1, n - 1) + w / 2 + edge}
-        y2={cy(n - 1) + r / 2}
-        stroke="var(--stone-white)"
-        strokeWidth={4}
-        strokeLinecap="round"
-      />
+      {goals.map((g, k) => (
+        <line
+          key={k}
+          data-goal={g.side}
+          x1={g.x1}
+          y1={g.y1}
+          x2={g.x2}
+          y2={g.y2}
+          stroke={g.side === 'b' ? 'var(--stone-black)' : 'var(--stone-white)'}
+          strokeWidth={4}
+          strokeLinecap="round"
+        />
+      ))}
       {view.cells.map((c, i) => {
         const row = Math.floor(i / n);
         const col = i % n;
@@ -408,7 +441,7 @@ const HexBoard = ({ view, motion, ...interaction }: HexBoardProps) => {
             <path
               d={hexPath(x, y)}
               fill={(!pops && stone) || 'var(--square-light)'}
-              stroke="var(--panel)"
+              stroke="var(--square-dark)"
               strokeWidth={1.5}
             />
             {pops && stone && (
@@ -416,7 +449,7 @@ const HexBoard = ({ view, motion, ...interaction }: HexBoardProps) => {
                 key={fxKey(motion, i)}
                 d={hexPath(x, y)}
                 fill={stone}
-                stroke="var(--panel)"
+                stroke="var(--square-dark)"
                 strokeWidth={1.5}
                 className={POP}
               />
