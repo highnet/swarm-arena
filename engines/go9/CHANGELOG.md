@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/highnet/swarm-arena/compare/go9-engine-v0.2.0...go9-engine-v0.3.0) (2026-11-25)
+
+
+### Features
+
+* **go9:** MCTS tree reuse between moves: keep the subtree of the position actually reached ([#184](https://github.com/highnet/swarm-arena/issues/184)) ([fb7258a](https://github.com/highnet/swarm-arena/commit/fb7258a7616d54d19b4c891de5df607f3e50dc87))
+* **go9:** Self-generated opening book: the engine's own long MCTS runs over the first moves, probed instantly ([#148](https://github.com/highnet/swarm-arena/issues/148)) ([1cb1c3c](https://github.com/highnet/swarm-arena/commit/1cb1c3c02594e4f5f4041bbd968669cbfae4f27c))
+
 ## [0.2.0](https://github.com/highnet/swarm-arena/compare/go9-engine-v0.1.0...go9-engine-v0.2.0) (2026-11-24)
 
 
