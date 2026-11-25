@@ -27,6 +27,7 @@ import {
   type SwarmStage,
 } from '@rallypoint/swarm-graph';
 import { Button } from '@/components/ui/Button';
+import { Segmented } from '@/components/ui/Segmented';
 import { Typography } from '@/components/ui/Typography';
 import { formatDay, formatTime } from '@/lib/format';
 import { onLive, type LiveChange } from '@/lib/liveBus';
@@ -383,11 +384,7 @@ const PresetSwitch = ({ value, onChange }: PresetSwitchProps) => (
     <Typography variant="label" as="span" className="shrink-0">
       Show
     </Typography>
-    <div
-      role="group"
-      aria-label="Events shown"
-      className="hidden items-center gap-0.5 rounded-md border border-line bg-panel p-0.5 sm:flex"
-    >
+    <Segmented label="Events shown" tone="raised" className="hidden items-center sm:flex">
       {PRESETS.map((p) => (
         <Button
           key={p.id}
@@ -400,7 +397,7 @@ const PresetSwitch = ({ value, onChange }: PresetSwitchProps) => (
           {p.label}
         </Button>
       ))}
-    </div>
+    </Segmented>
     <select
       aria-label="Events shown"
       value={value}
