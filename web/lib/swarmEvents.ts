@@ -558,6 +558,8 @@ export type EngineGame = {
   track: GameId;
   moves: string[];
   opponent: string;
+  /** Did the engine move first? Its colour on the board follows (lib/sides, #263). */
+  engineFirst: boolean;
   result: 'win' | 'loss' | 'draw';
   finishedAt: string;
   /** The referee's match; null for an `arena versus` game, which has none (#163, #262). */
@@ -588,6 +590,7 @@ export const gameOfRow = (
     track: g.track_id,
     moves: g.moves,
     opponent: opponent ?? 'opponent',
+    engineFirst: g.engine_first,
     result: score > 0.5 ? 'win' : score < 0.5 ? 'loss' : 'draw',
     finishedAt: g.finished_at,
     matchId: g.match_id,

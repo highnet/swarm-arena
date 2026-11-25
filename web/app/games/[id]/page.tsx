@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Facts } from '@/components/arena/Detail';
 import { PageSkeleton } from '@/components/arena/PageSkeleton';
+import { SideLabel, SidesLegend } from '@/components/arena/SideSwatch';
 import { GameReplay } from '@/components/arena/GameReplay';
 import { NextSteps, engineSteps } from '@/components/arena/NextSteps';
 import { FullBleed } from '@/components/ui/FullBleed';
@@ -16,6 +17,7 @@ import { getGame, getMatchGames, getSnapshot } from '@/lib/data';
 import { formatDay, formatElo, formatTime } from '@/lib/format';
 import { moveNotation } from '@/lib/gameExport';
 import { gameHref, matchHref } from '@/lib/routes';
+import { gameSides, sideNames } from '@/lib/sides';
 import { SERIES, SHORT_NAME } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
 
@@ -51,8 +53,9 @@ export const generateMetadata = async (props: GamePageProps): Promise<Metadata> 
   const found = await find(props);
   if (!found) return { title: 'Game' };
   const { game, match } = found;
+  const names = sideNames(game.track_id, match?.engine_version, match?.opponent);
   return {
-    title: `${SHORT_NAME[game.track_id]} ${match?.engine_version ?? ''} vs ${match?.opponent ?? 'opponent'}`,
+    title: `${names.engine} vs ${names.opponent}`,
     alternates: { canonical: gameHref(game.id) },
   };
 };
@@ -63,11 +66,11 @@ const GameContent = async (props: GamePageProps) => {
   const { s, game, match } = found;
   const track = s.tracks.find((t) => t.id === game.track_id);
   const name = SHORT_NAME[game.track_id];
-  const engine = match ? `${name} ${match.engine_version}` : 'Engine';
-  const opponent = match?.opponent ?? 'Opponent';
-  const [first, second] = game.engine_first ? [engine, opponent] : [opponent, engine];
-  const firstLabel = game.track_id === 'chess' ? 'White' : 'Black';
-  const secondLabel = game.track_id === 'chess' ? 'Black' : 'White';
+  // One naming scheme and the colours from the rules library, for every place below (#263).
+  const sides = gameSides(game.track_id, match?.engine_version, match?.opponent, game.engine_first);
+  const [first, second] = sides;
+  const engine = sides.find((x) => x.engine)!.name;
+  const opponent = sides.find((x) => !x.engine)!.name;
   const score = game.engine_first ? game.outcome : 1 - game.outcome;
   const result = score === 1 ? 'Won' : score === 0 ? 'Lost' : 'Draw';
   const how = TERMINATION[game.termination] ?? game.termination;
@@ -98,6 +101,7 @@ const GameContent = async (props: GamePageProps) => {
           title={`${engine} vs ${opponent}`}
           intro={`${summary}, ${how}, in ${game.ply_count} plies.`}
         />
+        <SidesLegend game={game.track_id} sides={sides} className="mt-8 text-[15px] text-fg-2" />
         <p className="mt-10 flex flex-wrap items-center gap-x-3 gap-y-1 text-[15px] text-fg-3">
           <Link
             href={`/engines/${game.track_id}`}
@@ -150,7 +154,7 @@ const GameContent = async (props: GamePageProps) => {
               game={game.track_id}
               moves={game.moves}
               notation={moveNotation(game.track_id, game.moves)}
-              sides={[`${firstLabel} · ${first}`, `${secondLabel} · ${second}`]}
+              sides={sides}
               label={`${engine} vs ${opponent}`}
             />
           ) : (
@@ -183,8 +187,15 @@ const GameContent = async (props: GamePageProps) => {
               ),
               note: how,
             },
-            { label: firstLabel, value: first, note: 'moved first' },
-            { label: secondLabel, value: second },
+            {
+              label: first.colorName,
+              value: <SideLabel game={game.track_id} side={first} withColor={false} />,
+              note: 'moved first',
+            },
+            {
+              label: second.colorName,
+              value: <SideLabel game={game.track_id} side={second} withColor={false} />,
+            },
             {
               label: 'Length',
               value: `${game.ply_count} plies`,

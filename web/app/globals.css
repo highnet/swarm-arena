@@ -49,11 +49,15 @@
   --critical: light-dark(oklch(0.54 0.21 20.4), oklch(0.572 0.21 20.4));
   --critical-text: light-dark(oklch(0.527 0.21 20.4), oklch(0.672 0.21 20.4));
 
-  /* Boards: the ground's own steps, Black and Sulpher Yellow stones, a Yellow (313) last move. */
-  --square-light: light-dark(oklch(0.8 0.05 97.3), oklch(0.4 0.004 229));
-  --square-dark: light-dark(oklch(0.72 0.05 97.3), oklch(0.31 0.004 229));
+  /* Boards (#263): a midtone ground, the ground's hue (Sulpher Yellow by day, Black by night) at
+     a lightness both stones read on (3:1 or more, WCAG 1.4.11), Black and Sulpher Yellow stones,
+     a Black rim on the light stones and pieces, and a Yellow (313) last move. */
+  --square-light: light-dark(oklch(0.62 0.05 97.3), oklch(0.62 0.004 229));
+  --square-dark: light-dark(oklch(0.54 0.05 97.3), oklch(0.54 0.004 229));
+  --board-line: var(--stone-black);
   --stone-black: oklch(0.185 0.004 229);
   --stone-white: oklch(0.975 0.03 97.3);
+  --stone-rim: var(--stone-black);
   --highlight: light-dark(oklch(0.594 0.126 105.7 / 0.35), oklch(0.941 0.2 105.7 / 0.28));
 
   /* Source code: the engine hues (and Diamine Green) at text contrast. */
@@ -97,6 +101,8 @@
   --color-square-dark: var(--square-dark);
   --color-stone-black: var(--stone-black);
   --color-stone-white: var(--stone-white);
+  --color-stone-rim: var(--stone-rim);
+  --color-board-line: var(--board-line);
   --color-highlight: var(--highlight);
 
   /*
@@ -635,10 +641,11 @@ a {
 .chess-play coords {
   font-family: var(--font-mono);
   font-size: 10px;
-  /* Chessground dims coordinates to 80%; on the board squares fg-3 then fell to 2.7:1.
-     Full-strength ink keeps them AA (about 7.5:1 on either square, in both themes). */
-  color: var(--fg);
+  /* Chessground dims coordinates to 80%. The midtone squares (#263) take Black ink in both
+     themes (5.1:1 on the light square), haloed in Sulpher Yellow so it holds on the dark one. */
+  color: var(--board-line);
   opacity: 1;
+  text-shadow: 0 0 2px var(--stone-white);
 }
 
 /* Panels let the board scene behind the page show through faintly, so the parallax reads

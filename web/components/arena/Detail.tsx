@@ -4,6 +4,7 @@ import type { BoardRecord, GameId, Match } from '@arena/shared';
 import { Typography } from '@/components/ui/Typography';
 import { formatDay, formatElo, formatTime } from '@/lib/format';
 import { matchHref, recordHref } from '@/lib/routes';
+import { sideNames } from '@/lib/sides';
 import { cn } from '@/lib/utils';
 import { EngineChip } from './SidePanels';
 import { KINDS, TONE_CLASS } from './recordKinds';
@@ -181,7 +182,12 @@ const MatchFacts = ({ match: m, variant }: MatchFactsProps) => {
           note: `± ${Math.round(m.elo_error)} (95%)`,
           href,
         },
-        { label: 'Opponent', value: m.opponent, note: `rated ${formatElo(m.opponent_elo)}`, href },
+        {
+          label: 'Opponent',
+          value: sideNames(m.track_id, m.engine_version, m.opponent).opponent,
+          note: `rated ${formatElo(m.opponent_elo)}`,
+          href,
+        },
         {
           label: 'Points',
           value: `${m.wins + m.draws / 2} / ${total}`,
