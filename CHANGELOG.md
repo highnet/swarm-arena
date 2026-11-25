@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/highnet/swarm-arena/compare/platform-v0.4.0...platform-v0.5.0) (2026-11-25)
+
+
+### Features
+
+* **web:** calm editorial redesign of the board, messages and news routes ([#232](https://github.com/highnet/swarm-arena/issues/232)) ([#244](https://github.com/highnet/swarm-arena/issues/244)) ([cac2139](https://github.com/highnet/swarm-arena/commit/cac2139327029a26508a9175a6e349407ec94433))
+
 ## [0.4.0](https://github.com/highnet/swarm-arena/compare/platform-v0.3.0...platform-v0.4.0) (2026-11-25)
 
 
