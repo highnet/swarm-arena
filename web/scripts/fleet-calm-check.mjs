@@ -226,23 +226,26 @@ const layouts = await page.evaluate(() =>
 );
 await browser.close();
 
-// The hand-back to live (#279): the agents on screen never peak above both the replay's last
-// frame and the live graph after it, as they would if the whole history flashed up.
-const agentsIn = (f) => Object.keys(f.pos).filter((id) => id.startsWith('agent:')).length;
+// The hand-back to live (#279): every agent on screen around it is one the replay's last frame
+// showed or one the live graph shows after it. The whole history flashing up fails this.
+const agentsOf = (f) => Object.keys(f?.pos ?? {}).filter((id) => id.startsWith('agent:'));
 for (const r of replayRuns) {
   if (r.end === undefined) continue;
-  const during = frames.filter((f) => f.t >= r.start && f.t < r.end - 300).map(agentsIn);
+  const during = frames
+    .filter((f) => f.t >= r.start && f.t < r.end - 300)
+    .map((f) => agentsOf(f).length);
   const before = frames.filter((f) => f.t < r.end - 300).at(-1);
   const after = frames.filter((f) => f.t <= r.end + 3000).at(-1);
-  const around = frames.filter((f) => f.t >= r.end - 300 && f.t <= r.end + 3000).map(agentsIn);
-  const peak = Math.max(0, ...around);
-  const bound = Math.max(before ? agentsIn(before) : 0, after ? agentsIn(after) : 0);
+  const around = frames.filter((f) => f.t >= r.end - 300 && f.t <= r.end + 3000);
+  const allowed = new Set([...agentsOf(before), ...agentsOf(after)]);
+  const extra = new Set(around.flatMap(agentsOf).filter((id) => !allowed.has(id)));
+  const peak = Math.max(0, ...around.map((f) => agentsOf(f).length));
   liveChecks.push([
     `replay (${r.name}): the hand-back to live does not flash the history`,
-    peak <= bound,
-    `agents over the replay ${Math.min(...during)}–${Math.max(...during)}, ` +
-      `last frame ${before ? agentsIn(before) : '?'}, peak at hand-back ${peak}, ` +
-      `live after ${after ? agentsIn(after) : '?'}`,
+    extra.size === 0,
+    `agents over the replay ${Math.min(...during)}–${Math.max(...during)}, last frame ` +
+      `${agentsOf(before).length}, peak at hand-back ${peak}, live after ${agentsOf(after).length}` +
+      (extra.size ? `, ${extra.size} from neither` : ''),
   ]);
 }
 
