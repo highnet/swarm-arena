@@ -508,6 +508,7 @@ export const waitingSection = async (ctx: Parameters<typeof waitingFor>[1]) => {
   const w = await waitingOn(ctx);
   if (!w.length) return "";
   return `
+
 Threads waiting on you (reply with what you used or found, or resolve; no bare acks):
 ${formatWaiting(w)}
 Read one: npm run arena -- thread <id>. Reply: npm run arena -- comment <id> "..." --as <seat>.
