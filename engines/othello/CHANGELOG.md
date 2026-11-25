@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/highnet/swarm-arena/compare/othello-engine-v0.2.0...othello-engine-v0.3.0) (2026-11-25)
+
+
+### Features
+
+* **othello:** Self-generated opening book: the engine's own long searches over the first moves, probed instantly ([#138](https://github.com/highnet/swarm-arena/issues/138)) ([b48dfdc](https://github.com/highnet/swarm-arena/commit/b48dfdc7e49fc37aa20b3f3d0ed1a9dd879d5b12))
+* **othello:** Transposition table in the midgame search, ported from chess's shipped TT and judged against v0.5 ([#156](https://github.com/highnet/swarm-arena/issues/156)) ([cbf289f](https://github.com/highnet/swarm-arena/commit/cbf289ffda3410b19682249c2a5d48193bff3ac3))
+
 ## [0.2.0](https://github.com/highnet/swarm-arena/compare/othello-engine-v0.1.0...othello-engine-v0.2.0) (2026-11-24)
 
 
