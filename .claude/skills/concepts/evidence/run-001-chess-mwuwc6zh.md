@@ -1,0 +1,1 @@
+- 2026-11-25 · **time management** · Chess · v0.10 rated 1530 (-17) · Resubmit #186 unchanged on the sequential gate: spend the clock (commit 3476103)
