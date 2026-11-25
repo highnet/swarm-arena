@@ -1,13 +1,15 @@
 import { Suspense } from 'react';
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ExternalLink } from 'lucide-react';
 import type { GameId } from '@arena/shared';
-import { SkillIcon } from '@/components/arena/SkillIcon';
-import { Typography } from '@/components/ui/Typography';
-import { PageSkeleton } from '@/components/arena/PageSkeleton';
 import { NextSteps } from '@/components/arena/NextSteps';
+import { PageSkeleton } from '@/components/arena/PageSkeleton';
+import { SkillIcon } from '@/components/arena/SkillIcon';
+import { ReadingProgress } from '@/components/ui/ReadingProgress';
+import { Section } from '@/components/ui/Section';
+import { SectionHeading } from '@/components/ui/SectionHeading';
+import { SectionNav, type SectionNavItem } from '@/components/ui/SectionNav';
+import { TextLink } from '@/components/ui/TextLink';
 import { getSnapshot } from '@/lib/data';
 import { pageMeta } from '@/lib/site';
 import { getSkills } from '@/lib/source';
@@ -35,43 +37,67 @@ const SkillContent = async ({ params }: SkillPageProps) => {
     Record<GameId, number>
   >;
   const game = name.replace(/-playbook$/, '');
+  const isPlaybook = name.endsWith('-playbook');
+  // The skill's own chapters are the page's sections; a nav only pays once there are three.
+  const chapters: SectionNavItem[] = [
+    { id: 'overview', label: 'Overview' },
+    ...skill.sections.map((c) => ({ id: c.id, label: c.title })),
+    { id: 'more', label: 'Further reading' },
+  ];
+  const withNav = skill.sections.length >= 2;
+
   return (
-    <main className="mx-auto w-full max-w-4xl px-4 pb-16 pt-6 sm:px-6">
-      <div className="mt-3 flex items-center gap-3">
-        <SkillIcon name={skill.name} slots={slots} />
-        <Typography variant="pageTitle" className="font-mono text-xl sm:text-2xl">
-          {skill.name}
-        </Typography>
-      </div>
-      {skill.description && (
-        <Typography variant="lede" className="mt-3 text-pretty">
-          {skill.description}
-        </Typography>
+    <main className="flex w-full flex-col">
+      {withNav ? (
+        <SectionNav items={chapters} label="Chapters of this skill" />
+      ) : (
+        <ReadingProgress placement="bar" />
       )}
-      <div className="mt-4 flex flex-wrap gap-3 text-xs">
-        <a
-          href={`${REPO_URL}/blob/main/${skill.path}`}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1 text-fg-2 hover:text-fg"
-        >
-          <ExternalLink className="size-3.5" aria-hidden="true" />
-          {skill.path}
-        </a>
-        {name.endsWith('-playbook') && (
-          <Link
-            href={`/engines/${game}`}
-            className="inline-flex items-center gap-1 text-fg-2 hover:text-fg"
-          >
-            Open the engine
-          </Link>
-        )}
-      </div>
-      <article
-        className="playbook mt-6 rounded-lg border border-line bg-panel p-5"
-        dangerouslySetInnerHTML={{ __html: skill.html }}
-      />
-      <NextSteps links={['skills', 'concepts', 'protocol', 'engines']} />
+
+      {/* 1 · What this skill is for, and where it lives. */}
+      <Section id="overview" labelledBy="skill-title" space="roomy">
+        <div className="flex items-start gap-5">
+          <span className="mt-1 hidden sm:block">
+            <SkillIcon name={skill.name} slots={slots} />
+          </span>
+          <SectionHeading
+            level="page"
+            space="none"
+            id="skill-title"
+            title={skill.title}
+            intro={skill.description}
+            action={
+              <>
+                {isPlaybook && <TextLink href={`/engines/${game}`}>Open the engine</TextLink>}
+                <TextLink href={`${REPO_URL}/blob/main/${skill.path}`} external>
+                  The source on GitHub
+                </TextLink>
+              </>
+            }
+          />
+        </div>
+        <p className="mt-10 font-mono text-[13px] text-fg-3 break-words sm:pl-14">{skill.path}</p>
+      </Section>
+
+      {/* 2 · The skill in full, at a reading measure; each of its chapters is a nav stop. */}
+      <Section id="skill" labelledBy="skill-body-title" tone="band">
+        <h2 id="skill-body-title" className="sr-only">
+          The skill in full
+        </h2>
+        <article
+          className="playbook playbook-read"
+          dangerouslySetInnerHTML={{ __html: skill.html }}
+        />
+      </Section>
+
+      {/* Last · Where to go next. */}
+      <Section id="more" labelledBy="next-steps-title" space="compact">
+        <NextSteps
+          variant="list"
+          title="Further reading"
+          links={['skills', 'concepts', 'protocol', 'engines']}
+        />
+      </Section>
     </main>
   );
 };

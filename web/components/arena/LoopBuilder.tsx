@@ -4,6 +4,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { Check, Copy, Gavel, Hammer, Radar, Wrench, type LucideIcon } from 'lucide-react';
 import type { GameId } from '@arena/shared';
 import { Button } from '@/components/ui/Button';
+import { Segmented } from '@/components/ui/Segmented';
 import { Typography } from '@/components/ui/Typography';
 import { SHORT_NAME, TRACK_ORDER } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
@@ -198,15 +199,11 @@ const Field = ({ label, hint, children }: FieldProps) => (
       <Typography variant="label" as="h3">
         {label}
       </Typography>
-      {hint && <span className="text-[11px] text-fg-3">{hint}</span>}
+      {hint && <span className="text-xs text-fg-3">{hint}</span>}
     </div>
-    <div
-      role="group"
-      aria-label={label}
-      className="mt-1.5 flex flex-wrap gap-0.5 rounded-md bg-bg p-0.5"
-    >
+    <Segmented label={label} wrap className="mt-1.5">
       {children}
-    </div>
+    </Segmented>
   </div>
 );
 
@@ -436,7 +433,7 @@ const LoopBuilder = ({ repo }: LoopBuilderProps) => {
             ))}
           </code>
         </pre>
-        <p className="mt-2 text-xs text-fg-3">
+        <p className="mt-2 max-w-prose text-xs text-fg-3">
           Paste into a Claude Code session on the repository. Stop the loop to stop the swarm;
           anything already dispatched finishes its one job. More in{' '}
           <code className="font-mono">docs/LOOPS.md</code>.

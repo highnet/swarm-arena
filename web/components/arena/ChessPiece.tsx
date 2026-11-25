@@ -46,7 +46,7 @@ const ChessPiece = ({ piece, x, y, size }: ChessPieceProps) => {
           key={d}
           d={d}
           fill={white ? 'var(--stone-white)' : 'var(--stone-black)'}
-          stroke={white ? 'var(--stone-black)' : 'oklch(0.62 0.008 265)'}
+          stroke={white ? 'var(--stone-rim)' : 'var(--stone-white)'}
           strokeWidth={white ? 1.6 : 1}
           strokeLinejoin="round"
         />

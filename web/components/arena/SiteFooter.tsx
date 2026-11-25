@@ -53,6 +53,20 @@ const SiteFooter = ({ runLabel, startedAt }: SiteFooterProps) => (
         <p className="mt-1 text-balance">
           Colour combinations after Sanzo Wada, <cite>A Dictionary of Color Combinations</cite>.
         </p>
+        <p className="mt-1 text-balance">
+          Agent animals by Lorc, Delapouite and contributors from{' '}
+          <a href="https://game-icons.net" className="underline hover:text-fg">
+            game-icons.net
+          </a>
+          ,{' '}
+          <a
+            href="https://creativecommons.org/licenses/by/3.0/"
+            className="underline hover:text-fg"
+          >
+            CC BY 3.0
+          </a>
+          .
+        </p>
       </div>
     </div>
   </footer>

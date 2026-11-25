@@ -6,8 +6,10 @@ import { replayBoards, type BoardView as BoardViewData, type GameId } from '@are
 import { boardMotion } from '@/lib/boardMotion';
 import type { EngineGame } from '@/lib/swarmEvents';
 import { gameHref } from '@/lib/routes';
+import { engineColor, sideNames } from '@/lib/sides';
 import { cn } from '@/lib/utils';
 import { BoardView } from './BoardView';
+import { SideSwatch } from './SideSwatch';
 
 /** Milliseconds per ply when replaying a finished game (the graph's replay mode). */
 const PLY_MS = 140;
@@ -194,7 +196,11 @@ const EngineBoard = ({ source, reducedMotion, className }: EngineBoardProps) => 
   const live = kind === 'live' || (kind === 'ended' && phase === 'play');
   // Chess counts a move per pair of plies; the other games, one per stone or disc.
   const move = g.track === 'chess' ? Math.ceil(at / 2) : at;
-  const caption = `vs ${g.opponent} · move ${move}`;
+  // The engine's colour as a swatch before "vs", and both sides in words for the tooltip (#263).
+  const color = engineColor(g.track, g.engineFirst);
+  const opponent = sideNames(g.track, null, g.opponent).opponent;
+  const sides = `plays ${color === 'b' ? 'Black' : 'White'} vs ${opponent}`;
+  const caption = `${sides} · move ${move}`;
   const result = g.result ? RESULT[g.result] : null;
   const status = live
     ? 'live'
@@ -218,6 +224,7 @@ const EngineBoard = ({ source, reducedMotion, className }: EngineBoardProps) => 
         kind === 'ended' && shown.fading && 'opacity-0',
         className,
       )}
+      title={sides}
       aria-label={`${live ? 'Live game' : looping ? 'Last game, replaying' : kind === 'ended' ? 'Finished game' : 'Latest game'} ${caption}${status && !live && result ? `, ${result}` : ''}`}
     >
       <div className="relative mx-auto w-16 overflow-hidden rounded border border-line bg-panel">
@@ -249,7 +256,8 @@ const EngineBoard = ({ source, reducedMotion, className }: EngineBoardProps) => 
           />
         )}
         {/* The opponent gives way first, so the move number stays readable in a narrow node. */}
-        <span className="min-w-0 shrink-[10] truncate">vs {g.opponent}</span>
+        <SideSwatch game={g.track} color={color} className="size-3" />
+        <span className="min-w-0 shrink-[10] truncate">vs {opponent}</span>
         <span className="shrink-0">· move {move}</span>
         {status && !live && (
           <span className="min-w-0 truncate text-fg-2">

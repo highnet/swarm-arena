@@ -185,6 +185,13 @@ export type SwarmGraphOptions = {
   lifetimes?: SwarmLifetimes | null;
   /** The clock pruning is measured against (a live view ticks it). Default `input.asOf`. */
   now?: string | null;
+  /**
+   * The host's one liveness rule (#200): whether a seat that says `working` still is at `nowMs`
+   * (a recent heartbeat). It is asked again at every `now`, so a seat that goes quiet while a live
+   * view is open turns idle and the `lifetimes` take it off. Absent, a `working` status is trusted.
+   * Either way, a seat whose work item has merged or closed is not working.
+   */
+  isLive?: ((agent: SwarmAgent, nowMs: number) => boolean) | null;
 };
 
 /**
@@ -376,7 +383,18 @@ export const buildSwarmGraph = (input: SwarmInput, options: SwarmGraphOptions = 
 
   const sectors = new Map(input.sectors.map((s) => [s.id, s]));
   const items = new Map(input.workItems.map((w) => [w.id, w]));
-  const agents = new Map(input.agents.map((a) => [a.id, a]));
+  // Working means said and still true now: live by the host's rule, on work that is still open.
+  // Everyone else is idle from here on, and the lifetime rules below apply to them.
+  const finished = (a: SwarmAgent) => {
+    const stage = a.workItem ? items.get(a.workItem)?.stage : undefined;
+    return stage === 'merged' || stage === 'closed';
+  };
+  const stillWorking = (a: SwarmAgent) =>
+    a.status === 'working' && (options.isLive?.(a, now) ?? true) && !finished(a);
+  const inputAgents = input.agents.map((a): SwarmAgent =>
+    a.status === 'working' && !stillWorking(a) ? { ...a, status: 'idle' } : a,
+  );
+  const agents = new Map(inputAgents.map((a) => [a.id, a]));
   const events = [...input.events].sort(
     (a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id),
   );
@@ -421,7 +439,7 @@ export const buildSwarmGraph = (input: SwarmInput, options: SwarmGraphOptions = 
     if (state === 'fading') fading.add(agentNodeId(id));
     return state !== 'gone';
   };
-  for (const a of input.agents) {
+  for (const a of inputAgents) {
     const seen = Math.max(Date.parse(a.lastSeen), Date.parse(lastEventAt.get(a.id) ?? '') || 0);
     const idleNoise = !a.workItem && !agentEffort.has(a.id) && !options.showIdleWithoutEffort;
     if (a.status === 'working' || (!idleNoise && keepIdle(a.id, seen))) shown.set(a.id, a);
@@ -463,7 +481,7 @@ export const buildSwarmGraph = (input: SwarmInput, options: SwarmGraphOptions = 
   };
   for (const e of events) touch(e.workItem, e.at);
   const heldLive = new Set<string>();
-  for (const a of input.agents) {
+  for (const a of inputAgents) {
     if (a.workItem) touch(a.workItem, a.lastSeen);
     if (a.workItem && a.status === 'working') heldLive.add(a.workItem);
   }

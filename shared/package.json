@@ -6,7 +6,8 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./animals": "./src/animals.ts"
   },
   "scripts": {
     "test": "tsx --test src/**/*.test.ts"

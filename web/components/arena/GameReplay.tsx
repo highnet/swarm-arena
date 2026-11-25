@@ -5,8 +5,10 @@ import { ChevronLeft, ChevronRight, Pause, Play } from 'lucide-react';
 import { replayBoards, type GameId } from '@arena/shared';
 import { Button } from '@/components/ui/Button';
 import { Typography } from '@/components/ui/Typography';
+import type { Side } from '@/lib/sides';
 import { cn } from '@/lib/utils';
 import { BoardView } from './BoardView';
+import { SideLabel, SidesLegend } from './SideSwatch';
 import { ReplayHoldContext } from './ReplayHold';
 
 type GameReplayProps = {
@@ -19,8 +21,11 @@ type GameReplayProps = {
   label: string;
   /** How each move reads to a player; when given, a clickable move list sits beside the board. */
   notation?: string[];
-  /** Who moved first and second, to head the move list's columns. */
-  sides?: [string, string];
+  /**
+   * Who moved first and second, with their colours (lib/sides): heads the move list's columns,
+   * or sits above the board as a legend when there is no move list (#263).
+   */
+  sides?: [Side, Side];
 };
 
 const GameReplay = ({
@@ -100,6 +105,9 @@ const GameReplay = ({
           : undefined
       }
     >
+      {sides && !notation && (
+        <SidesLegend game={game} sides={sides} className="text-[13px] text-fg-2" />
+      )}
       <BoardView game={game} view={view} label={`${label}, position after ply ${ply}`} />
       <div className="flex items-center gap-2">
         <Button
@@ -175,10 +183,18 @@ const GameReplay = ({
     <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-4 md:grid-cols-[minmax(0,1fr)_16rem]">
       {replay}
       <div className="min-w-0 rounded-lg border border-line">
-        <div className="grid grid-cols-[2.5rem_1fr_1fr] gap-1 border-b border-line px-2 py-1.5 text-xs text-fg-3">
-          <span>#</span>
-          <span className="truncate">{sides?.[0] ?? 'First'}</span>
-          <span className="truncate">{sides?.[1] ?? 'Second'}</span>
+        <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_minmax(0,1fr)] items-start gap-1 border-b border-line px-2 py-1.5 text-xs text-fg-2">
+          <span className="text-fg-3">#</span>
+          {sides ? (
+            sides.map((side) => (
+              <SideLabel key={side.color} game={game} side={side} className="flex" />
+            ))
+          ) : (
+            <>
+              <span>First</span>
+              <span>Second</span>
+            </>
+          )}
         </div>
         {rows === 0 ? (
           <Typography variant="small" className="px-3 py-4">

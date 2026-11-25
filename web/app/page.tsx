@@ -1,10 +1,11 @@
-import { Suspense } from 'react';
+import { Fragment, Suspense } from 'react';
 import Link from 'next/link';
 import type { GameId, Snapshot } from '@arena/shared';
 import { EngineFeature } from '@/components/arena/EngineFeature';
 import { GameReplay } from '@/components/arena/GameReplay';
 import { HomeBackdrop } from '@/components/arena/HomeBackdrop';
 import { ReplayHold } from '@/components/arena/ReplayHold';
+import { SideLabel } from '@/components/arena/SideSwatch';
 import { RightNow } from '@/components/arena/RightNow';
 import { ProgressChart, type ProgressSeries } from '@/components/arena/ProgressChart';
 import { LadderLegend, TrackLadder } from '@/components/arena/TrackLadder';
@@ -24,6 +25,7 @@ import { getRallypoint } from '@/lib/github';
 import { getNews, newsHref } from '@/lib/news';
 import { PAGES, type PageKey } from '@/lib/pages';
 import { gameHref, matchHref } from '@/lib/routes';
+import { gameSides } from '@/lib/sides';
 import { SERIES } from '@/lib/tracks';
 import { cn } from '@/lib/utils';
 import { workingNow } from '@/lib/working';
@@ -92,9 +94,9 @@ const HomeContent = async () => {
   const game = latestGame(s);
   const gameMatch = game ? s.matches.find((m) => m.id === game.match_id) : null;
   const gameTrack = game ? s.tracks.find((t) => t.id === game.track_id) : null;
-  const engineLabel = gameMatch ? `${gameTrack?.name} ${gameMatch.engine_version}` : 'Engine';
-  const first = game?.engine_first ? engineLabel : (gameMatch?.opponent ?? 'Opponent');
-  const second = game?.engine_first ? (gameMatch?.opponent ?? 'Opponent') : engineLabel;
+  const sides = game
+    ? gameSides(game.track_id, gameMatch?.engine_version, gameMatch?.opponent, game.engine_first)
+    : null;
 
   return (
     <main className="flex w-full flex-col">
@@ -205,7 +207,7 @@ const HomeContent = async () => {
               space="none"
               title="The latest game"
             />
-            {game && gameTrack ? (
+            {game && gameTrack && sides ? (
               <>
                 <p className="mt-4 inline-flex items-center gap-2 text-[15px] text-fg-2">
                   <span
@@ -218,12 +220,18 @@ const HomeContent = async () => {
                     ` · ${TERMINATION[game.termination] ?? game.termination}`}
                 </p>
                 <dl className="mt-8 grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-[15px]">
-                  <dt className="text-fg-3">{gameTrack.id === 'chess' ? 'White' : 'Black'}</dt>
-                  <dd className="font-mono tabular text-fg">{first}</dd>
-                  <dt className="text-fg-3">{gameTrack.id === 'chess' ? 'Black' : 'White'}</dt>
-                  <dd className="font-mono tabular text-fg">{second}</dd>
+                  {sides.map((side) => (
+                    <Fragment key={side.color}>
+                      <dt className="text-fg-3">{side.colorName}</dt>
+                      <dd className="font-mono tabular text-fg">
+                        <SideLabel game={game.track_id} side={side} withColor={false} />
+                      </dd>
+                    </Fragment>
+                  ))}
                   <dt className="text-fg-3">Result</dt>
-                  <dd className="text-fg">{resultText(game.outcome, first, second)}</dd>
+                  <dd className="text-fg">
+                    {resultText(game.outcome, sides[0].name, sides[1].name)}
+                  </dd>
                 </dl>
                 <div className="mt-8 flex flex-wrap gap-x-6 gap-y-2">
                   <TextLink href={gameHref(game.id)}>Replay the game</TextLink>

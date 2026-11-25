@@ -2,15 +2,17 @@ import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { BookOpen, ListTodo } from 'lucide-react';
 import { GAMES, agentName, type GameId } from '@arena/shared';
-import { DetailShell, Facts } from '@/components/arena/Detail';
-import { PageSkeleton } from '@/components/arena/PageSkeleton';
+import { Facts } from '@/components/arena/Detail';
 import { EngineLogo } from '@/components/arena/EngineLogo';
-import { TaskTypeChip } from '@/components/arena/TaskChips';
-import { Panel } from '@/components/ui/Panel';
-import { Typography } from '@/components/ui/Typography';
 import { NextSteps } from '@/components/arena/NextSteps';
+import { PageSkeleton } from '@/components/arena/PageSkeleton';
+import { TASK_TYPE_META } from '@/components/arena/TaskChips';
+import { FullBleed } from '@/components/ui/FullBleed';
+import { Section } from '@/components/ui/Section';
+import { SectionHeading } from '@/components/ui/SectionHeading';
+import { SectionNav, type SectionNavItem } from '@/components/ui/SectionNav';
+import { TextLink } from '@/components/ui/TextLink';
 import { getSnapshot } from '@/lib/data';
 import { formatDay } from '@/lib/format';
 import { conceptHref, conceptSlug, taskHref } from '@/lib/routes';
@@ -22,6 +24,14 @@ import { cn } from '@/lib/utils';
 type ConceptPageProps = {
   params: Promise<{ slug: string }>;
 };
+
+const CHAPTERS: SectionNavItem[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'games', label: 'Across the games' },
+  { id: 'tasks', label: 'Tasks' },
+  { id: 'evidence', label: 'Evidence' },
+  { id: 'more', label: 'Further reading' },
+];
 
 const STATUS_LABEL = {
   landed: 'shipped',
@@ -75,103 +85,169 @@ const ConceptContent = async (props: ConceptPageProps) => {
   const shippedIn = TRACK_ORDER.filter((g) =>
     tasks.some((t) => t.track_id === g && t.status === 'landed'),
   );
+  const verdict =
+    shippedIn.length >= 2
+      ? `Shipped in ${shippedIn.length} games: this idea transferred.`
+      : shippedIn.length === 1
+        ? 'Shipped in one game so far.'
+        : 'Not shipped in any game yet.';
 
   return (
-    <DetailShell eyebrow={<span>Concept</span>} title={name} lede={idea}>
-      <Facts
-        items={TRACK_ORDER.map((g) => {
-          const mine = tasks.filter((t) => t.track_id === g);
-          const best = mine.find((t) => t.status === 'landed') ?? mine[0];
-          return {
-            label: GAMES[g].name,
-            value: best ? (
-              <span className={STATUS_CLASS[best.status]}>{STATUS_LABEL[best.status]}</span>
-            ) : (
-              <span className="text-fg-3">untried</span>
-            ),
-            note: mine.length
-              ? `${mine.length} ${mine.length === 1 ? 'task' : 'tasks'}`
-              : undefined,
-            href: best ? taskHref(best.id) : undefined,
-          };
-        })}
-      />
-      <Typography variant="small">
-        {shippedIn.length >= 2
-          ? `Shipped in ${shippedIn.length} games: this idea transferred.`
-          : shippedIn.length === 1
-            ? 'Shipped in one game so far.'
-            : 'Not shipped in any game yet.'}
-      </Typography>
+    <main className="flex w-full flex-col">
+      <SectionNav items={CHAPTERS} />
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Panel icon={ListTodo} title="Tasks">
-          {tasks.length === 0 ? (
-            <Typography variant="small" className="px-4 py-6">
-              No task has tried this concept yet.
-            </Typography>
-          ) : (
-            <ol className="divide-y divide-line">
-              {tasks.map((t) => (
-                <li key={t.id} className="flex items-start gap-2.5 px-4 py-2.5">
-                  <EngineLogo
-                    game={t.track_id}
-                    slot={slots[t.track_id] ?? 1}
-                    size="sm"
-                    className="mt-0.5 size-4 rounded"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <Link href={taskHref(t.id)} className="hover:underline">
-                      <Typography variant="small" color="primary" as="span" className="text-pretty">
-                        {t.title}
-                      </Typography>
-                    </Link>
-                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-fg-3">
-                      <TaskTypeChip type={t.type} />
-                      <span className={cn(STATUS_CLASS[t.status])}>{STATUS_LABEL[t.status]}</span>
-                      {t.claimed_by && <span>{agentName(t.claimed_by)}</span>}
-                      <span>{formatDay(t.created_at)}</span>
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ol>
-          )}
-        </Panel>
-        <Panel
-          icon={BookOpen}
-          title="Evidence"
-          actions={
-            <Link href="/skills/concepts" className="text-xs text-fg-2 hover:text-fg">
-              The concepts skill
-            </Link>
+      {/* 1 · The idea, and whether it carried across games. */}
+      <Section id="overview" labelledBy="concept-title" space="roomy">
+        <SectionHeading
+          level="page"
+          space="none"
+          id="concept-title"
+          title={name}
+          intro={
+            <>
+              {idea && <>{idea} </>}
+              <span className="text-fg">{verdict}</span>
+            </>
           }
-        >
-          {evidence.length === 0 ? (
-            <Typography variant="small" className="px-4 py-6">
-              No verdict recorded for this concept yet.
-            </Typography>
-          ) : (
-            <ol className="divide-y divide-line">
-              {evidence.map((e, i) => (
-                <li key={`${e.date}-${i}`} className="px-4 py-2 text-[13px]">
-                  <span className="font-mono text-xs text-fg-3">{e.date}</span>{' '}
-                  <span className="text-fg-2">{e.game}</span>:{' '}
-                  <span className="text-fg">{e.outcome}</span>
-                  <span className="block text-xs text-fg-3">{e.title}</span>
-                </li>
-              ))}
-            </ol>
-          )}
-        </Panel>
-      </div>
-      <NextSteps links={['concepts', 'skills', 'engines', 'graveyard']} />
-    </DetailShell>
+          action={
+            <>
+              <TextLink href="/concepts">Every concept</TextLink>
+              <TextLink href="/skills/concepts">The concepts skill</TextLink>
+            </>
+          }
+        />
+      </Section>
+
+      {/* 2 · One fact per game: the best that happened to it there. */}
+      <Section id="games" labelledBy="games-title" tone="band">
+        <SectionHeading
+          id="games-title"
+          title="Across the four games"
+          intro="The best that happened to this concept in each game. Each opens its task."
+        />
+        <FullBleed>
+          <Facts
+            variant="open"
+            items={TRACK_ORDER.map((g) => {
+              const mine = tasks.filter((t) => t.track_id === g);
+              const best = mine.find((t) => t.status === 'landed') ?? mine[0];
+              return {
+                label: GAMES[g].name,
+                value: best ? (
+                  <span className={STATUS_CLASS[best.status]}>{STATUS_LABEL[best.status]}</span>
+                ) : (
+                  <span className="text-fg-3">untried</span>
+                ),
+                note: mine.length
+                  ? `${mine.length} ${mine.length === 1 ? 'task' : 'tasks'}`
+                  : undefined,
+                href: best ? taskHref(best.id) : undefined,
+              };
+            })}
+          />
+        </FullBleed>
+      </Section>
+
+      {/* 3 · Every task that tried it, newest first. */}
+      <Section id="tasks" labelledBy="tasks-title">
+        <SectionHeading
+          id="tasks-title"
+          title="Tasks"
+          intro={
+            tasks.length
+              ? `${tasks.length} ${tasks.length === 1 ? 'task has' : 'tasks have'} tried this concept, newest first.`
+              : 'No task has tried this concept yet.'
+          }
+        />
+        {tasks.length > 0 && (
+          <ol className="divide-y divide-line border-y border-line">
+            {tasks.map((t) => (
+              <li
+                key={t.id}
+                className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-5 py-6 sm:grid-cols-[1.5rem_minmax(0,1fr)_8rem]"
+              >
+                <EngineLogo
+                  game={t.track_id}
+                  slot={slots[t.track_id] ?? 1}
+                  size="sm"
+                  className="mt-1 size-5 rounded"
+                />
+                <div className="min-w-0">
+                  <Link
+                    href={taskHref(t.id)}
+                    className="text-base leading-7 text-fg text-pretty underline-offset-4 hover:underline"
+                  >
+                    {t.title}
+                  </Link>
+                  <p className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[13px] text-fg-3">
+                    <span>{GAMES[t.track_id].name}</span>
+                    <span>{TASK_TYPE_META[t.type]?.label ?? 'Experiment'}</span>
+                    {t.claimed_by && <span>{agentName(t.claimed_by)}</span>}
+                    <time dateTime={t.created_at}>{formatDay(t.created_at)}</time>
+                  </p>
+                </div>
+                <span
+                  className={cn(
+                    'col-start-2 mt-2 font-mono text-[15px] sm:col-start-3 sm:mt-0 sm:text-right',
+                    STATUS_CLASS[t.status],
+                  )}
+                >
+                  {STATUS_LABEL[t.status]}
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </Section>
+
+      {/* 4 · What the referee recorded. */}
+      <Section id="evidence" labelledBy="evidence-title" tone="band">
+        <SectionHeading
+          id="evidence-title"
+          title="Evidence"
+          intro={
+            evidence.length
+              ? 'Every verdict the referee recorded for this concept, newest first.'
+              : 'No verdict recorded for this concept yet.'
+          }
+          action={<TextLink href="/concepts#evidence">The whole evidence log</TextLink>}
+        />
+        {evidence.length > 0 && (
+          <ol className="divide-y divide-line border-y border-line">
+            {evidence.map((e, i) => (
+              <li
+                key={`${e.date}-${i}`}
+                className="grid gap-x-8 gap-y-1 py-6 sm:grid-cols-[7rem_minmax(0,1fr)]"
+              >
+                <span className="font-mono text-[13px] tabular text-fg-3">{e.date}</span>
+                <div className="min-w-0">
+                  <p className="max-w-[40em] text-base leading-7 text-fg text-pretty">
+                    <span className="text-fg-2">{e.game}:</span> {e.outcome}
+                  </p>
+                  <p className="mt-1 max-w-[40em] text-[13px] leading-5 text-fg-3 text-pretty">
+                    {e.title}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+      </Section>
+
+      {/* Last · Where to go next. */}
+      <Section id="more" labelledBy="next-steps-title" space="compact">
+        <NextSteps
+          variant="list"
+          title="Further reading"
+          links={['concepts', 'skills', 'engines', 'graveyard']}
+        />
+      </Section>
+    </main>
   );
 };
 
 const ConceptPage = (props: ConceptPageProps) => (
-  <Suspense fallback={<PageSkeleton className="max-w-5xl px-4 pt-6 sm:px-6" />}>
+  <Suspense fallback={<PageSkeleton />}>
     <ConceptContent {...props} />
   </Suspense>
 );

@@ -92,7 +92,7 @@ const SessionsContent = async () => {
 
       {/* 2 · By seat: who has run the most. */}
       <Section id="seats" labelledBy="seats-title" tone="band">
-        <div className="grid gap-12 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:gap-20">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-12 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:gap-20">
           <SectionHeading
             id="seats-title"
             title="Sessions by seat"

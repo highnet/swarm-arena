@@ -174,3 +174,42 @@ export const buildThreads = (messages: Message[]): Thread[] => {
 /** Board messages that mention a GitHub issue or pull request number. */
 export const mentionsOf = (messages: Message[], n: number) =>
   messages.filter((m) => refsOf(m).some((r) => r.kind !== 'message' && r.n === n));
+
+/** A same-seat comment this long after the post comes from a later session on that pooled seat. */
+const LATER_SESSION_MS = 60 * 60 * 1000;
+
+/**
+ * Comments that answer a thread (#227): by another seat, or by the author's seat in a later session.
+ * The author adding to its own post minutes later is not a reply.
+ */
+export const repliesOf = (t: Thread): Message[] =>
+  t.comments.filter(
+    (c) =>
+      c.agent_id !== t.root.agent_id ||
+      Date.parse(c.at) - Date.parse(t.root.at) >= LATER_SESSION_MS,
+  );
+
+/**
+ * What an open thread is waiting for: a question or proposal nobody has answered, or a hand-off
+ * no later session has acknowledged. Null when it waits on nobody (it has a reply, or is resolved).
+ */
+export type ReplyState = 'unanswered' | 'unacknowledged' | null;
+
+export const replyState = (t: Thread): ReplyState => {
+  if ((t.root.status ?? 'open') !== 'open' || repliesOf(t).length) return null;
+  if (t.root.kind === 'question' || t.root.kind === 'proposal') return 'unanswered';
+  if (t.root.kind === 'handoff') return 'unacknowledged';
+  return null;
+};
+
+/** Per kind of thread: how many there are and how many got a reply (or were resolved). */
+export const replyStats = (threads: Thread[]) => {
+  const out = new Map<string, { threads: number; replied: number }>();
+  for (const t of threads) {
+    const s = out.get(t.root.kind) ?? { threads: 0, replied: 0 };
+    s.threads += 1;
+    if (repliesOf(t).length || (t.root.status ?? 'open') !== 'open') s.replied += 1;
+    out.set(t.root.kind, s);
+  }
+  return out;
+};

@@ -27,6 +27,7 @@ import {
   type SwarmStage,
 } from '@rallypoint/swarm-graph';
 import { Button } from '@/components/ui/Button';
+import { Segmented } from '@/components/ui/Segmented';
 import { Typography } from '@/components/ui/Typography';
 import { formatDay, formatTime } from '@/lib/format';
 import { onLive, type LiveChange } from '@/lib/liveBus';
@@ -55,7 +56,9 @@ import { cn } from '@/lib/utils';
 import type { EngineBoardSource } from './EngineBoard';
 import { useFleetHover } from './FleetHover';
 import { ReplayScrubber } from './ReplayScrubber';
-import { agentHref } from './seats';
+import { agentHref, graphAgentIsLive } from './seats';
+import { AgentAvatar } from './AgentAvatar';
+import { ANIMAL_VIEWBOX, animalOf } from '@arena/shared/animals';
 import { SwarmNodeOverlay, type NodeRating } from './SwarmNodeOverlay';
 
 /** Match bursts whose game tally the ticker remembers; the oldest are forgotten first. */
@@ -255,11 +258,15 @@ const TickerLine = ({ tick: t, color, more = 0, leaving = false, onGone }: Ticke
         t.kind === 'merge' && 'border-good/60',
       )}
     >
-      <span
-        className="size-2 shrink-0 rounded-full"
-        style={{ background: color }}
-        aria-hidden="true"
-      />
+      {t.agent ? (
+        <AgentAvatar id={t.agent} size={16} />
+      ) : (
+        <span
+          className="size-2 shrink-0 rounded-full"
+          style={{ background: color }}
+          aria-hidden="true"
+        />
+      )}
       <span
         className={cn(
           'shrink-0 font-mono text-[10px] uppercase tracking-[0.15em]',
@@ -298,11 +305,14 @@ const NodeCard = ({ node }: NodeCardProps) => {
     const a = node.agent;
     return (
       <>
-        <Typography variant="sectionTitle" as="div">
-          {node.label}
-        </Typography>
+        <div className="flex items-center gap-2">
+          <AgentAvatar id={a.id} size={28} />
+          <Typography variant="sectionTitle" as="div">
+            {node.label}
+          </Typography>
+        </div>
         <Typography variant="meta" as="div">
-          {a.role} ·{' '}
+          {a.role} · {animalOf(a.id).name.toLowerCase()} ·{' '}
           {node.active ? 'working now' : `seen ${formatDay(a.lastSeen)} ${formatTime(a.lastSeen)}`}
         </Typography>
         {a.activity && (
@@ -383,11 +393,7 @@ const PresetSwitch = ({ value, onChange }: PresetSwitchProps) => (
     <Typography variant="label" as="span" className="shrink-0">
       Show
     </Typography>
-    <div
-      role="group"
-      aria-label="Events shown"
-      className="hidden items-center gap-0.5 rounded-md border border-line bg-panel p-0.5 sm:flex"
-    >
+    <Segmented label="Events shown" tone="raised" className="hidden items-center sm:flex">
       {PRESETS.map((p) => (
         <Button
           key={p.id}
@@ -400,7 +406,7 @@ const PresetSwitch = ({ value, onChange }: PresetSwitchProps) => (
           {p.label}
         </Button>
       ))}
-    </div>
+    </Segmented>
     <select
       aria-label="Events shown"
       value={value}
@@ -712,6 +718,8 @@ const SwarmGraph = ({
       buildSwarmGraph(merged, {
         lifetimes: presetId === 'all' ? LIFETIMES.everything : LIFETIMES.live,
         now: pruneFrom ?? new Date(Math.max(clock, Date.parse(merged.asOf))).toISOString(),
+        // A seat that goes quiet while the page is open stops working on the next tick (#200).
+        isLive: graphAgentIsLive,
       }),
     [merged, presetId, pruneFrom, clock],
   );
@@ -813,6 +821,11 @@ const SwarmGraph = ({
       intro: introMode(),
       // Big enough to hold each sector's information inside it (#199).
       sectorRadius: SECTOR_RADIUS,
+      // Each agent's own animal, the same one its avatar shows everywhere else (#200).
+      agentIcon: (a) => {
+        const animal = animalOf(a.id);
+        return { d: animal.d, name: animal.name, size: ANIMAL_VIEWBOX };
+      },
       onHover: (node, point) => {
         setHover(node && point ? { node, ...point, width: el.clientWidth } : null);
         // Mirror the graph's hover onto the fleet's cards.

@@ -33,3 +33,15 @@ export const MESSAGE_STATUS: Record<
   resolved: { label: 'Resolved', icon: CircleCheck, tone: 'good' },
   closed: { label: 'Closed', icon: CircleSlash, tone: 'neutral' },
 };
+
+/** What an open thread waits for (#227): the board shows these as a backlog, not as normal. */
+export const REPLY_STATE: Record<
+  'unanswered' | 'unacknowledged',
+  { label: string; title: string }
+> = {
+  unanswered: { label: 'Unanswered', title: 'Nobody has replied to this question or proposal yet' },
+  unacknowledged: {
+    label: 'Unacknowledged',
+    title: 'No later session has replied to this hand-off yet',
+  },
+};

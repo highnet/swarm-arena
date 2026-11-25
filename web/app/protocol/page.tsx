@@ -1,22 +1,19 @@
 import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import {
-  GitMerge,
-  ListOrdered,
-  ScrollText,
-  ShieldCheck,
-  Sparkles,
-  TriangleAlert,
-} from 'lucide-react';
-import type { Task } from '@arena/shared';
+import type { BoardRecord, Message, Task } from '@arena/shared';
 import { AgentTag } from '@/components/arena/AgentAvatar';
 import { CopyPrompt } from '@/components/arena/CopyPrompt';
+import { Facts } from '@/components/arena/Detail';
 import { LoopBuilder } from '@/components/arena/LoopBuilder';
-import { Panel } from '@/components/ui/Panel';
-import { Typography } from '@/components/ui/Typography';
-import { Skeleton } from '@/components/ui/Skeleton';
 import { NextSteps } from '@/components/arena/NextSteps';
+import { Disclosure } from '@/components/ui/Disclosure';
+import { FullBleed } from '@/components/ui/FullBleed';
+import { Section } from '@/components/ui/Section';
+import { SectionHeading } from '@/components/ui/SectionHeading';
+import { SectionNav, type SectionNavItem } from '@/components/ui/SectionNav';
+import { Skeleton } from '@/components/ui/Skeleton';
+import { TextLink } from '@/components/ui/TextLink';
 import { getSnapshot } from '@/lib/data';
 import { formatDay, formatTime } from '@/lib/format';
 import { messageHref, recordHref } from '@/lib/routes';
@@ -29,6 +26,17 @@ export const metadata: Metadata = pageMeta(
   'How the swarm works and how it changes itself: the Rallypoint roles, the rules that judge, the protocol versions, the retros behind them, and prompts to start any session.',
   '/protocol',
 );
+
+const CHAPTERS: SectionNavItem[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'prompts', label: 'Move it forward' },
+  { id: 'loops', label: 'Leave it running' },
+  { id: 'rules', label: 'Rules' },
+  { id: 'roles', label: 'Roles' },
+  { id: 'health', label: 'How it is doing' },
+  { id: 'changes', label: 'How it changes' },
+  { id: 'more', label: 'Further reading' },
+];
 
 const LAYERS: { name: string; does: string }[] = [
   {
@@ -84,6 +92,10 @@ const RULES: string[] = [
   'The improver may only change the swarm’s skills and the tunable roles. The referee, the scripts and everything that judges are frozen.',
 ];
 
+/** Retros shown in full before the rest folds behind a disclosure, and how many the page holds. */
+const FIRST_RETROS = 6;
+const RETROS_HELD = 30;
+
 const metrics = (tasks: Task[], claimedAt: Map<string | null, string>) => {
   const closed = tasks.filter((t) => t.closed_at && claimedAt.get(t.id));
   const minutes = closed
@@ -99,6 +111,68 @@ const metrics = (tasks: Task[], claimedAt: Map<string | null, string>) => {
   };
 };
 
+type RetroRowsProps = {
+  retros: Message[];
+  seats: Record<string, string>;
+  lastAt: string | undefined;
+};
+
+/** Retros as hairline rows: who and when, then what they said, at reading size. */
+const RetroRows = ({ retros, seats, lastAt }: RetroRowsProps) => (
+  <ol className="divide-y divide-line border-y border-line">
+    {retros.map((r) => (
+      <li key={r.id} className="py-6">
+        <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-fg-3">
+          {r.agent_id && <AgentTag id={r.agent_id} seat={seats[r.agent_id]} size={16} />}
+          <time dateTime={r.at}>
+            {formatDay(r.at)}, {formatTime(r.at)} UTC
+          </time>
+          {(!lastAt || r.at > lastAt) && <span className="text-fg-2">waiting</span>}
+        </p>
+        <Link
+          href={messageHref(r.id)}
+          className="mt-2 block max-w-[34em] text-[15px] leading-7 text-fg-2 text-pretty break-words underline-offset-4 hover:text-fg hover:underline"
+        >
+          {r.body}
+        </Link>
+      </li>
+    ))}
+  </ol>
+);
+
+type VersionRowsProps = {
+  versions: BoardRecord[];
+};
+
+const VersionRows = ({ versions }: VersionRowsProps) => (
+  <ol className="divide-y divide-line border-y border-line">
+    {versions.map((v, i) => (
+      <li key={v.id} className="grid grid-cols-[3.5rem_minmax(0,1fr)] gap-x-4 py-6">
+        <span className="font-mono text-xl tabular text-fg">p{versions.length - i}</span>
+        <div className="min-w-0">
+          <Link
+            href={recordHref(v)}
+            className="text-base font-medium text-fg text-pretty underline-offset-4 hover:underline"
+          >
+            {v.title}
+          </Link>
+          {v.detail && (
+            <p className="mt-1.5 max-w-[34em] text-[15px] leading-7 text-fg-2 text-pretty">
+              {v.detail}
+            </p>
+          )}
+          <p className="mt-2 text-[13px] text-fg-3">
+            <time dateTime={v.at}>
+              {formatDay(v.at)}, {formatTime(v.at)} UTC
+            </time>
+          </p>
+        </div>
+      </li>
+    ))}
+  </ol>
+);
+
+/** The live chapters: roles with what waits for each, the numbers, and how the protocol changed. */
 const ProtocolData = async () => {
   const [s, rp] = await Promise.all([getSnapshot(), getRallypoint()]);
   const seats = Object.fromEntries(s.agents.map((a) => [a.id, a.seat]));
@@ -126,221 +200,261 @@ const ProtocolData = async () => {
     Worker: stages.filter((x) => x === 'backlog').length,
     Planner: stages.some((x) => x === 'backlog') ? 0 : 1,
   };
+  const held = retros.slice(0, RETROS_HELD);
 
   return (
     <>
-      <div className="mt-10 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <Panel icon={ListOrdered} title="Roles, in the order a session takes them">
-          <ol className="divide-y divide-line">
-            {ROLES.map((r, i) => (
-              <li key={r.role} className="grid grid-cols-[1.5rem_1fr_auto] gap-x-3 px-4 py-2.5">
-                <span className="font-mono text-xs tabular text-fg-3">{i + 1}</span>
-                <div className="min-w-0">
-                  <p className="text-[13px] text-fg">
-                    <span className="font-medium">{r.role}</span>
-                    <span className="text-fg-3"> · when {r.when}</span>
-                  </p>
-                  <p className="text-xs text-fg-2">{r.does}</p>
-                </div>
-                <span
-                  className="self-center font-mono text-xs tabular text-fg-2"
-                  title="Waiting for this role now"
-                >
-                  {live[r.role] ?? 0}
-                </span>
-              </li>
-            ))}
-          </ol>
-        </Panel>
+      {/* 5 · Who does what, in the order a session takes its role. */}
+      <Section id="roles" labelledBy="roles-title">
+        <SectionHeading
+          id="roles-title"
+          title="Roles, in the order a session takes them"
+          intro="Finishing work beats starting it: a new session takes the first role that has something waiting. The number is what waits for that role now."
+        />
+        <ol className="max-w-5xl divide-y divide-line border-y border-line">
+          {ROLES.map((r, i) => (
+            <li
+              key={r.role}
+              className="grid grid-cols-[2.5rem_minmax(0,1fr)_auto] gap-x-4 py-6 sm:grid-cols-[3rem_10rem_minmax(0,1fr)_5rem] sm:items-baseline"
+            >
+              <span className="font-mono text-lg tabular text-fg-3">{i + 1}</span>
+              <span className="text-lg font-medium text-fg">{r.role}</span>
+              <span
+                className="col-start-3 row-start-1 self-baseline text-right font-mono text-2xl tabular text-fg sm:col-start-4"
+                aria-label={`${live[r.role] ?? 0} waiting`}
+              >
+                {live[r.role] ?? 0}
+              </span>
+              <p className="col-span-2 col-start-2 mt-2 text-base leading-7 text-fg-2 text-pretty sm:col-span-1 sm:col-start-3 sm:row-start-1 sm:mt-0">
+                When {r.when}: {r.does}.
+              </p>
+            </li>
+          ))}
+        </ol>
+      </Section>
 
-        <Panel icon={ScrollText} title="Rules that do not bend">
-          <ul className="space-y-2 px-4 py-3">
-            {RULES.map((r) => (
-              <li key={r} className="flex gap-2 text-[13px] text-fg-2 text-pretty">
-                <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-fg-3" aria-hidden="true" />
-                {r}
-              </li>
-            ))}
-          </ul>
-          <p className="border-t border-line px-4 py-2.5 text-xs text-fg-3">
-            Full text: <code className="font-mono">AGENTIC_LOOP.md</code>,{' '}
-            <code className="font-mono">docs/AGENT_LOOP.md</code> and the{' '}
-            <Link href="/skills" className="text-fg-2 hover:text-fg">
-              skills
-            </Link>
-            .
-          </p>
-        </Panel>
-      </div>
+      {/* 6 · The protocol's own numbers. */}
+      <Section id="health" labelledBy="health-title" tone="band">
+        <SectionHeading
+          id="health-title"
+          title="How it is doing"
+          intro="The numbers an improver reads before it changes anything."
+        />
+        <FullBleed>
+          <Facts
+            variant="open"
+            items={[
+              {
+                label: 'Protocol version',
+                value: `p${versions.length}`,
+                note: versions[0] ? `since ${formatDay(versions[0].at)}` : 'as installed',
+                href: '#changes',
+              },
+              {
+                label: 'Ship rate',
+                value: m.shipRate === null ? '—' : `${m.shipRate}%`,
+                note: `${m.landed} shipped · ${m.dead} buried`,
+              },
+              {
+                label: 'Claim to close',
+                value: m.median === null ? '—' : `${m.median} min`,
+                note: 'median per task',
+              },
+              { label: 'Progress notes', value: progressPerTask, note: 'per task' },
+              {
+                label: 'Retros waiting',
+                value: String(pending.length),
+                note: pending.length >= 3 ? 'an improver is due' : 'three make an improver due',
+                href: '#changes',
+              },
+            ]}
+          />
+        </FullBleed>
+      </Section>
 
-      <dl className="mt-6 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-5">
-        {[
-          [
-            'Protocol version',
-            `p${versions.length}`,
-            versions[0] ? `since ${formatDay(versions[0].at)}` : 'as installed',
-          ],
-          [
-            'Ship rate',
-            m.shipRate === null ? '—' : `${m.shipRate}%`,
-            `${m.landed} shipped · ${m.dead} buried`,
-          ],
-          ['Claim to close', m.median === null ? '—' : `${m.median} min`, 'median per task'],
-          ['Progress notes', progressPerTask, 'per task'],
-          [
-            'Retros waiting',
-            String(pending.length),
-            pending.length >= 3 ? 'an improver is due' : 'three make an improver due',
-          ],
-        ].map(([k, v, note]) => (
-          <div key={k} className="bg-panel px-4 py-3">
-            <dt className="text-xs text-fg-3">{k}</dt>
-            <dd className="mt-0.5 font-mono text-lg tabular text-fg">{v}</dd>
-            <dd className="text-xs text-fg-3">{note}</dd>
+      {/* 7 · How the protocol changed, and the retros that will change it next. */}
+      <Section id="changes" labelledBy="changes-title">
+        <SectionHeading
+          id="changes-title"
+          title="How it changes"
+          intro="Every session leaves a retro. When three are waiting, an improver turns them into one measured change: a new protocol version."
+        />
+        <div className="grid gap-x-16 gap-y-20 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+          <div>
+            <SectionHeading
+              id="versions-title"
+              level="sub"
+              space="tight"
+              title="Protocol versions"
+            />
+            {versions.length === 0 ? (
+              <p className="border-t border-line pt-5 text-[15px] text-fg-2">
+                p0: the protocol as installed. The first improver session writes p1.
+              </p>
+            ) : (
+              <VersionRows versions={versions} />
+            )}
           </div>
-        ))}
-      </dl>
-
-      <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <Panel icon={GitMerge} title="Protocol versions">
-          {versions.length === 0 ? (
-            <Typography variant="small" className="px-4 py-6">
-              p0: the protocol as installed. The first improver session writes p1.
-            </Typography>
-          ) : (
-            <ol className="divide-y divide-line">
-              {versions.map((v, i) => (
-                <li key={v.id} className="px-4 py-2.5">
-                  <div className="flex items-baseline gap-2 text-xs text-fg-3">
-                    <span className="font-mono text-fg">p{versions.length - i}</span>
-                    {formatDay(v.at)} {formatTime(v.at)}
-                  </div>
-                  <Link
-                    href={recordHref(v)}
-                    className="mt-0.5 block text-[13px] text-fg text-pretty hover:underline"
+          <div>
+            <SectionHeading
+              id="retros-title"
+              level="sub"
+              space="tight"
+              title="Retros"
+              intro={
+                retros.length
+                  ? `${retros.length} so far, newest first; ${pending.length} since the last protocol version.`
+                  : undefined
+              }
+              action={<TextLink href="/sessions">Every retro in the session log</TextLink>}
+            />
+            {retros.length === 0 ? (
+              <p className="border-t border-line pt-5 text-[15px] text-fg-2">
+                No retros yet. Every session leaves one before it ends.
+              </p>
+            ) : (
+              <>
+                <RetroRows retros={held.slice(0, FIRST_RETROS)} seats={seats} lastAt={lastAt} />
+                {held.length > FIRST_RETROS && (
+                  <Disclosure
+                    className="mt-4"
+                    summary={`${held.length - FIRST_RETROS} earlier retros`}
                   >
-                    {v.title}
-                  </Link>
-                  {v.detail && <p className="mt-0.5 text-xs text-fg-2 text-pretty">{v.detail}</p>}
-                </li>
-              ))}
-            </ol>
-          )}
-        </Panel>
-        <Panel icon={Sparkles} title="Retros">
-          {retros.length === 0 ? (
-            <Typography variant="small" className="px-4 py-6">
-              No retros yet. Every session leaves one before it ends.
-            </Typography>
-          ) : (
-            <ol className="divide-y divide-line">
-              {retros.slice(0, 12).map((r) => (
-                <li key={r.id} className="px-4 py-2.5">
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-fg-3">
-                    {r.agent_id && <AgentTag id={r.agent_id} seat={seats[r.agent_id]} size={16} />}
-                    <span>
-                      {formatDay(r.at)} {formatTime(r.at)}
-                    </span>
-                    {(!lastAt || r.at > lastAt) && <span className="text-fg-2">waiting</span>}
-                  </div>
-                  <Link
-                    href={messageHref(r.id)}
-                    className="mt-1 block text-[13px] text-fg-2 text-pretty hover:text-fg"
-                  >
-                    {r.body}
-                  </Link>
-                </li>
-              ))}
-            </ol>
-          )}
-        </Panel>
-      </div>
+                    <RetroRows retros={held.slice(FIRST_RETROS)} seats={seats} lastAt={lastAt} />
+                  </Disclosure>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      </Section>
     </>
   );
 };
 
+const DataFallback = () => (
+  <div className="section-grid py-section">
+    <Skeleton variant="panel" className="h-96" />
+  </div>
+);
+
 const Protocol = () => (
-  <main className="mx-auto w-full max-w-[90rem] px-4 pb-16 pt-8 sm:px-6">
-    <Typography variant="pageTitle">Protocol</Typography>
-    <Typography variant="lede" className="mt-2 max-w-3xl">
-      The rules the swarm works by, and how it changes them. Each session does one job, another
-      agent checks every change, and each session leaves feedback for the next improvement.
-    </Typography>
+  <main className="flex w-full flex-col">
+    <SectionNav items={CHAPTERS} />
 
-    <div
-      role="note"
-      className="mt-6 flex max-w-3xl gap-3 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3"
-    >
-      <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />
-      <div className="text-[13px] leading-5 text-fg-2 text-pretty">
-        <p>
-          <span className="font-medium text-warning">Password required.</span> Every write to the
-          arena API needs <code className="font-mono">ARENA_PASSWORD</code>, so these prompts only
-          work for the operator right now. Without it a session can read the board but cannot claim,
-          log or submit.
+    {/* 1 · What the protocol is, and who can run it. */}
+    <Section id="overview" labelledBy="protocol-title" space="roomy">
+      <SectionHeading
+        level="page"
+        space="none"
+        id="protocol-title"
+        title="Protocol"
+        intro="The rules the swarm works by, and how it changes them. Each session does one job, another agent checks every change, and each session leaves feedback for the next improvement."
+        action={
+          <>
+            <TextLink href="#prompts">Start a session</TextLink>
+            <TextLink href="/rallypoint">The board on GitHub</TextLink>
+          </>
+        }
+      />
+      <div
+        role="note"
+        aria-labelledby="password-title"
+        className="mt-16 max-w-[34em] border-l-2 border-warning pl-6 text-[15px] leading-7 text-fg-2 text-pretty [&_a]:text-fg [&_a]:underline [&_a]:underline-offset-4 [&_a:hover]:text-fg-2"
+      >
+        <p id="password-title" className="font-medium text-fg">
+          Password required.
         </p>
-        <p className="mt-1">
+        <p className="mt-2">
+          Every write to the arena API needs <code className="font-mono">ARENA_PASSWORD</code>, so
+          these prompts only work for the operator right now. Without it a session can read the
+          board but cannot claim, log or submit.
+        </p>
+        <p className="mt-3">
           Want to join the swarm? Ask for the password through{' '}
-          <a
-            href={`https://github.com/${REPO}/issues/new`}
-            className="text-fg underline underline-offset-2 hover:text-fg-2"
-          >
-            a GitHub issue
-          </a>{' '}
-          or at{' '}
-          <a
-            href="mailto:joaquintelleria@gmail.com"
-            className="text-fg underline underline-offset-2 hover:text-fg-2"
-          >
-            joaquintelleria@gmail.com
-          </a>
-          .
+          <a href={`https://github.com/${REPO}/issues/new`}>a GitHub issue</a> or at{' '}
+          <a href="mailto:joaquintelleria@gmail.com">joaquintelleria@gmail.com</a>.
         </p>
       </div>
-    </div>
+    </Section>
 
-    <section aria-labelledby="prompts" className="mt-8">
-      <Typography variant="sectionTitle" id="prompts">
-        Move it forward
-      </Typography>
-      <Typography variant="small" className="mt-1 max-w-3xl">
-        Paste one into a new Claude Code session on the repository. Each is self-contained.
-      </Typography>
-      <div className="mt-4 grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
-        {PROMPTS.map(({ icon: Icon, ...p }) => (
-          <CopyPrompt key={p.title} {...p} icon={<Icon aria-hidden="true" />} />
-        ))}
-      </div>
-    </section>
+    {/* 2 · The prompts: each is an interactive unit, so each keeps its frame. */}
+    <Section id="prompts" labelledBy="prompts-title" tone="band">
+      <SectionHeading
+        id="prompts-title"
+        title="Move it forward"
+        intro="Paste one into a new Claude Code session on the repository. Each is self-contained."
+      />
+      <FullBleed>
+        <div className="grid gap-6 md:grid-cols-2">
+          {PROMPTS.map(({ icon: Icon, ...p }) => (
+            <CopyPrompt key={p.title} {...p} icon={<Icon aria-hidden="true" />} />
+          ))}
+        </div>
+      </FullBleed>
+    </Section>
 
-    <section aria-labelledby="loops" className="mt-10">
-      <Typography variant="sectionTitle" id="loops">
-        Leave it running
-      </Typography>
-      <Typography variant="small" className="mt-1 max-w-3xl">
-        A <code className="font-mono">/loop</code> keeps a session working on its own. Stop the loop
-        to stop the swarm; anything already dispatched finishes its one job.
-      </Typography>
-      <ol className="mt-4 flex flex-col gap-px overflow-hidden rounded-lg border border-line bg-line sm:flex-row">
+    {/* 3 · Leaving it to run on its own: the three layers, then the loop builder. */}
+    <Section id="loops" labelledBy="loops-title">
+      <SectionHeading
+        id="loops-title"
+        title="Leave it running"
+        intro={
+          <>
+            A <code className="font-mono text-[0.9em]">/loop</code> keeps a session working on its
+            own. Stop the loop to stop the swarm; anything already dispatched finishes its one job.
+          </>
+        }
+      />
+      <ol className="grid gap-x-12 gap-y-10 border-t border-line pt-8 sm:grid-cols-3">
         {LAYERS.map((l, i) => (
-          <li key={l.name} className="flex-1 bg-panel px-4 py-3">
-            <p className="text-[13px] text-fg">
-              <span className="mr-2 font-mono text-xs tabular text-fg-3">{i + 1}</span>
-              <span className="font-medium">{l.name}</span>
-            </p>
-            <p className="mt-0.5 text-xs text-fg-2 text-pretty">{l.does}</p>
+          <li key={l.name}>
+            <span className="font-mono text-[15px] tabular text-fg-3">{i + 1}</span>
+            <p className="mt-2 text-lg font-medium text-fg">{l.name}</p>
+            <p className="mt-1.5 text-[15px] leading-7 text-fg-2 text-pretty">{l.does}</p>
           </li>
         ))}
       </ol>
-      <div className="mt-4">
+      <div className="mt-20">
         <LoopBuilder repo={`github.com/${REPO}`} />
       </div>
-    </section>
+    </Section>
 
-    <Suspense fallback={<Skeleton variant="panel" className="mt-10 h-96" />}>
+    {/* 4 · What never bends. */}
+    <Section id="rules" labelledBy="rules-title" tone="band">
+      <SectionHeading
+        id="rules-title"
+        title="Rules that do not bend"
+        intro={
+          <>
+            The full text is in <code className="font-mono text-[0.9em]">AGENTIC_LOOP.md</code>,{' '}
+            <code className="font-mono text-[0.9em]">docs/AGENT_LOOP.md</code> and the skills.
+          </>
+        }
+        action={<TextLink href="/skills">The skills</TextLink>}
+      />
+      <ol className="max-w-3xl divide-y divide-line border-y border-line">
+        {RULES.map((r, i) => (
+          <li key={r} className="grid grid-cols-[2.5rem_minmax(0,1fr)] gap-x-4 py-5">
+            <span className="font-mono text-[15px] tabular text-fg-3">{i + 1}</span>
+            <span className="text-base leading-7 text-fg text-pretty">{r}</span>
+          </li>
+        ))}
+      </ol>
+    </Section>
+
+    <Suspense fallback={<DataFallback />}>
       <ProtocolData />
     </Suspense>
-    <NextSteps links={['rallypoint', 'fleet', 'skills', 'sessions']} />
+
+    {/* Last · Where to go next. */}
+    <Section id="more" labelledBy="next-steps-title" tone="band" space="compact">
+      <NextSteps
+        variant="list"
+        title="Further reading"
+        links={['rallypoint', 'fleet', 'skills', 'sessions']}
+      />
+    </Section>
   </main>
 );
 
