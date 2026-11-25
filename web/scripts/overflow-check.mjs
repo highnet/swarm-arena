@@ -192,7 +192,10 @@ const proxy =
   process.env.HTTPS_PROXY && !/localhost|127\.0\.0\.1/.test(base)
     ? { server: process.env.HTTPS_PROXY }
     : undefined;
-const browser = await chromium.launch({ proxy });
+// CI sets OVERFLOW_CHROME_CHANNEL=chrome to use the runner's preinstalled Google Chrome rather than
+// downloading a browser (#260); locally and in cloud sessions Playwright's bundled Chromium runs.
+const channel = process.env.OVERFLOW_CHROME_CHANNEL || undefined;
+const browser = await chromium.launch({ proxy, channel });
 try {
   // Discover one sample of each detail route from the list pages (once, at desktop width).
   const discovered = [];

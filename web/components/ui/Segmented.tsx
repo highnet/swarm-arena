@@ -6,6 +6,11 @@ import { cn } from '@/lib/utils';
  * The tray of a segmented control: a row of `<Button variant="segment">`. It is never wider than
  * its container (#249): on a narrow phone the row scrolls sideways inside the tray instead of
  * widening the page, or wraps where `wrap` asks for it.
+ *
+ * A scrolling tray clips on both axes (`overflow-x: auto` forces `overflow-y` too), so its 2 px
+ * padding would cut off the global focus ring (2 px outline at a 2 px offset). In scroll mode the
+ * segments draw their ring inset instead, fully inside the button (important: the global rule is
+ * unlayered, so it beats a layered utility).
  */
 const segmentedVariants = cva('flex max-w-full gap-0.5 rounded-md p-0.5', {
   variants: {
@@ -14,7 +19,8 @@ const segmentedVariants = cva('flex max-w-full gap-0.5 rounded-md p-0.5', {
       raised: 'border border-line bg-panel',
     },
     wrap: {
-      false: 'no-scrollbar overflow-x-auto overscroll-x-contain',
+      false:
+        'no-scrollbar overflow-x-auto overscroll-x-contain [&>*:focus-visible]:outline-offset-[-2px]!',
       true: 'flex-wrap',
     },
   },
