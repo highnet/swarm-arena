@@ -2525,21 +2525,19 @@ export const createSwarmGraph = (
    * whatever is still in flight lands on its own instead of being swept away.
    */
   const finishReplay = () => {
-    const filtered = Boolean(run && run.shownKey !== ALL);
+    // The screen keeps the replay's last frame (#279): the host's graph at this moment is built
+    // at the window's start and holds every node the window touched. The host hands over its
+    // live graph when it hears the replay end (`onReplay`), and that update lands unfiltered.
     run = null;
-    // A replay that held nodes back (#279) hands over the whole live graph, not its last filter.
-    if (filtered && source) applyGraph(source, { quiet: true });
     replayOverride = null;
     resize();
     renderStatic();
     options.onReplay?.(null, 'end');
   };
 
-  const stopReplay = (restore = true) => {
-    const filtered = Boolean(run && run.shownKey !== ALL);
+  const stopReplay = () => {
+    // As at the end: the frame on screen stays until the host's next (live) graph arrives.
     run = null;
-    // Back to the whole graph: what the replay held back arrives as it would live.
-    if (restore && filtered && source) applyGraph(source, { quiet: true });
     if (replayOverride) {
       replayOverride = null;
       particles = [];
@@ -2557,7 +2555,7 @@ export const createSwarmGraph = (
     const g = source ?? graph;
     if (!g) return;
     finishIntro();
-    stopReplay(false);
+    stopReplay();
     const plan =
       typeof planOrDuration === 'number'
         ? planReplay(g.flows, g.hubId, { mode: 'all', durationMs: planOrDuration })
@@ -2712,7 +2710,7 @@ export const createSwarmGraph = (
     update,
     anchor,
     replay,
-    stopReplay: () => stopReplay(),
+    stopReplay,
     setPlaying,
     setSpeed,
     seek,

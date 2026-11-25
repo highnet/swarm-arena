@@ -173,16 +173,20 @@ await scenario(
 const replay = page.locator('button[title^="Play back the last 24"]');
 /** After the replay plays to its end, the page is live again on its own (#278). */
 const liveChecks = [];
+/** Each replay played: when it started and when the page was live again. */
+const replayRuns = [];
 if (await replay.count()) {
   // A primary scenario (#221): the whole replay, start to end (the site plays it over 60 s),
   // and the hand-back to live it makes by itself (#278): nothing pressed.
   await scenario('the 24 h replay, start to end, back to live', async () => {
     await replay.first().click();
+    replayRuns.push({ name: 'natural end', start: await clock() });
     await page.waitForSelector('[data-slot="replay-scrubber"]', { timeout: 5000 });
     await page.waitForSelector('[data-slot="replay-scrubber"]', {
       state: 'detached',
       timeout: 75_000,
     });
+    replayRuns.at(-1).end = await clock();
   });
   const note = await page.textContent('[data-slot="swarm-live-note"]');
   liveChecks.push(
@@ -195,6 +199,22 @@ if (await replay.count()) {
     ['it says so once, politely', note === 'Replay finished. Back to live.', JSON.stringify(note)],
   );
 }
+if (await replay.count()) {
+  // The End key while it plays: back to live at once (#278), without the history (#279).
+  await scenario('the 24 h replay, End key while playing, back to live', async () => {
+    await replay.first().click();
+    replayRuns.push({ name: 'End key', start: await clock() });
+    await page.waitForSelector('[data-slot="replay-scrubber"]', { timeout: 5000 });
+    await page.waitForTimeout(15_000);
+    await page.focus('[data-slot="replay-scrubber"] [role="slider"]');
+    await page.keyboard.press('End');
+    await page.waitForSelector('[data-slot="replay-scrubber"]', {
+      state: 'detached',
+      timeout: 10_000,
+    });
+    replayRuns.at(-1).end = await clock();
+  });
+}
 await scenario('a minute of live Realtime and prune ticks', async () => {}, { hold: 60_000 });
 
 const frames = await page.evaluate(() => window.__calm);
@@ -205,6 +225,26 @@ const layouts = await page.evaluate(() =>
     .map((e) => ({ t: e.startTime, ms: e.duration, end: e.startTime + e.duration })),
 );
 await browser.close();
+
+// The hand-back to live (#279): the agents on screen never peak above both the replay's last
+// frame and the live graph after it, as they would if the whole history flashed up.
+const agentsIn = (f) => Object.keys(f.pos).filter((id) => id.startsWith('agent:')).length;
+for (const r of replayRuns) {
+  if (r.end === undefined) continue;
+  const during = frames.filter((f) => f.t >= r.start && f.t < r.end - 300).map(agentsIn);
+  const before = frames.filter((f) => f.t < r.end - 300).at(-1);
+  const after = frames.filter((f) => f.t <= r.end + 3000).at(-1);
+  const around = frames.filter((f) => f.t >= r.end - 300 && f.t <= r.end + 3000).map(agentsIn);
+  const peak = Math.max(0, ...around);
+  const bound = Math.max(before ? agentsIn(before) : 0, after ? agentsIn(after) : 0);
+  liveChecks.push([
+    `replay (${r.name}): the hand-back to live does not flash the history`,
+    peak <= bound,
+    `agents over the replay ${Math.min(...during)}–${Math.max(...during)}, ` +
+      `last frame ${before ? agentsIn(before) : '?'}, peak at hand-back ${peak}, ` +
+      `live after ${after ? agentsIn(after) : '?'}`,
+  ]);
+}
 
 let ok = errors.length === 0;
 const rows = [];

@@ -11,6 +11,7 @@ import {
   sectorNodeId,
   type SwarmAgent,
   type SwarmFlow,
+  type SwarmGraph,
   type SwarmLifetimes,
 } from './model';
 
@@ -283,6 +284,27 @@ export const planReplay = (
       ? presenceOf(flows, win.start, options.lifetimes, options.isLive ?? null)
       : null,
   };
+};
+
+/**
+ * Plan a replay of a graph its host prunes by time (`buildSwarmGraph` with `now`). The graph
+ * pruned at now only routes flows through the nodes still alive now: an agent or branch active
+ * mid-window but gone since is on no flow's path, so its presence is never known and it never
+ * spawns (#279). So the window is found on the `live` graph, and the plan is made from the graph
+ * pruned at the window's start (`graphAt(opensAt)`), which keeps every node active from then on.
+ * The host shows that same graph during the replay (prune from `opensAt`). Null when there is
+ * nothing to play.
+ */
+export const planPrunedReplay = (
+  live: Pick<SwarmGraph, 'flows' | 'hubId'>,
+  graphAt: (now: string) => Pick<SwarmGraph, 'flows' | 'hubId'>,
+  options: SwarmReplayPlanOptions = {},
+): { opensAt: string; plan: SwarmReplayPlan } | null => {
+  const { mode, activeMs, idleMs } = options;
+  const opensAt = planReplay(live.flows, live.hubId, { mode, activeMs, idleMs }).startAt;
+  if (!opensAt) return null;
+  const basis = graphAt(opensAt);
+  return { opensAt, plan: planReplay(basis.flows, basis.hubId, options) };
 };
 
 /** Agents and work items come and go; sectors and the trunk are structural and always shown. */

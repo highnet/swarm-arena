@@ -1,6 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { LIFETIMES, sectorNodeId, type SwarmFlow } from './model';
+import {
+  buildSwarmGraph,
+  LIFETIMES,
+  sectorNodeId,
+  type SwarmEvent,
+  type SwarmFlow,
+  type SwarmInput,
+} from './model';
 import {
   activeWindow,
   burstsOf,
@@ -8,6 +15,7 @@ import {
   indexAtTime,
   offsetAtFraction,
   parkedAtEnd,
+  planPrunedReplay,
   planReplay,
   presentAt,
   seekIndex,
@@ -257,6 +265,76 @@ test('a replay opens with only what was active at its start; the rest spawn in i
   assert.ok(presentAt(plan, plan.flows.length, lasting)!.has('work:2'));
   // Without lifetimes there is no presence: everything shows, as before.
   assert.equal(presentAt(planReplay(flows, 'hub', { activeMs: 2 * HOUR }), 0), null);
+});
+
+test('an agent active only mid-window, gone now, spawns in the replay and leaves (#279)', () => {
+  const asOf = new Date(t0 + 10 * HOUR).toISOString();
+  const events: SwarmEvent[] = [];
+  const on = (ms: number, agent: string) =>
+    events.push({
+      id: `e${events.length}`,
+      at: new Date(t0 + ms).toISOString(),
+      kind: 'progress',
+      agent,
+      sector: 'chess',
+      workItem: null,
+      title: 'commit',
+    });
+  // Busy works all day; mid works 9:00 to 9:10 only, and is long gone by 10:00 (now).
+  for (let ms = 0; ms <= 10 * HOUR; ms += 5 * MIN) on(ms, 'busy');
+  for (let ms = 9 * HOUR + MIN; ms <= 9 * HOUR + 11 * MIN; ms += 5 * MIN) on(ms, 'mid');
+  const input: SwarmInput = {
+    integrationBranch: 'main',
+    asOf,
+    sectors: [{ id: 'chess', label: 'Chess' }],
+    workItems: [],
+    agents: [
+      { id: 'busy', role: 'worker', status: 'working', sector: 'chess', lastSeen: asOf },
+      {
+        id: 'mid',
+        role: 'worker',
+        status: 'idle',
+        sector: 'chess',
+        lastSeen: new Date(t0 + 9 * HOUR + 11 * MIN).toISOString(),
+      },
+    ],
+    events,
+  };
+  const isLive = (a: { lastSeen: string }, nowMs: number) =>
+    nowMs - Date.parse(a.lastSeen) <= 15 * MIN;
+  const graphAt = (now: string) =>
+    buildSwarmGraph(input, { now, lifetimes: LIFETIMES.live, isLive });
+  const live = graphAt(asOf);
+  // Pruned at now, mid is on no flow's path: a plan made from these flows never knows it.
+  assert.ok(!live.flows.some((f) => f.path.includes('agent:mid')));
+  const naive = planReplay(live.flows, live.hubId, {
+    activeMs: 2 * HOUR,
+    lifetimes: LIFETIMES.live,
+    isLive,
+  });
+  assert.ok(
+    ![...Array(naive.flows.length + 1).keys()].some((i) => presentAt(naive, i)!.has('agent:mid')),
+  );
+
+  const planned = planPrunedReplay(live, graphAt, {
+    activeMs: 2 * HOUR,
+    lifetimes: LIFETIMES.live,
+    isLive,
+  })!;
+  assert.equal(planned.opensAt, new Date(t0 + 8 * HOUR).toISOString());
+  const { plan } = planned;
+  assert.equal(plan.startAt, planned.opensAt);
+  // Frame one: only busy. Mid spawns with its first flow and leaves once its lifetime is over.
+  assert.deepEqual([...presentAt(plan, 0)!].sort(), ['agent:busy']);
+  const first = plan.flows.findIndex((f) => f.agent === 'mid');
+  assert.ok(first > 0);
+  assert.ok(!presentAt(plan, first)!.has('agent:mid'));
+  assert.ok(presentAt(plan, first + 1)!.has('agent:mid'));
+  const end = presentAt(plan, plan.flows.length)!;
+  assert.deepEqual([...end].sort(), ['agent:busy']);
+  // The last frame is the live graph's agents: the hand-back to live has nothing to add or remove.
+  const liveAgents = live.nodes.filter((n) => n.kind === 'agent').map((n) => n.id);
+  assert.deepEqual(liveAgents, [...end].sort());
 });
 
 test('a replay that plays to its end is over: the graph goes back to live (#278)', () => {
