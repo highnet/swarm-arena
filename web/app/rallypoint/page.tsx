@@ -78,8 +78,23 @@ const CHAPTERS: { id: string; title: string; intro: string; stages: RpStage[] }[
 
 /** Items shown before the rest of a stage folds behind a disclosure. */
 const FIRST = 6;
-/** How many of each stage the page holds, as before: the newest 30, and 12 merged. */
+/** How many of each stage the page holds: the newest 30, and 12 merged. The rest is on GitHub. */
 const cap = (st: RpStage) => (st === 'merged' ? 12 : 30);
+
+/** Where GitHub lists the whole of a stage, for a list this page caps. */
+const STAGE_QUERY: Record<RpStage, string> = {
+  backlog:
+    'is:issue is:open -label:status:claimed -label:status:blocked -label:status:deferred -label:needs:human',
+  claimed: 'is:issue is:open label:status:claimed',
+  held: 'is:issue is:open label:status:blocked,status:deferred,needs:human',
+  review: 'is:pr is:open -label:review:approved -label:status:changes-requested',
+  changes: 'is:pr is:open label:status:changes-requested',
+  approved: 'is:pr is:open label:review:approved',
+  merged: 'is:pr is:merged',
+  closed: 'is:closed',
+};
+const stageHref = (st: RpStage) =>
+  `${REPO_URL}/${st === 'backlog' || st === 'claimed' || st === 'held' ? 'issues' : 'pulls'}?q=${encodeURIComponent(STAGE_QUERY[st])}`;
 
 const ENGINES: GameId[] = ['chess', 'go9', 'othello', 'hex'];
 
@@ -155,11 +170,13 @@ type StageListProps = {
   stage: (typeof STAGES)[number];
   items: RpItem[];
   total: number;
+  /** The total is a floor: only a recent window was read. */
+  atLeast?: boolean;
   slots: Partial<Record<GameId, number>>;
 };
 
 /** One stage under its chapter: a sub-heading with the count, the first rows, the rest folded. */
-const StageList = ({ stage, items, total, slots }: StageListProps) => {
+const StageList = ({ stage, items, total, atLeast, slots }: StageListProps) => {
   const Icon = STAGE_ICON[stage.id];
   return (
     <div id={`stage-${stage.id}`} className="scroll-mt-sticky">
@@ -176,6 +193,16 @@ const StageList = ({ stage, items, total, slots }: StageListProps) => {
         }
         intro={stage.hint}
       />
+      {items.length < total && (
+        <p className="mb-5 text-[13px] text-fg-3">
+          Showing the latest <span className="font-mono tabular">{items.length}</span> of{' '}
+          {atLeast && 'at least '}
+          <span className="font-mono tabular">{total}</span>.{' '}
+          <TextLink href={stageHref(stage.id)} external>
+            All {stage.label.toLowerCase()} on GitHub
+          </TextLink>
+        </p>
+      )}
       {items.length === 0 ? (
         <p className="border-t border-line pt-5 text-[15px] text-fg-3">Nothing here right now.</p>
       ) : (
@@ -213,7 +240,11 @@ const RallypointContent = async () => {
     const st = stageOf(i);
     byStage.set(st, [...(byStage.get(st) ?? []), i]);
   }
-  const count = (st: RpStage) => byStage.get(st)?.length ?? 0;
+  // Open stages are read in full. Merged is read only recently, so its total is GitHub's all-time count.
+  const count = (st: RpStage) =>
+    st === 'merged' && rp.mergedTotal !== null
+      ? Math.max(rp.mergedTotal, byStage.get(st)?.length ?? 0)
+      : (byStage.get(st)?.length ?? 0);
   const retros = (s.messages ?? []).filter((m) => m.kind === 'retro');
   const lastProtocol = s.records.filter((r) => r.kind === 'protocol').at(-1);
   const pendingRetros = retros.filter((m) => !lastProtocol || m.at > lastProtocol.at).length;
@@ -331,6 +362,7 @@ const RallypointContent = async () => {
                   stage={stage}
                   items={(byStage.get(id) ?? []).slice(0, cap(id))}
                   total={count(id)}
+                  atLeast={id === 'merged' && rp.mergedTotal === null}
                   slots={slots}
                 />
               );

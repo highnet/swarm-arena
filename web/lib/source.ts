@@ -155,6 +155,20 @@ export const sectionChapters = (html: string): { html: string; sections: SkillSe
 };
 
 /** Every agent skill in the repository: the swarm's own roles and each game's playbook. */
+/** The first `# ` heading outside fenced code, so a `# comment` in a code block is never a title. */
+export const firstHeading = (body: string): { title: string; rest: string } | null => {
+  // Blank out fenced blocks, keeping offsets, so the match is never taken from code.
+  const prose = body.replace(/^(```|~~~)[^\n]*\n[\s\S]*?^\1[^\n]*$/gm, (m) =>
+    m.replace(/[^\n]/g, ' '),
+  );
+  const m = /^# (.+)$/m.exec(prose);
+  if (!m) return null;
+  return {
+    title: m[1].trim(),
+    rest: body.slice(0, m.index) + body.slice(m.index + m[0].length),
+  };
+};
+
 export const getSkills = async (): Promise<Skill[]> => {
   'use cache';
   cacheLife('hours');
@@ -171,13 +185,11 @@ export const getSkills = async (): Promise<Skill[]> => {
     const description = front?.[1].match(/^description:\s*(.*)$/m)?.[1] ?? '';
     const body = raw.replace(/^---\n[\s\S]*?\n---\n/, '');
     // The page's one h1 is the skill's own heading; the body keeps everything after it.
-    const heading = /^# (.+)$/m.exec(body);
-    const { html, sections } = sectionChapters(
-      md.render(heading ? body.replace(heading[0], '') : body),
-    );
+    const heading = firstHeading(body);
+    const { html, sections } = sectionChapters(md.render(heading ? heading.rest : body));
     skills.push({
       name,
-      title: heading?.[1].trim() ?? name,
+      title: heading?.title ?? name,
       description,
       path: `.claude/skills/${name}/SKILL.md`,
       html,

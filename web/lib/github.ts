@@ -46,7 +46,7 @@ export const stageOf = (i: RpItem): RpStage => {
   return 'backlog';
 };
 
-type RawIssue = {
+export type RawIssue = {
   number: number;
   title: string;
   html_url: string;
@@ -87,48 +87,109 @@ const token = () => {
 };
 
 export type RallypointState = {
+  /** Every open issue and pull request, then the recently closed ones, newest update first. */
   items: RpItem[];
+  /** Every merged swarm pull request, all-time (GitHub's search count); null if it was not read. */
+  mergedTotal: number | null;
   asOf: string;
   error: string | null;
 };
 
+/** Pages of open issues and pull requests read at most (100 each): far above what the swarm holds. */
+const OPEN_PAGES = 10;
+/** Recently closed issues and pull requests read: one page, enough for "Landed lately". */
+export const RECENT_CLOSED = 100;
+
+const ghHeaders = () => ({
+  accept: 'application/vnd.github+json',
+  'x-github-api-version': '2022-11-28',
+  ...(token() ? { authorization: `Bearer ${token()}` } : {}),
+});
+
+const readIssuesPage = async (query: string): Promise<RawIssue[]> => {
+  const res = await fetch(`https://api.github.com/repos/${REPO}/issues?${query}`, {
+    headers: ghHeaders(),
+  });
+  if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
+  return (await res.json()) as RawIssue[];
+};
+
 /**
- * One request: the issues listing includes pull requests, their labels (claims, verdicts, holds)
- * and merge state. Cached for two minutes so the site stays well inside GitHub's unauthenticated
- * rate limit; set GITHUB_TOKEN to raise it.
+ * Every open item (all of it, so stage totals are true counts) and a bounded window of recently
+ * closed ones, deduplicated and newest update first. Release-please's pull requests are not swarm
+ * coordination and are left out.
  */
+export const combineReads = (open: RawIssue[], closed: RawIssue[]): RpItem[] => {
+  const seen = new Set<number>();
+  const items: RpItem[] = [];
+  for (const r of [...open, ...closed]) {
+    if (seen.has(r.number)) continue;
+    seen.add(r.number);
+    const i = toItem(r);
+    if (i.labels.includes('autorelease: pending') || i.labels.includes('autorelease: tagged'))
+      continue;
+    items.push(i);
+  }
+  return items.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+};
+
+/** All-time merged swarm pull requests, from one search count. Never throws: a count is optional. */
+const readMergedTotal = async (): Promise<number | null> => {
+  const q = `repo:${REPO} is:pr is:merged -label:"autorelease: pending" -label:"autorelease: tagged"`;
+  try {
+    const res = await fetch(
+      `https://api.github.com/search/issues?q=${encodeURIComponent(q)}&per_page=1`,
+      { headers: ghHeaders() },
+    );
+    if (!res.ok) return null;
+    const { total_count } = (await res.json()) as { total_count?: number };
+    return typeof total_count === 'number' ? total_count : null;
+  } catch {
+    return null;
+  }
+};
+
 /** Refreshes on its own schedule only (`cacheLife` below); visitors never expire it (#222). */
 export const GITHUB_TAG = 'github';
 
+/**
+ * One paginated read per cache window: every open issue and pull request (usually one page), plus
+ * one page of the most recently closed, and one search count of everything merged. The issues listing includes pull requests, their labels
+ * (claims, verdicts, holds) and merge state. Cached for two minutes so the site stays inside
+ * GitHub's rate limit; set GITHUB_TOKEN to raise it.
+ */
 export const getRallypoint = async (): Promise<RallypointState> => {
   'use cache';
   cacheTag(GITHUB_TAG);
   cacheLife({ stale: 60, revalidate: 120, expire: 3600 });
   const asOf = new Date().toISOString();
   try {
-    const res = await fetch(
-      `https://api.github.com/repos/${REPO}/issues?state=all&per_page=100&sort=updated&direction=desc`,
-      {
-        headers: {
-          accept: 'application/vnd.github+json',
-          'x-github-api-version': '2022-11-28',
-          ...(token() ? { authorization: `Bearer ${token()}` } : {}),
-        },
-      },
-    );
-    if (!res.ok) return { items: [], asOf, error: `GitHub answered ${res.status}` };
-    const raw = (await res.json()) as RawIssue[];
-    // Release-please and other bots' pull requests are not swarm coordination.
-    const items = raw
-      .map(toItem)
-      .filter(
-        (i) =>
-          !i.labels.includes('autorelease: pending') && !i.labels.includes('autorelease: tagged'),
+    const open: RawIssue[] = [];
+    let complete = false;
+    for (let page = 1; page <= OPEN_PAGES; page++) {
+      const raw = await readIssuesPage(
+        `state=open&per_page=100&page=${page}&sort=created&direction=asc`,
       );
-    return { items, asOf, error: null };
+      open.push(...raw);
+      if (raw.length < 100) {
+        complete = true;
+        break;
+      }
+    }
+    const closed = await readIssuesPage(
+      `state=closed&per_page=${RECENT_CLOSED}&sort=updated&direction=desc`,
+    );
+    const items = combineReads(open, closed);
+    return {
+      items,
+      mergedTotal: await readMergedTotal(),
+      asOf,
+      error: complete ? null : `More than ${OPEN_PAGES * 100} open items; counts are partial`,
+    };
   } catch (e) {
     console.error('rallypoint: GitHub read failed', e);
-    return { items: [], asOf, error: 'GitHub could not be reached' };
+    const error = e instanceof Error && e.message.startsWith('GitHub answered') ? e.message : null;
+    return { items: [], mergedTotal: null, asOf, error: error ?? 'GitHub could not be reached' };
   }
 };
 
@@ -158,13 +219,7 @@ const readMergedPulls = async (): Promise<MergedPull[]> => {
   for (let page = 1; page <= MERGED_PAGES; page++) {
     const res = await fetch(
       `https://api.github.com/repos/${REPO}/pulls?state=closed&per_page=100&page=${page}`,
-      {
-        headers: {
-          accept: 'application/vnd.github+json',
-          'x-github-api-version': '2022-11-28',
-          ...(token() ? { authorization: `Bearer ${token()}` } : {}),
-        },
-      },
+      { headers: ghHeaders() },
     );
     if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
     const raw = (await res.json()) as RawPull[];

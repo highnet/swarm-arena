@@ -3,7 +3,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sectionChapters } from './source';
+import { firstHeading, sectionChapters } from './source';
 
 test('each h2 chapter is wrapped in a section with a unique, labelled anchor', () => {
   const { html, sections } = sectionChapters(
@@ -31,4 +31,11 @@ test('markdown with no h2 is left as it is', () => {
     html: '<p>Just text.</p>',
     sections: [],
   });
+});
+
+test("a skill's title is its first heading outside fenced code", () => {
+  assert.equal(firstHeading('```sh\n# not a title\n```\n\nIntro.\n'), null);
+  const h = firstHeading('```sh\n# comment\n```\n# Real title\nBody.\n');
+  assert.equal(h?.title, 'Real title');
+  assert.equal(h?.rest, '```sh\n# comment\n```\n\nBody.\n');
 });
