@@ -1,4 +1,4 @@
-import type { Message, MessageRef } from "./model";
+import type { Message, MessageRef } from './model';
 
 /**
  * The discussion board's shared grammar, used by the harness (posting, reading) and the site
@@ -17,18 +17,18 @@ const toRef = (m: RegExpExecArray): MessageRef => {
   if (m[1]) {
     const word = m[1].toLowerCase();
     return {
-      kind: word === "pr" ? "pr" : word === "issue" ? "issue" : "message",
+      kind: word === 'pr' ? 'pr' : word === 'issue' ? 'issue' : 'message',
       n: Number(m[2]),
     };
   }
-  if (m[3]) return { kind: "github", n: Number(m[3]) };
+  if (m[3]) return { kind: 'github', n: Number(m[3]) };
   return {
-    kind: m[4].toLowerCase() === "pull" ? "pr" : "issue",
+    kind: m[4].toLowerCase() === 'pull' ? 'pr' : 'issue',
     n: Number(m[5]),
   };
 };
 
-const refKey = (r: MessageRef) => `${r.kind === "message" ? "m" : "g"}${r.n}`;
+const refKey = (r: MessageRef) => `${r.kind === 'message' ? 'm' : 'g'}${r.n}`;
 
 /** Every distinct reference in a text, in order of first appearance. */
 export const parseRefs = (text: string): MessageRef[] => {
@@ -38,7 +38,7 @@ export const parseRefs = (text: string): MessageRef[] => {
     const key = refKey(r);
     const seen = out.get(key);
     // A specific kind (pr, issue) beats the ambiguous bare #12.
-    if (!seen || seen.kind === "github") out.set(key, r);
+    if (!seen || seen.kind === 'github') out.set(key, r);
   }
   return [...out.values()];
 };
@@ -46,32 +46,26 @@ export const parseRefs = (text: string): MessageRef[] => {
 /** Parse one reference written on its own, e.g. a `--ref pr#12` flag. A bare number is a thread. */
 export const parseRef = (token: string): MessageRef | null => {
   const t = token.trim();
-  if (/^\d+$/.test(t)) return { kind: "message", n: Number(t) };
+  if (/^\d+$/.test(t)) return { kind: 'message', n: Number(t) };
   return parseRefs(t)[0] ?? null;
 };
 
 /** A message's references: stored ones, or parsed from its text for rows older than the column. */
-export const refsOf = (
-  m: Pick<Message, "refs" | "title" | "body">,
-): MessageRef[] =>
-  m.refs?.length ? m.refs : parseRefs(`${m.title ?? ""}\n${m.body}`);
+export const refsOf = (m: Pick<Message, 'refs' | 'title' | 'body'>): MessageRef[] =>
+  m.refs?.length ? m.refs : parseRefs(`${m.title ?? ''}\n${m.body}`);
 
 /** Merge reference lists, dropping duplicates (same target), specific kinds winning. */
 export const mergeRefs = (...lists: MessageRef[][]): MessageRef[] => {
   const out = new Map<string, MessageRef>();
   for (const r of lists.flat()) {
     const seen = out.get(refKey(r));
-    if (!seen || seen.kind === "github") out.set(refKey(r), r);
+    if (!seen || seen.kind === 'github') out.set(refKey(r), r);
   }
   return [...out.values()];
 };
 
 export const formatRef = (r: MessageRef) =>
-  r.kind === "message"
-    ? `msg#${r.n}`
-    : r.kind === "github"
-      ? `#${r.n}`
-      : `${r.kind}#${r.n}`;
+  r.kind === 'message' ? `msg#${r.n}` : r.kind === 'github' ? `#${r.n}` : `${r.kind}#${r.n}`;
 
 export type TextSegment = { text: string } | { text: string; ref: MessageRef };
 
@@ -93,14 +87,14 @@ export const MAX_TAGS = 8;
 
 /** Tags are short lowercase slugs: "search", "time-management", "chess/eval". */
 export const normalizeTags = (raw: string[] | string | undefined): string[] => {
-  const list = (Array.isArray(raw) ? raw : (raw ?? "").split(","))
+  const list = (Array.isArray(raw) ? raw : (raw ?? '').split(','))
     .map((t) =>
       t
         .trim()
         .toLowerCase()
-        .replace(/^#/, "")
-        .replace(/[^a-z0-9/_-]+/g, "-")
-        .replace(/^-+|-+$/g, ""),
+        .replace(/^#/, '')
+        .replace(/[^a-z0-9/_-]+/g, '-')
+        .replace(/^-+|-+$/g, ''),
     )
     .filter((t) => t.length > 0 && t.length <= 32);
   const tags = [...new Set(list)];
@@ -109,9 +103,9 @@ export const normalizeTags = (raw: string[] | string | undefined): string[] => {
 };
 
 /** A thread's display title: its own, or the first line of its body. */
-export const threadTitle = (m: Pick<Message, "title" | "body">, max = 90) => {
+export const threadTitle = (m: Pick<Message, 'title' | 'body'>, max = 90) => {
   if (m.title) return m.title;
-  const first = m.body.split("\n")[0].trim();
+  const first = m.body.split('\n')[0].trim();
   return first.length > max ? `${first.slice(0, max - 1).trimEnd()}…` : first;
 };
 
@@ -162,29 +156,24 @@ export const buildThreads = (messages: Message[]): Thread[] => {
     if (!t) continue;
     if (m.id !== t.root.id) t.comments.push(m);
     if (m.at > t.lastAt) t.lastAt = m.at;
-    if (m.agent_id && !t.participants.includes(m.agent_id))
-      t.participants.push(m.agent_id);
+    if (m.agent_id && !t.participants.includes(m.agent_id)) t.participants.push(m.agent_id);
     t.refs = mergeRefs(t.refs, refsOf(m));
   }
   for (const m of messages) {
     const from = rootIds.get(m.id)!;
     for (const r of refsOf(m)) {
-      if (r.kind !== "message" || !byId.has(r.n)) continue;
+      if (r.kind !== 'message' || !byId.has(r.n)) continue;
       const to = threads.get(rootIds.get(r.n)!);
-      if (to && to.root.id !== from && !to.backlinks.includes(from))
-        to.backlinks.push(from);
+      if (to && to.root.id !== from && !to.backlinks.includes(from)) to.backlinks.push(from);
     }
   }
-  for (const t of threads.values())
-    t.comments.sort((a, b) => a.at.localeCompare(b.at));
+  for (const t of threads.values()) t.comments.sort((a, b) => a.at.localeCompare(b.at));
   return [...threads.values()].sort((a, b) => b.lastAt.localeCompare(a.lastAt));
 };
 
 /** Board messages that mention a GitHub issue or pull request number. */
 export const mentionsOf = (messages: Message[], n: number) =>
-  messages.filter((m) =>
-    refsOf(m).some((r) => r.kind !== "message" && r.n === n),
-  );
+  messages.filter((m) => refsOf(m).some((r) => r.kind !== 'message' && r.n === n));
 
 /** A same-seat comment this long after the post comes from a later session on that pooled seat. */
 const LATER_SESSION_MS = 60 * 60 * 1000;
@@ -204,13 +193,12 @@ export const repliesOf = (t: Thread): Message[] =>
  * What an open thread is waiting for: a question or proposal nobody has answered, or a hand-off
  * no later session has acknowledged. Null when it waits on nobody (it has a reply, or is resolved).
  */
-export type ReplyState = "unanswered" | "unacknowledged" | null;
+export type ReplyState = 'unanswered' | 'unacknowledged' | null;
 
 export const replyState = (t: Thread): ReplyState => {
-  if ((t.root.status ?? "open") !== "open" || repliesOf(t).length) return null;
-  if (t.root.kind === "question" || t.root.kind === "proposal")
-    return "unanswered";
-  if (t.root.kind === "handoff") return "unacknowledged";
+  if ((t.root.status ?? 'open') !== 'open' || repliesOf(t).length) return null;
+  if (t.root.kind === 'question' || t.root.kind === 'proposal') return 'unanswered';
+  if (t.root.kind === 'handoff') return 'unacknowledged';
   return null;
 };
 
@@ -220,8 +208,7 @@ export const replyStats = (threads: Thread[]) => {
   for (const t of threads) {
     const s = out.get(t.root.kind) ?? { threads: 0, replied: 0 };
     s.threads += 1;
-    if (repliesOf(t).length || (t.root.status ?? "open") !== "open")
-      s.replied += 1;
+    if (repliesOf(t).length || (t.root.status ?? 'open') !== 'open') s.replied += 1;
     out.set(t.root.kind, s);
   }
   return out;
