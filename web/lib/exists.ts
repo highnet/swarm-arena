@@ -57,6 +57,14 @@ const numericId = (raw: string) => (/^\d{1,15}$/.test(raw) ? Number(raw) : null)
 const SAFE_VERSION = /^[A-Za-z0-9._+-]{1,64}$/;
 
 /**
+ * Static routes that sit beside a `[id]` segment. They are real routes, not ids, so Proxy must
+ * leave them alone: `proxy.ts` keeps them out of its matcher too. Add any new static sibling here.
+ */
+export const STATIC_SIBLINGS: Readonly<Record<string, readonly string[]>> = {
+  games: ['download'],
+};
+
+/**
  * What decides whether `pathname` names something. `null` for a path that is not a detail route
  * (Proxy then lets it through untouched).
  */
@@ -108,6 +116,7 @@ export const probeFor = (pathname: string): Probe | null => {
   }
 
   if (parts.length !== 2) return null;
+  if (STATIC_SIBLINGS[section]?.includes(a)) return null;
   const id = decode(a);
   if (id === null) return missing;
 

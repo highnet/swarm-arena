@@ -44,6 +44,9 @@ const ROUTES = [
   },
 ];
 
+/** Static routes beside a `[id]` segment: Proxy must leave them alone (`STATIC_SIBLINGS`). */
+const STATIC = [{ path: '/games/download?format=json', status: 200 }];
+
 const NOT_FOUND = 'This page could not be found';
 /** Next adds this to a page whose render hit `notFound()`, mid-stream or not. */
 const NOINDEX = '<meta name="robots" content="noindex"/>';
@@ -86,6 +89,11 @@ for (const route of ROUTES) {
       `${route.name}: unknown ${path} renders the not-found page`,
     );
   }
+}
+
+for (const { path, status: want } of STATIC) {
+  const { status } = await get(path);
+  check(status === want, `static route ${path} answers ${status}`);
 }
 
 if (failures.length) {

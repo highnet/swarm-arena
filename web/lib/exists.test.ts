@@ -4,7 +4,10 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { probeFor, probeQuery, type Probe, type RowProbe } from './exists';
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { STATIC_SIBLINGS, probeFor, probeQuery, type Probe, type RowProbe } from './exists';
 
 const row = (p: Probe | null): RowProbe => {
   assert.ok(p && p.kind === 'row', `expected a row probe, got ${JSON.stringify(p)}`);
@@ -92,4 +95,42 @@ test('a version is a landed patch whose title starts with it', () => {
   assert.deepEqual(probeFor('/versions/nope/v0.4'), { kind: 'known', exists: false });
   // A version PostgREST's pattern cannot carry safely is left to the page.
   assert.equal(probeFor('/versions/chess/v*'), null);
+});
+
+test('static routes beside an id are not read as ids (#270)', () => {
+  assert.equal(probeFor('/games/download'), null);
+  assert.equal(probeFor('/games/download/'), null);
+  // Only the exact segment: a game id that merely starts with it is still probed.
+  assert.equal(row(probeFor('/games/downloads')).table, 'games');
+});
+
+test('every static sibling of a detail route is listed, so Proxy leaves it alone', () => {
+  const app = join(dirname(fileURLToPath(import.meta.url)), '..', 'app');
+  const sections = ['games', 'matches', 'fleet', 'tasks', 'board', 'messages', 'graveyard'];
+  for (const section of sections) {
+    const siblings = readdirSync(join(app, section), { withFileTypes: true })
+      .filter((e) => e.isDirectory() && !e.name.startsWith('[') && !e.name.startsWith('('))
+      .map((e) => e.name);
+    assert.deepEqual(
+      [...siblings].sort(),
+      [...(STATIC_SIBLINGS[section] ?? [])].sort(),
+      `app/${section}: add static routes to STATIC_SIBLINGS and the proxy matcher`,
+    );
+    for (const name of siblings) assert.equal(probeFor(`/${section}/${name}`), null);
+  }
+});
+
+test('the proxy matcher excludes every static sibling', () => {
+  const source = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), '..', 'proxy.ts'),
+    'utf8',
+  );
+  for (const [section, names] of Object.entries(STATIC_SIBLINGS)) {
+    for (const name of names) {
+      assert.ok(
+        source.includes(`'/${section}/:id((?!${name}$)[^/]+)'`),
+        `proxy.ts matcher must exclude /${section}/${name}`,
+      );
+    }
+  }
 });

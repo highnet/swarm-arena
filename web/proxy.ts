@@ -25,7 +25,7 @@ const MAX_ENTRIES = 5_000;
 
 type Held = { exists: boolean; until: number };
 const held = new Map<string, Held>();
-let run: { id: string | null; until: number } | null = null;
+let run: { id: string | null; read: number } | null = null;
 
 const hold = (key: string, exists: boolean) => {
   if (held.size >= MAX_ENTRIES) held.delete(held.keys().next().value!);
@@ -42,12 +42,26 @@ const rest = async (query: string): Promise<Record<string, unknown>[]> => {
   return res.json();
 };
 
-/** The newest run, as the snapshot reads it. */
-const currentRun = async () => {
-  if (run && run.until > Date.now()) return run.id;
+/**
+ * The newest run, as the snapshot reads it. Held for `RUN_MS`; `maxAge` asks for a fresher one
+ * (a miss re-reads it, so a run that just started does not 404 its first matches, seats and tasks).
+ */
+const currentRun = async (maxAge = RUN_MS) => {
+  if (run && Date.now() - run.read < maxAge) return run.id;
   const rows = await rest('runs?select=id&order=started_at.desc&limit=1');
-  run = { id: (rows[0]?.id as string | undefined) ?? null, until: Date.now() + RUN_MS };
+  run = { id: (rows[0]?.id as string | undefined) ?? null, read: Date.now() };
   return run.id;
+};
+
+/** Reads one probe in `runId`, held per query. */
+const readProbe = async (probe: RowProbe, runId: string | null) => {
+  const query = probeQuery(probe, runId);
+  const cached = held.get(query);
+  if (cached && cached.until > Date.now()) return cached.exists;
+  const rows = await rest(query);
+  const exists = probe.accept ? probe.accept(rows) : rows.length > 0;
+  hold(query, exists);
+  return exists;
 };
 
 /** `true`/`false` when known, `null` when the read failed (the request then goes through). */
@@ -56,15 +70,16 @@ const rowExists = async (probe: RowProbe): Promise<boolean | null> => {
     return probe.offline;
   }
   try {
-    const runId = probe.inRun ? await currentRun() : null;
-    if (probe.inRun && !runId) return probe.offline;
-    const query = probeQuery(probe, runId);
-    const cached = held.get(query);
-    if (cached && cached.until > Date.now()) return cached.exists;
-    const rows = await rest(query);
-    const exists = probe.accept ? probe.accept(rows) : rows.length > 0;
-    hold(query, exists);
-    return exists;
+    if (!probe.inRun) return await readProbe(probe, null);
+    const runId = await currentRun();
+    const exists = runId ? await readProbe(probe, runId) : probe.offline;
+    if (exists) return exists;
+    // A miss may be a run that started after the held run id: re-read it (at most once per
+    // `MISSING_MS`, so a stream of unknown ids costs no more than the misses themselves) and
+    // only answer 404 if the id is missing from the newest run too.
+    const fresh = await currentRun(MISSING_MS);
+    if (fresh === runId) return exists;
+    return fresh ? await readProbe(probe, fresh) : probe.offline;
   } catch (e) {
     console.error('existence check failed', e);
     return null;
@@ -82,7 +97,15 @@ export const proxy = async (request: NextRequest) => {
 export const config = {
   matcher: [
     {
-      source: '/:section(games|matches|fleet|tasks|board|messages|graveyard)/:id',
+      // `/games/download` is a real route (the export), not a game id: see `STATIC_SIBLINGS`.
+      source: '/games/:id((?!download$)[^/]+)',
+      missing: [
+        { type: 'header', key: 'rsc' },
+        { type: 'header', key: 'next-router-prefetch' },
+      ],
+    },
+    {
+      source: '/:section(matches|fleet|tasks|board|messages|graveyard)/:id',
       missing: [
         { type: 'header', key: 'rsc' },
         { type: 'header', key: 'next-router-prefetch' },
