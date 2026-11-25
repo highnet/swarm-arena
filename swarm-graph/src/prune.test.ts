@@ -149,6 +149,8 @@ const many = (): SwarmInput => {
       at: a.lastSeen,
       agent: a.id,
       sector: 'chess',
+      workItem: null,
+      title: 'Claimed',
     })),
   };
 };

@@ -11,7 +11,7 @@
  * back (see `replay.ts`), from the state the graph had when that window opened.
  */
 import * as d3 from 'd3';
-import type { SwarmFlow, SwarmGraph, SwarmLink, SwarmNode, SwarmStage } from './model';
+import type { SwarmAgent, SwarmFlow, SwarmGraph, SwarmLink, SwarmNode, SwarmStage } from './model';
 import {
   FULL_INTRO,
   SHORT_INTRO,
@@ -152,7 +152,16 @@ export type SwarmGraphRendererOptions = {
    * raises it so the text fits. Narrow canvases scale it down.
    */
   sectorRadius?: { min: number; max: number };
+  /**
+   * Each agent's own icon (#200), drawn inside its node instead of the role letter: one path in a
+   * `0 0 size size` box, and its name for the accessible label. The role stays on the sub-line,
+   * in the hover card and in the label. Absent (or `null` for an agent), the letter is drawn.
+   */
+  agentIcon?: (agent: SwarmAgent) => SwarmAgentIcon | null;
 };
+
+/** An agent's icon: a single SVG path in a `0 0 size size` box. */
+export type SwarmAgentIcon = { d: string; name: string; size: number };
 
 export type SwarmUpdateOptions = {
   /**
@@ -459,6 +468,13 @@ export const createSwarmGraph = (
 ): SwarmGraphRenderer => {
   const theme = { ...DEFAULT_THEME, ...options.theme };
   const motion = !options.reducedMotion;
+  /** Icons are looked up once per agent id: the host's mapping is pure. */
+  const iconCache = new Map<string, SwarmAgentIcon | null>();
+  const iconOf = (n: SwarmNode) => {
+    if (n.kind !== 'agent' || !n.agent || !options.agentIcon) return null;
+    if (!iconCache.has(n.agent.id)) iconCache.set(n.agent.id, options.agentIcon(n.agent));
+    return iconCache.get(n.agent.id) ?? null;
+  };
 
   let width = Math.max(320, container.clientWidth);
   let height = Math.max(320, container.clientHeight);
@@ -1053,6 +1069,7 @@ export const createSwarmGraph = (
             .attr('class', 'sg-glyph')
             .attr('text-anchor', 'middle')
             .attr('dominant-baseline', 'central');
+          inner.append('path').attr('class', 'sg-icon').attr('aria-hidden', 'true');
           g.append('text').attr('class', 'sg-label').attr('text-anchor', 'middle');
           g.append('text').attr('class', 'sg-sub').attr('text-anchor', 'middle');
           const posed = (n: SimNode) => !motion || arrivals.has(n.id);
@@ -1088,7 +1105,11 @@ export const createSwarmGraph = (
       .duration(motion ? 800 : 0)
       .attr('opacity', dim);
 
-    groups.attr('aria-label', (n) => `${n.kind} ${n.label}`);
+    groups.attr('aria-label', (n) => {
+      if (n.kind !== 'agent') return `${n.kind} ${n.label}`;
+      const icon = iconOf(n);
+      return [n.label, n.agent?.role, icon?.name.toLowerCase()].filter(Boolean).join(', ');
+    });
     groups.select<SVGPathElement>('path.sg-body').each(function (n) {
       const el = d3.select(this);
       const c = colorOf(n);
@@ -1212,15 +1233,28 @@ export const createSwarmGraph = (
       .style('fill', (n) => (n.kind === 'agent' && !n.active ? theme.fgFaint : theme.fg))
       .text((n) => {
         if (n.kind === 'agent')
-          return (
-            ROLE_GLYPH[n.agent?.role ?? ''] ?? (n.agent?.role ?? n.label).charAt(0).toUpperCase()
-          );
+          return iconOf(n)
+            ? ''
+            : (ROLE_GLYPH[n.agent?.role ?? ''] ??
+                (n.agent?.role ?? n.label).charAt(0).toUpperCase());
         if (n.kind === 'sector')
           return hosted.has(n.id) ? '' : countLabel(shownNumber.get(n.id) ?? countOf(n));
         if (n.kind === 'hub') return n.label;
         return '';
       });
     countUp();
+
+    // An agent's own icon fills most of its circle, in the colour its letter had.
+    tags
+      .select<SVGPathElement>('path.sg-icon')
+      .attr('d', (n) => iconOf(n)?.d ?? '')
+      .attr('transform', (n) => {
+        const icon = iconOf(n);
+        if (!icon) return null;
+        const px = n.r * 1.3;
+        return `translate(${-px / 2},${-px / 2}) scale(${px / icon.size})`;
+      })
+      .style('fill', (n) => (n.kind === 'agent' && !n.active ? theme.fgFaint : theme.fg));
 
     // A wide halo in the panel colour masks anything passing behind the text, in both themes.
     tags
@@ -1487,7 +1521,8 @@ export const createSwarmGraph = (
           : null;
       return [count, live ? `${live} live` : null].filter(Boolean).join(' · ');
     }
-    if (n.kind === 'agent' && n.active) return n.agent?.role ?? '';
+    // The role, now that the node shows the agent's animal rather than a role letter (#200).
+    if (n.kind === 'agent' && (n.active || n === hovered)) return n.agent?.role ?? '';
     if (n.kind === 'work' && n.phase === 'pr' && n.workItem) return STAGE_LABEL[n.workItem.stage];
     return '';
   };
@@ -1615,10 +1650,9 @@ export const createSwarmGraph = (
       .attr('d', (n) => bodyPath(n, n === hovered ? n.r + 4 : n.r));
     const dim = (n: SimNode) => (!near || near.has(n.id) ? 1 : 0.2);
     groups.attr('opacity', dim);
-    tagGroups()
-      .attr('opacity', dim)
-      .select<SVGTextElement>('text.sg-label')
-      .text((n) => labelOf(n));
+    const tagged = tagGroups().attr('opacity', dim);
+    tagged.select<SVGTextElement>('text.sg-label').text((n) => labelOf(n));
+    tagged.select<SVGTextElement>('text.sg-sub').text((n) => subOf(n));
     layoutLabels();
     gLinks
       .selectAll<SVGPathElement, SimLink>('path')

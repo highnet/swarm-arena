@@ -10,6 +10,7 @@ import type { EngineNode, EngineVersion } from '@/lib/swarmEvents';
 import { cn } from '@/lib/utils';
 import { EngineBoard, type EngineBoardSource } from './EngineBoard';
 import { agentHref } from './seats';
+import { AgentAvatar } from './AgentAvatar';
 
 /** Agent marks shown in a node before "+N". */
 const MARKS = 3;
@@ -246,17 +247,16 @@ type AgentMarkProps = {
   title: string;
 };
 
-/**
- * One agent working in the sector, as a small mark. The hook for the agents' icons (#200): swap
- * the dot for the agent's icon here; the row around it already links and highlights.
- */
+/** One agent working in the sector, as its own animal (#200); the row around it links and highlights. */
 const AgentMark = ({ agent, title }: AgentMarkProps) => (
   <span
     data-slot="sector-agent-mark"
     data-agent-id={agent.id}
     title={title}
-    className="block size-2 rounded-full bg-good ring-1 ring-panel"
-  />
+    className="block rounded-full ring-1 ring-good"
+  >
+    <AgentAvatar id={agent.id} size={14} />
+  </span>
 );
 
 type AgentMarksProps = {
