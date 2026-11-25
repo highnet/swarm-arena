@@ -12,6 +12,10 @@
  * time-to-stable, peak per-frame displacement, the longest layout (the renderer's
  * `swarm-graph layout` measures, which must stay under MAX_LAYOUT_MS) and, for comparison, the
  * longest main-thread task of any kind per scenario. The 24 h replay plays from start to end.
+ * `--viewport WxH` runs it all at another size (#272): a phone's (`--viewport 390x844`, with
+ * touch and a phone's pixel ratio) drives the preset menu instead of the buttons, and its resize
+ * steps within phone widths, then out to a wide canvas and back (the grid of sectors becomes the
+ * ring and back again: each crossing re-places the graph once, by the same rules as a re-fit).
  * Needs Playwright's Chromium. Exits 1 on a failed check.
  */
 import { createRequire } from 'node:module';
@@ -22,10 +26,26 @@ const MAX_OVERSHOOT = 1; // px
 const MAX_STILL = 2; // px
 const MAX_SETTLE_MS = 700;
 const MAX_LAYOUT_MS = 50; // the longest single layout: never a long task of its own
-const url = process.argv[2] ?? 'http://localhost:3000/fleet';
+const args = process.argv.slice(2);
+const sizeArg = args.indexOf('--viewport');
+const [vw, vh] = sizeArg >= 0 ? args[sizeArg + 1].split('x').map(Number) : [1280, 900];
+const url =
+  args.find((a, i) => !a.startsWith('--') && (sizeArg < 0 || i !== sizeArg + 1)) ??
+  'http://localhost:3000/fleet';
+const phone = vw < 640;
 
-const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+const browser = await chromium.launch(
+  // Through the sandbox's proxy when there is one (the page's own Realtime and REST calls).
+  process.env.HTTPS_PROXY
+    ? { proxy: { server: process.env.HTTPS_PROXY, bypass: 'localhost,127.0.0.1' } }
+    : {},
+);
+const context = await browser.newContext({
+  viewport: { width: vw, height: vh },
+  ...(phone ? { isMobile: true, hasTouch: true, deviceScaleFactor: 3 } : {}),
+  ignoreHTTPSErrors: Boolean(process.env.HTTPS_PROXY),
+});
+const page = await context.newPage();
 const errors = [];
 page.on('pageerror', (e) => errors.push(String(e)));
 await page.goto(url, { waitUntil: 'networkidle', timeout: 60_000 });
@@ -115,15 +135,27 @@ const scenario = async (name, act, { hold = 6000, refit = false } = {}) => {
   marks.push({ name, start, acted, end: await clock(), refit });
 };
 
-const presets = await page.$$eval('[aria-label="Events shown"] button', (bs) =>
-  bs.map((b) => b.textContent ?? ''),
-);
+// A phone picks the preset from a menu; a wider screen from a row of buttons.
+const presets = phone
+  ? await page.$$eval('select[aria-label="Events shown"] option', (os) =>
+      os.map((o) => o.textContent ?? ''),
+    )
+  : await page.$$eval('[aria-label="Events shown"] button', (bs) =>
+      bs.map((b) => b.textContent ?? ''),
+    );
 const choose = (label) =>
-  page.click(`[aria-label="Events shown"] button:text-is(${JSON.stringify(label)})`);
-const pressed = await page.$eval(
-  '[aria-label="Events shown"] button[aria-pressed="true"]',
-  (b) => b.textContent ?? '',
-);
+  phone
+    ? page.selectOption('select[aria-label="Events shown"]', { label })
+    : page.click(`[aria-label="Events shown"] button:text-is(${JSON.stringify(label)})`);
+const pressed = phone
+  ? await page.$eval(
+      'select[aria-label="Events shown"]',
+      (s) => s.options[s.selectedIndex]?.textContent ?? '',
+    )
+  : await page.$eval(
+      '[aria-label="Events shown"] button[aria-pressed="true"]',
+      (b) => b.textContent ?? '',
+    );
 let current = pressed;
 await scenario('idle', async () => {});
 for (const from of presets)
@@ -136,12 +168,19 @@ for (const from of presets)
     await scenario(`preset ${from} → ${to}`, () => choose(to));
     current = to;
   }
-await scenario('resize narrower', () => page.setViewportSize({ width: 1100, height: 900 }), {
-  refit: true,
-});
-await scenario('resize back', () => page.setViewportSize({ width: 1280, height: 900 }), {
-  refit: true,
-});
+const resizes = phone
+  ? [
+      ['resize narrower', vw - 30],
+      ['resize back', vw],
+      ['resize past the grid (to a wide canvas)', 1100],
+      ['resize back to the phone', vw],
+    ]
+  : [
+      ['resize narrower', 1100],
+      ['resize back', 1280],
+    ];
+for (const [name, width] of resizes)
+  await scenario(name, () => page.setViewportSize({ width, height: vh }), { refit: true });
 await scenario('hover', async () => {
   const box = await page.$eval('svg', (s) => {
     const r = s.getBoundingClientRect();

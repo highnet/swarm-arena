@@ -1108,7 +1108,11 @@ const SwarmGraph = ({
     <section
       data-slot="swarm-graph"
       aria-label={titled ? undefined : 'Swarm graph'}
-      className={cn('relative overflow-hidden rounded-lg border border-line bg-panel', className)}
+      // Brought into view (a link, a hover from below), its header clears the sticky nav (#272).
+      className={cn(
+        'relative scroll-mt-sticky overflow-hidden rounded-lg border border-line bg-panel',
+        className,
+      )}
     >
       <div className="swarm-graph-ground pointer-events-none absolute inset-0" aria-hidden="true" />
 
@@ -1130,7 +1134,7 @@ const SwarmGraph = ({
             </Typography>
           </div>
         )}
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
           <div
             className="flex items-center rounded-md border border-line p-0.5"
             role="group"
@@ -1173,7 +1177,8 @@ const SwarmGraph = ({
               title="Play back the last 24 actively worked hours; choose the whole run on the timeline"
             >
               <History className="size-3.5" aria-hidden="true" />
-              Replay last 24 h
+              {/* Shorter on a phone, so the toolbar stays one row (#272). */}
+              Replay <span className="max-sm:hidden">last</span> 24 h
             </Button>
           )}
           <Button
@@ -1193,7 +1198,9 @@ const SwarmGraph = ({
       <PipelineBar stages={graph.totals.stages} />
 
       <div className="relative">
-        <div ref={host} className="relative isolate h-120 w-full sm:h-150" />
+        {/* A phone's canvas holds the sector grid (#272) and leaves room for the header and
+            legend within one screen; wider canvases keep the ring. */}
+        <div ref={host} className="relative isolate h-104 w-full sm:h-150" />
 
         {captions.length > 0 && (
           <ol
