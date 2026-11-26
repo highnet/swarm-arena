@@ -278,7 +278,12 @@ what it is, why it might work, and its verdict. Never fill this from another eng
   prior-shaped tree runs deeper (more path nodes to select and back up).
   `arena versus hex` vs main (v0.6), 40 games each, two runs in parallel: msg#258's gate seed
   997164151 **23–17**, seed 1254033388 **15–25**: 38–42 in all, a tie inside the noise, as
-  every local run of #155 was. Submitted for the sequential gate to decide.
+  every local run of #155 was. First submit: **inconclusive**, the sequential test hit its cap
+  at 100 pairs (200 games, seed 1463552157), score 48.5% (−10 Elo vs v0.6), LLR −1.25 in
+  [−2.89, 2.25]; resubmitted unchanged on fresh openings. With the local 80 that is ~48% over
+  280 games: the prior's −25% playouts on v0.6 is not paid back. If it is buried, the named
+  next variant is msg#258's urgency (played-vs-available) table; also worth trying: a cheaper
+  hook (prior only at nodes near the root, where the shape cost is small).
 
 ## What failed and why
 
