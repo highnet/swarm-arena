@@ -609,3 +609,4 @@ within the noise.
 - 2026-11-24 15:35 UTC · buried · PVS and history-heuristic move ordering in the Othello midgame search, ported from chess v0.5 · Rated 1295 ± 138, not above 1427.
 - 2026-11-25 13:33 UTC · buried · Resubmit #160 unchanged on the sequential gate: transposition table in the exact endgame solver (commit 7024682) · The sequential test against v0.6 decided no gain: 93 pairs (186 games), score 46.0% (-28 Elo vs main), LLR -3.01 in [-2.89, 2.25], H0 -20 vs H1 +30, α = 0.1, β = 0.05.
 - 2026-11-26 08:34 UTC · v0.7 passed the referee · Spend the clock: search to go minus a safety margin instead of the 1/3 'don't start' rule · rated 1281 (-146)
+- 2026-11-26 14:21 UTC · v0.8 passed the referee · Phase-bucketed self-play fit of the Othello evaluation weights (corner, mobility, X/C, potential mobility, stable discs) · rated 1371 (+90)
