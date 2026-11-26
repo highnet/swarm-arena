@@ -417,3 +417,102 @@ export const layoutGraph = (
   job.step(Infinity);
   return job.result();
 };
+
+// ---- sector arrangement (#272) --------------------------------------------------------------
+
+/** Below this canvas width the sectors leave their ring for a grid (phones, #272). */
+export const COMPACT_WIDTH = 560;
+
+export type SectorArrangementInput = {
+  /** How many sectors. */
+  count: number;
+  /** The canvas, px. */
+  width: number;
+  height: number;
+  /** A sector's largest body radius at full size (`sectorRadius.max`). */
+  maxBody: number;
+  /** Room a sector keeps beyond its body: its progress arc and a margin (the layout's `r` less the body). */
+  ringRoom: number;
+  /** Room the hub keeps around its centre (its collision radius). */
+  hubRoom: number;
+};
+
+export type SectorArrangement = {
+  /** `ring`: an ellipse round the hub (wide canvases); `grid`: rows above and below it (phones). */
+  kind: 'ring' | 'grid';
+  /** Each sector's fixed place, in input order, centred on the hub at the origin. */
+  slots: LayoutPoint[];
+  /** What sector bodies are scaled by (1 = `maxBody`). */
+  scale: number;
+  /**
+   * The arrangement's half extent: places are stored relative to it, so a resize that keeps the
+   * kind scales every place with the sectors.
+   */
+  radii: LayoutPoint;
+  /** Grid only. */
+  cols: number;
+  rows: number;
+};
+
+/**
+ * Where the sectors stand. Pure and deterministic: the canvas and the count decide everything,
+ * never the data, so live updates move no sector (#192, #202, #221).
+ *
+ * - **Ring** (`width >= COMPACT_WIDTH`): an ellipse fitted to the canvas, the first sector at
+ *   the top, leaving room for satellites outside it. Sectors shrink on small canvases.
+ * - **Grid** (narrower, #272): the ring's six circles cannot share a phone's column without
+ *   overlapping, so they stand in rows of up to three, half above the hub and half below it, with
+ *   a band in the middle for the hub and the branches and pull requests forked from it, and a
+ *   band above and below for open issues. Each sector's radius is the largest that fits its cell,
+ *   so no two sectors (arcs included) can overlap at any width. A short last row is centred.
+ */
+export const arrangeSectors = (input: SectorArrangementInput): SectorArrangement => {
+  const { count, width, height, maxBody, ringRoom, hubRoom } = input;
+  if (width >= COMPACT_WIDTH || count === 0) {
+    const scale = Math.max(0.6, Math.min(1, Math.min(width, height) / 620));
+    const radii = {
+      x: Math.max(100, width / 2 - 140 * scale),
+      y: Math.max(100, height / 2 - 120 * scale),
+    };
+    const slots = Array.from({ length: count }, (_, i) => {
+      const a = (i / count) * Math.PI * 2 - Math.PI / 2;
+      return { x: Math.cos(a) * radii.x, y: Math.sin(a) * radii.y };
+    });
+    return { kind: 'ring', slots, scale, radii, cols: 0, rows: 0 };
+  }
+  const EDGE = 6; // canvas edge to the outermost arc
+  const OUTER = 36; // band above the top row and below the bottom row (issues, agents)
+  const MIDDLE = Math.max(hubRoom + 14, 56); // half the band through the hub (agents, branches)
+  const cols = count <= 2 ? count : count <= 4 ? 2 : 3;
+  const rows = Math.ceil(count / cols);
+  const upper = Math.ceil(rows / 2);
+  const lower = rows - upper;
+  const tallest = Math.max(upper, lower);
+  // A cell's half size: what one sector (body, arc, margin) may take.
+  const cell = Math.max(
+    ringRoom + 8,
+    Math.min((width / 2 - EDGE) / cols, (height / 2 - EDGE - OUTER - MIDDLE) / (2 * tallest)),
+  );
+  const body = Math.min(maxBody, cell - ringRoom);
+  const slots: LayoutPoint[] = [];
+  for (let i = 0; i < count; i++) {
+    const row = Math.floor(i / cols);
+    const inRow = Math.min(cols, count - row * cols);
+    const col = i % cols;
+    const x = (col - (inRow - 1) / 2) * 2 * cell;
+    // Rows above the hub count outwards from it; the first row is the top one.
+    const y =
+      row < upper
+        ? -(MIDDLE + cell + 2 * cell * (upper - 1 - row))
+        : MIDDLE + cell + 2 * cell * (row - upper);
+    slots.push({ x, y });
+  }
+  return {
+    kind: 'grid',
+    slots,
+    scale: body / maxBody,
+    radii: { x: Math.max(cell, (cols - 1) * cell), y: MIDDLE + cell + 2 * cell * (tallest - 1) },
+    cols,
+    rows,
+  };
+};
