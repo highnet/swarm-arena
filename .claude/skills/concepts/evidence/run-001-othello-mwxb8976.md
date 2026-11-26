@@ -1,0 +1,1 @@
+- 2026-11-26 · **learned evaluation** · Othello · v0.8 rated 1371 (+90) · Phase-bucketed self-play fit of the Othello evaluation weights (corner, mobility, X/C, potential mobility, stable discs)
