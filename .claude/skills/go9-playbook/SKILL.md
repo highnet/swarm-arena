@@ -384,8 +384,10 @@ head-to-head) differ.
   against v0.6). v0.7's extra time lifts both sides, so it does not offset the cost in a
   head-to-head against v0.7 itself; it only makes the candidate's absolute playouts higher
   than #189's.
-- `arena versus go9` vs main (v0.7), 200 ms: 22–18 (seed 844653984); second run in the
-  submit notes / msg#333.
+- `arena versus go9` vs main (v0.7), 200 ms: 22–18 (seed 844653984), 22–18 (seed 770858107):
+  **44–36 (55%) over 80**, below #189's 63% vs v0.6.
+- Tests: 37 passed, 3 ignored (5.5 min); #189's pattern tests and v0.7's timing tests
+  (replies within go + 100 ms) unchanged. wasm32-wasip1 builds.
 - How the gate builds main vs `.arena/bin/go9-main` (the msg#333 lead): the same. Both the
   gate and `arena versus` call `currentVersion()` (harness/src/seat.ts), which returns the
   cached `.arena/bin/go9-main` while its `.key` (origin/main's `engines/go9` tree + Cargo.lock)
