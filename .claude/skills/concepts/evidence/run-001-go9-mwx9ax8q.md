@@ -1,0 +1,1 @@
+- 2026-11-26 · **time management** · Go 9×9 · v0.7 rated 1383 (-17) · Retry #210: spend the clock in MCTS with a 35 ms margin floor, timing tests asserted against the protocol slack
