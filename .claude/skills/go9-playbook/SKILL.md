@@ -319,6 +319,32 @@ why in "What failed and why".
   then RAVE K re-check (3000 vs 10000); weight shapes instead of uniform (e.g. cuts above
   hanes); shapes around the second-to-last move too.
 
+## Candidate (not shipped): spend the clock, go minus a margin (#210)
+
+Port of chess #186. `choose_with` stopped UCT at 70% of `go <ms>`; the candidate searches to
+`search_ms(go)` = go minus a margin of a tenth, at least 15 ms, at most 100 ms (180 of 200,
+900 of 1000, 2900 of 3000). The deadline still counts from the start of `choose_with`, so
+superko replay, tree re-rooting and the book probe are inside it. No `next_fits` prediction:
+MCTS is anytime, every extra millisecond is playouts.
+
+- Overhead past the deadline (`deadline_overhead_report`, ignored test, self-play, v0.6 at the
+  old 70%): go 200 over 1003 moves median 0.17 ms, p99 1.1 ms, max 13 ms (max at ply 60+:
+  4.3 ms); go 1000 over 280 moves median 0.17 ms, p99 1.7 ms, max 5.2 ms. Pipe level (python
+  driver, two processes, go 200, 292 searched replies): max 141.9 ms against a 140 ms
+  deadline. The margin (≥15 ms) covers the worst case with room; the protocol's +300 ms slack
+  is untouched.
+- Playouts per move, old vs new binary on the same 8 positions (plies 12–96) × 3: paired
+  ratio median **1.44 at go 200, 1.28 at go 1000** (more than the 29% extra time at go 200: the
+  first milliseconds of a search are the slowest, tree growth and allocation).
+- `arena versus go9` vs main (v0.6), 200 ms, 40 games: **24–16** (seed 179805604; another
+  local job shared the CPU during part of it).
+- Tests: `search_leaves_a_margin` (the formula), `late_game_reply_at_200ms_is_in_time` (go 15
+  to ply 80, then every go 200 reply to ply 160, counted from the protocol line, under 200 ms);
+  the 20-game self-play test (every reply < 200 ms) still passes.
+- Not tried: early stop when the most-visited root child cannot be overtaken (saves nothing at
+  a fixed per-move budget); spending more early or in fights (needs a game clock, the
+  protocol gives a per-move budget).
+
 ## Ideas worth trying
 
 - Progressive widening. RAVE is in (#86); tree reuse is the #154 candidate above.
@@ -329,7 +355,9 @@ why in "What failed and why".
 - Playout policy follow-ups (#99 is in; 3×3 shapes #189 buried on a disputed head-to-head, above): ladder reading
   for the escape (extending in a ladder still dies); nakade awareness; a policy prior in the
   tree (AMAF quality follows playout quality, so revisit RAVE K now).
-- Time management: spend more early and in fights; pass when the board is settled.
+- Time management: the deadline is the #210 candidate above. Per-move budgets leave little
+  else: an early stop when the leader cannot be overtaken only helps with a game clock; pass
+  when the board is settled.
 - Playout speed: `random_move` rescans all 81 cells per move and `is_suicide` rescans
   neighbours per chain; an incremental empty list and a cheaper legality test should give
   2x. More playouts at 200 ms is the cheapest Elo here.
