@@ -4,6 +4,7 @@
 
 mod book;
 mod endgame;
+mod texel;
 
 use endgame::Tb;
 use shakmaty::uci::UciMove;
@@ -194,31 +195,104 @@ fn centrality(file: i32, rank: i32) -> i32 {
     (7 - (2 * file - 7).abs()) + (7 - (2 * rank - 7).abs())
 }
 
+/// Every number `evaluate` reads (#293). The terms and their shape are fixed in code; only these
+/// weights change, so a Texel-style fit (`texel.rs`) can tune them against game results.
+/// Each term is linear in its weight, which is what lets the fit read off one feature per weight.
+/// Middlegame / endgame pairs are tapered by the 24-point phase; `bishop_pair` is added after it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Params {
+    /// Material by role (pawn, knight, bishop, rook, queen), middlegame and endgame.
+    pub material_mg: [i32; 5],
+    pub material_eg: [i32; 5],
+    /// Pawn: per rank advanced past the second, middlegame and endgame.
+    pub pawn_advance: [i32; 2],
+    /// Pawn on the d or e file, extra middlegame bonus by rank seen from its owner (index = rank).
+    pub pawn_centre: [i32; 8],
+    /// Per centrality point above the board's mean (7), middlegame and endgame.
+    pub knight_centre: [i32; 2],
+    pub bishop_centre: [i32; 2],
+    pub queen_centre: [i32; 2],
+    /// Bishop still on its back rank (middlegame).
+    pub bishop_back: i32,
+    /// Rook on the seventh rank, middlegame and endgame.
+    pub rook_seventh: [i32; 2],
+    /// Rook on c-f of its back rank (middlegame).
+    pub rook_back_centre: i32,
+    /// Queen off its back rank (middlegame).
+    pub queen_off_back: i32,
+    /// King on a, b, c, g or h of its back rank (middlegame).
+    pub king_shelter: i32,
+    /// King per rank advanced off its back rank (middlegame).
+    pub king_advance: i32,
+    /// King per centrality point above the mean (endgame).
+    pub king_centre_eg: i32,
+    /// Mobility per safe square above `MOBILITY_BASE`: knight, bishop, rook, queen; mg and eg.
+    pub mobility: [[i32; 2]; 4],
+    /// Passed pawn by rank seen from its owner (index 1 = second rank .. 6 = seventh), mg and eg,
+    /// and the extra when its stop square is empty.
+    pub passer_mg: [i32; 8],
+    pub passer_eg: [i32; 8],
+    pub passer_free_mg: [i32; 8],
+    pub passer_free_eg: [i32; 8],
+    /// Both bishops (added after the taper).
+    pub bishop_pair: i32,
+}
+
+/// The safe-square count at which a piece's mobility scores 0: knight, bishop, rook, queen.
+/// Not tuned: with the weight it only adds a constant per piece, which material already carries.
+const MOBILITY_BASE: [i32; 4] = [4, 6, 7, 13];
+
+/// The weights `evaluate` plays with: fitted by `texel/generate.sh 5 30 4 10 1500 3e-7` (#293) to
+/// 6,000 games of v0.11 self-play; the v0.11 hand-set numbers they replaced are in the playbook.
+pub(crate) const PARAMS: Params = Params {
+    material_mg: [90, 318, 331, 500, 903],
+    material_eg: [102, 309, 321, 507, 904],
+    pawn_advance: [-6, 8],
+    pawn_centre: [0, -8, -2, 14, 9, 11, 0, 0],
+    knight_centre: [2, 7],
+    bishop_centre: [1, 0],
+    queen_centre: [0, 3],
+    bishop_back: -6,
+    rook_seventh: [18, 10],
+    rook_back_centre: 12,
+    queen_off_back: -4,
+    king_shelter: 27,
+    king_advance: -11,
+    king_centre_eg: 4,
+    mobility: [[6, 1], [7, 5], [9, 5], [3, 9]],
+    passer_mg: [0, 0, 1, 7, 15, 30, 46, 0],
+    passer_eg: [0, 7, 8, 19, 32, 61, 87, 0],
+    passer_free_mg: [0, 0, -1, 1, 4, 9, 11, 0],
+    passer_free_eg: [0, 2, 0, 5, 9, 19, 23, 0],
+    bishop_pair: 27,
+};
+
 /// Piece-square bonus for a piece of `role` on (file, rank), rank seen from its owner's side.
 /// Returns (middlegame, endgame). Formula-built rather than tabulated, so the shape is legible.
-fn placement(role: Role, file: i32, rank: i32) -> (i32, i32) {
-    let c = centrality(file, rank);
+#[inline(always)]
+fn placement(p: &Params, role: Role, file: i32, rank: i32) -> (i32, i32) {
+    let c = centrality(file, rank) - 7;
     match role {
         Role::Pawn => {
-            let advance = 6 * (rank - 1);
-            let centre = if (3..=4).contains(&file) { [0, -8, 4, 14, 16, 10, 0, 0][rank as usize] } else { 0 };
-            (advance + centre, 2 * advance)
+            let adv = rank - 1;
+            let centre = if (3..=4).contains(&file) { p.pawn_centre[rank as usize] } else { 0 };
+            (p.pawn_advance[0] * adv + centre, p.pawn_advance[1] * adv)
         }
-        Role::Knight => (3 * c - 21, 2 * c - 14),
-        Role::Bishop => (2 * c - 12 + if rank == 0 { -6 } else { 0 }, c - 7),
+        Role::Knight => (p.knight_centre[0] * c, p.knight_centre[1] * c),
+        Role::Bishop => (p.bishop_centre[0] * c + if rank == 0 { p.bishop_back } else { 0 }, p.bishop_centre[1] * c),
         Role::Rook => {
-            let seventh = if rank == 6 { 16 } else { 0 };
-            let central = if (2..=5).contains(&file) && rank == 0 { 4 } else { 0 };
-            (seventh + central, seventh / 2)
+            let (s_mg, s_eg) = if rank == 6 { (p.rook_seventh[0], p.rook_seventh[1]) } else { (0, 0) };
+            let central = if (2..=5).contains(&file) && rank == 0 { p.rook_back_centre } else { 0 };
+            (s_mg + central, s_eg)
         }
-        Role::Queen => (c - 7 + if rank == 0 { 0 } else { -2 }, 2 * c - 14),
+        Role::Queen => (p.queen_centre[0] * c + if rank == 0 { 0 } else { p.queen_off_back }, p.queen_centre[1] * c),
         Role::King => {
             let shelter = if rank == 0 {
-                if matches!(file, 0..=2 | 6 | 7) { 18 } else { 0 }
+                if matches!(file, 0..=2 | 6 | 7) { p.king_shelter } else { 0 }
             } else {
-                -14 * rank
+                p.king_advance * rank
             };
-            (shelter, 4 * c - 28)
+            (shelter, p.king_centre_eg * c)
         }
     }
 }
@@ -234,23 +308,18 @@ fn pawn_attack_set(pawns: u64, color: Color) -> u64 {
     }
 }
 
-/// Mobility weight per safe square, (middlegame, endgame), and the centred baseline (the square
-/// count that scores 0): knight, bishop, rook, queen. Modest on purpose: chess is tactical, and a
-/// mobility swing must stay well below a pawn in ordinary positions.
-const MOBILITY: [(i32, i32, i32); 4] = [(4, 4, 4), (5, 5, 6), (2, 4, 7), (1, 2, 13)];
-
-/// Passed-pawn bonus by rank seen from the pawn's owner (index 1 = second rank .. 6 = seventh),
-/// middlegame and endgame, and the extra bonus when its stop square is empty.
-const PASSER_MG: [i32; 8] = [0, 0, 4, 8, 16, 28, 45, 0];
-const PASSER_EG: [i32; 8] = [0, 6, 10, 18, 32, 55, 85, 0];
-const PASSER_FREE_MG: [i32; 8] = [0, 0, 1, 2, 4, 7, 11, 0];
-const PASSER_FREE_EG: [i32; 8] = [0, 1, 2, 4, 8, 14, 22, 0];
+/// Mobility and passed-pawn terms with the playing weights (see `activity_with`).
+#[cfg(test)]
+fn activity(pos: &Chess) -> (i32, i32) {
+    activity_with(pos, &PARAMS)
+}
 
 /// Mobility and passed-pawn terms, white minus black, as (middlegame, endgame). Mobility counts,
 /// for each knight, bishop, rook and queen, the squares it attacks that hold no own piece and are
 /// not attacked by an enemy pawn. A pawn is passed when no enemy pawn stands ahead of it on its
 /// own or an adjacent file.
-fn activity(pos: &Chess) -> (i32, i32) {
+#[inline(always)]
+fn activity_with(pos: &Chess, p: &Params) -> (i32, i32) {
     let board = pos.board();
     let occ = board.occupied();
     let pawns = board.pawns().0;
@@ -270,7 +339,8 @@ fn activity(pos: &Chess) -> (i32, i32) {
             (board.queens().0 & own, 3),
         ];
         for (set, i) in sets {
-            let (wm, we, base) = MOBILITY[i];
+            let [wm, we] = p.mobility[i];
+            let base = MOBILITY_BASE[i];
             for sq in Bitboard(set) {
                 let att = match i {
                     0 => attacks::knight_attacks(sq),
@@ -296,24 +366,26 @@ fn activity(pos: &Chess) -> (i32, i32) {
                 continue;
             }
             let rank = if color == Color::White { raw } else { 7 - raw } as usize;
-            mg += sign * PASSER_MG[rank];
-            eg += sign * PASSER_EG[rank];
+            mg += sign * p.passer_mg[rank];
+            eg += sign * p.passer_eg[rank];
             let stop = match color {
                 Color::White => sq.offset(8),
                 Color::Black => sq.offset(-8),
             };
             if stop.is_some_and(|s| !occ.contains(s)) {
-                mg += sign * PASSER_FREE_MG[rank];
-                eg += sign * PASSER_FREE_EG[rank];
+                mg += sign * p.passer_free_mg[rank];
+                eg += sign * p.passer_free_eg[rank];
             }
         }
     }
     (mg, eg)
 }
 
-/// Static evaluation from the side to move's point of view: material, tapered placement,
-/// mobility and passed pawns, and a bishop-pair bonus.
-fn evaluate(pos: &Chess) -> i32 {
+/// The evaluation's parts, all white minus black: (middlegame, endgame, phase 0..24, untapered).
+/// `evaluate` combines them as `(mg * phase + eg * (24 - phase)) / 24 + flat`; each part is linear
+/// in `p`, which the Texel fit relies on.
+#[inline(always)]
+pub(crate) fn eval_terms(pos: &Chess, p: &Params) -> (i32, i32, i32, i32) {
     let board = pos.board();
     let (mut mg, mut eg, mut phase) = (0i32, 0i32, 0i32);
     let mut bishops = [0; 2];
@@ -322,10 +394,15 @@ fn evaluate(pos: &Chess) -> i32 {
         let file = sq.file().to_usize() as i32;
         let raw = sq.rank().to_usize() as i32;
         let rank = if piece.color == Color::White { raw } else { 7 - raw };
-        let (pm, pe) = placement(piece.role, file, rank);
-        let v = value(piece.role);
-        mg += sign * (v + pm);
-        eg += sign * (v + pe);
+        let (pm, pe) = placement(p, piece.role, file, rank);
+        if piece.role != Role::King {
+            let i = piece.role as usize - 1;
+            mg += sign * (p.material_mg[i] + pm);
+            eg += sign * (p.material_eg[i] + pe);
+        } else {
+            mg += sign * pm;
+            eg += sign * pe;
+        }
         phase += match piece.role {
             Role::Knight | Role::Bishop => 1,
             Role::Rook => 2,
@@ -336,17 +413,24 @@ fn evaluate(pos: &Chess) -> i32 {
             bishops[piece.color as usize] += 1;
         }
     }
-    let (am, ae) = activity(pos);
+    let (am, ae) = activity_with(pos, p);
     mg += am;
     eg += ae;
-    let phase = phase.min(24);
-    let mut s = (mg * phase + eg * (24 - phase)) / 24;
+    let mut flat = 0;
     if bishops[Color::White as usize] >= 2 {
-        s += 30;
+        flat += p.bishop_pair;
     }
     if bishops[Color::Black as usize] >= 2 {
-        s -= 30;
+        flat -= p.bishop_pair;
     }
+    (mg, eg, phase.min(24), flat)
+}
+
+/// Static evaluation from the side to move's point of view: material, tapered placement,
+/// mobility and passed pawns, and a bishop-pair bonus, with the weights in `PARAMS`.
+fn evaluate(pos: &Chess) -> i32 {
+    let (mg, eg, phase, flat) = eval_terms(pos, &PARAMS);
+    let s = (mg * phase + eg * (24 - phase)) / 24 + flat;
     if pos.turn() == Color::White {
         s
     } else {
@@ -1147,6 +1231,38 @@ fn run_clock(
     Some(out)
 }
 
+/// Quiescence score of `pos` for the side to move, with no clock. The Texel generator keeps a
+/// position only when this equals the static evaluation (nothing hangs).
+pub(crate) fn quiesce_score(pos: &Chess) -> i32 {
+    let seen = HashSet::new();
+    let mut tt = Tt::new(1);
+    let mut s = Search {
+        seen: &seen,
+        tt: &mut tt,
+        use_tt: false,
+        order: Ordering::new(),
+        use_order: false,
+        use_pvs: false,
+        use_null: false,
+        use_see: true,
+        null_ply: -1,
+        rep_floor: 0,
+        null_tries: 0,
+        null_cuts: 0,
+        tt_hits: 0,
+        tt_cuts: 0,
+        tb_hits: 0,
+        path: Vec::new(),
+        root_turn: pos.turn(),
+        deadline: Instant::now() + Duration::from_secs(86_400),
+        nodes: 0,
+        qnodes: 0,
+        stopped: false,
+        partial: None,
+    };
+    s.quiesce(pos, 0, 0, -INF, INF)
+}
+
 /// Whether the next depth is worth starting: its predicted cost (the last iteration's time times
 /// the growth per ply, measured from the last two iterations and clamped) must fit before `limit`,
 /// or at least the share of it that yields a usable result.
@@ -1218,6 +1334,10 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(String::as_str) == Some("book") {
         book::tool(&args[1..]);
+        return;
+    }
+    if args.first().map(String::as_str) == Some("texel") {
+        texel::tool(&args[1..]);
         return;
     }
     let stdin = io::stdin();
@@ -1882,7 +2002,7 @@ mod tests {
         assert_eq!(out.depth, 8);
         let mid = from_fen(TT_FENS[0]);
         assert!(has_non_pawn_material(&mid));
-        assert!(null_search(&mid, 5, true).null_tries > 0);
+        assert!(null_search(&mid, 7, true).null_tries > 0);
     }
 
     #[test]

@@ -1,0 +1,1 @@
+- 2026-11-26 · **learned evaluation** · Chess · v0.12 rated 1680 (+97) · Texel-style fit of the chess evaluation weights on positions from the engine's own self-play
