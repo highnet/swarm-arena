@@ -224,6 +224,74 @@ time management (merged as chess v0.10, +116 vs main), written for Othello's sea
   652866370). Part of the 80 games ran beside the test suite and `clock_report` on 4 cores, which
   slows both sides alike.
 
+## Candidate (not shipped): phase-bucketed self-play fit of the evaluation weights (task #295)
+
+Move into "Architecture now" only once the referee passes it. Concept: learned evaluation. The
+search, book bytes, TT, clock and solver are v0.7's; only `evaluate()`'s weights change.
+
+- **Eval refactor**: `features(g)` returns v0.7's six terms, each "mine minus the opponent's"
+  (corner, mobility, X-square and C-square next to an empty corner, potential mobility, edge
+  stable discs); `weighted(f, w, empties)` applies one weight set (potential mobility still
+  × empties / 60); `PHASES` holds the weights per empties bucket. `V07_WEIGHTS` = [30, 4, −18,
+  −8, 2, 2] reproduces v0.7 exactly (`v07_weights_reproduce_the_old_evaluation`).
+- **Positions** (`othello-engine tune gen`, `othello/tune/generate.sh`, seed 295, ~11 min on 4
+  shards): 24 000 self-play games, opening i = suite line i mod 200, v0.7's search at fixed depth
+  6 with the TT and v0.7's weights (`SELF_PLAY_V07`, so the set reproduces whatever `PHASES`
+  holds), 10% uniformly random moves, in-book plies played but not recorded. 1 234 438 positions,
+  934 649 distinct (repeats merged with their mean label). Deterministic whatever the shard
+  count (checked: a re-run reproduces shard 0 byte for byte). Not checked in (≈ 50 MB).
+- **Labels**: from 14 empties down every position is solved exactly (the solver also picks the
+  move there, 10% random moves still apply), and its own exact result is its label (334 255
+  positions). Earlier positions get the game's result under exact play from the first solved
+  position (= the final result). Fitted on win/draw/loss (1 / ½ / 0), not the margin: the rating
+  only counts results, and a least-squares fit on the disc margin (`tune fit --margin`) gave
+  the same shape (ratios within ~20%).
+- **Fit** (`tune fit <bounds> <files>`): logistic regression without an intercept (the score
+  must stay antisymmetric) by Newton's method, ridge 1e-4, 100 = one logit; ~1 s for all
+  positions. Per bucket, fitted vs v0.7 (v0.7's weights at their best-fit scale), log-loss:
+
+  | empties | n | corner | mobility | X | C | potmob | stable | loss | v0.7 loss |
+  | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+  | 60-50 | 2 904 | 55 | 2 | −123 | −39 | 2 | 86 | 0.672 | 0.683 |
+  | 49-45 | 28 760 | 85 | 2 | −111 | −31 | 4 | 47 | 0.661 | 0.672 |
+  | 44-40 | 59 511 | 96 | 4 | −95 | −10 | 5 | 24 | 0.642 | 0.651 |
+  | 39-35 | 82 445 | 100 | 7 | −89 | −7 | 6 | 16 | 0.611 | 0.618 |
+  | 34-30 | 97 201 | 83 | 9 | −80 | −7 | 7 | 17 | 0.573 | 0.579 |
+  | 29-25 | 106 557 | 78 | 11 | −73 | −9 | 10 | 15 | 0.522 | 0.527 |
+  | 24-20 | 112 198 | 70 | 16 | −68 | −16 | 10 | 15 | 0.458 | 0.465 |
+  | 19-15 | 115 559 | 63 | 30 | −57 | −27 | −2 | 17 | 0.375 | 0.395 |
+  | 14-10 | 117 503 | 47 | 55 | −47 | −39 | −46 | 21 | 0.282 | 0.340 |
+  | 9-5 | 118 472 | 14 | 68 | −20 | −31 | −104 | 21 | 0.262 | 0.342 |
+  | 4-0 | 93 539 | −16 | 89 | 28 | −14 | −170 | 24 | 0.255 | 0.353 |
+
+  v0.7's shape is close to the fit from 45 to 20 empties: the fit gains almost nothing there.
+  It differs in the late game, where mobility takes over from corners (corner/mobility 47:55 at
+  14-10 empties against v0.7's fixed 30:4) and potential mobility turns negative. The 14-0 rows
+  matter even though the solver takes over at 14: they score the leaves of every search from
+  15-28 empties.
+- **Variants, local `arena versus othello --pairs 40` vs main v0.7 (go 200, balanced suite; not
+  referee evidence)**:
+  - one bucket for all phases (the control; [32, 21, −63, −25, −3, 18]): **+41 −36 =3 (seed 295001)**;
+  - the spec's 4 buckets 60-45 / 44-30 / 29-15 / 14-0 ([84, 2, −112, −32, 3, 48], [92, 8, −87,
+    −7, 6, 16], [67, 20, −65, −21, 3, 15], [7, 60, −26, −33, −68, 23]): **+42 −36 =2 (seed
+    295001), +42 −35 =3 (seed 295002)**, 54%;
+  - **11 buckets of 5 empties (the table above, submitted): +47 −29 =4 (seed 295001), +50 −26 =4
+    (seed 295002), +56 −22 =2 (seed 295003)**: 153−77−10 over 240 games, 66%, about +115 Elo.
+  So the fit alone (one bucket) is flat and the 4-bucket split is small: the gain is in the
+  phase resolution, mostly late, where the weights change fastest. Step buckets, no
+  interpolation (the leaves of one search all sit at about the same empties).
+- **Cost**: same features, so the same nodes per second; `clock_report` at go 200: median
+  137-180 ms used, depth means 9.9 / 9.1 / 10.1 / 11.1 in the ≤50/40/30/20 bands. One wide
+  44-empties position now stops after depth 9 at ~85 ms (depth 10 predicted not to fit), so
+  `clock_spends_most_of_the_budget_in_the_midgame` checks the median of six midgame positions.
+- **Book**: `book/othello-book.bin` is unchanged (searched with v0.7's eval; its stored moves
+  stay valid and the book tests pass). A rebuild with the fitted eval costs ~2 h on 4 cores and
+  touches only the first 1-2 plies after the opening; worth a follow-up only after this lands,
+  measured head-to-head.
+- Next levers: finer still (one bucket per 2-3 empties, or weights linear in empties fitted
+  jointly); a second round of self-play with the fitted weights; new features (edge patterns,
+  parity) in their own task, fitted the same way.
+
 ## Buried twice: #160's solver table resubmitted unchanged on the sequential gate (task #209)
 
 **Referee (#195 sequential head-to-head vs main v0.6, go 200, balanced suite): first run
@@ -353,7 +421,8 @@ for N scaled with the site's 0.5-3 s budgets, and measure those instead of N = 1
 - History heuristic + PVS was task #190 (buried flat, note above); killers and LMR
   untried; aspiration windows at the root.
 - Use more of the budget: task #275 (Candidate note above).
-- Tune the eval weights (corner/mobility/X/C) by self-play. Local matches need opening variety
+- Tune the eval weights (corner/mobility/X/C) by self-play: task #295 (Candidate note above).
+  Local matches need opening variety
   (a few random plies or an opening list) before small weight differences can be read: without
   one, repeats of the same setting differed by ±10 games out of 40. `arena versus` has seeded
   openings since #104 (quote its seed); `arena play` still has none.

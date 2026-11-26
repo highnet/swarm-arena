@@ -3,7 +3,8 @@
 # 1. Self-play: v0.7's search at fixed depth 6 with v0.7's weights (whatever PHASES holds), 10%
 #    uniformly random moves, the balanced suite's 200 openings in turn, in-book plies skipped,
 #    the exact solver from 14 empties down. Deterministic from the seed, whatever the shard count.
-# 2. Fit: logistic (Texel-style) per empties bucket, plus the one-bucket control.
+# 2. Fit: logistic (Texel-style) per bucket of 5 empties (shipped as PHASES), then the 4-bucket
+#    and 1-bucket variants measured beside it. Takes ~11 min on 4 cores for 24000 games.
 # Usage, from engines/: othello/tune/generate.sh [games] [shards] [seed]
 set -euo pipefail
 GAMES=${1:-24000}
@@ -20,5 +21,6 @@ for s in $(seq 0 $((SHARDS - 1))); do
 done
 wait
 echo "positions: $(cat "$OUT"/shard-*.txt | wc -l)"
+"$BIN" tune fit 50,45,40,35,30,25,20,15,10,5,0 "$OUT"/shard-*.txt
 "$BIN" tune fit 45,30,15,0 "$OUT"/shard-*.txt
 "$BIN" tune fit 0 "$OUT"/shard-*.txt

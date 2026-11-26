@@ -20,6 +20,8 @@ const GEN_DEPTH: u32 = 6;
 const EPSILON_PERMILLE: u64 = 100;
 /// Scale of the integer weights: an evaluation of `SCALE` is one logit (odds e : 1).
 pub const SCALE: f64 = 100.0;
+/// Scale of the integer weights of a margin fit (`tune fit --margin`): 10 = one disc.
+pub const MARGIN_SCALE: f64 = 10.0;
 /// Ridge on the fitted logits, per position (keeps rare features such as X-squares sane).
 const RIDGE: f64 = 1e-4;
 
@@ -235,6 +237,25 @@ pub fn fit_logistic(data: &[([f64; N_FEATURES], f64)]) -> [f64; N_FEATURES] {
     w
 }
 
+/// Least squares without an intercept (normal equations, the same ridge per position).
+pub fn fit_least_squares(data: &[([f64; N_FEATURES], f64)]) -> [f64; N_FEATURES] {
+    let n = data.len() as f64;
+    let mut a = [[0.0; N_FEATURES]; N_FEATURES];
+    let mut b = [0.0; N_FEATURES];
+    for (x, y) in data {
+        for i in 0..N_FEATURES {
+            b[i] += x[i] * y / n;
+            for j in 0..N_FEATURES {
+                a[i][j] += x[i] * x[j] / n;
+            }
+        }
+    }
+    for (i, row) in a.iter_mut().enumerate() {
+        row[i] += RIDGE;
+    }
+    solve_linear(a, b)
+}
+
 /// The best single scale `k` for fixed weights `w0` (v0.7's), by Newton in one dimension: how
 /// well v0.7's weight *shape* predicts the results.
 fn fit_scale(data: &[([f64; N_FEATURES], f64)], w0: &[f64; N_FEATURES]) -> f64 {
@@ -265,6 +286,8 @@ fn label(margin: i32) -> f64 {
 }
 
 fn fit(args: &[String]) {
+    let margin = args.first().map(String::as_str) == Some("--margin");
+    let args = if margin { &args[1..] } else { args };
     let Some((buckets, files)) = args.split_first() else {
         eprintln!("usage: tune fit <buckets e.g. 45,30,15,0> <file>…");
         std::process::exit(2);
@@ -273,7 +296,7 @@ fn fit(args: &[String]) {
     assert!(bounds.windows(2).all(|w| w[0] > w[1]) && *bounds.last().unwrap() == 0, "bounds: highest first, ending in 0");
     // A repeated position (opening transpositions repeat often) counts once, with the mean of
     // its labels; a BTreeMap keeps the fit independent of file order and shard count.
-    let mut by_pos: BTreeMap<(u64, u64), (f64, u32)> = BTreeMap::new();
+    let mut by_pos: BTreeMap<(u64, u64), (f64, f64, u32)> = BTreeMap::new();
     let (mut total, mut exact) = (0u64, 0u64);
     for path in files {
         let f = std::fs::File::open(path).unwrap_or_else(|e| panic!("{path}: {e}"));
@@ -286,26 +309,49 @@ fn fit(args: &[String]) {
             if p.get(3) == Some(&"x") {
                 exact += 1;
             }
-            let e = by_pos.entry((me, opp)).or_insert((0.0, 0));
+            let e = by_pos.entry((me, opp)).or_insert((0.0, 0.0, 0));
             e.0 += label(v);
-            e.1 += 1;
+            e.1 += v as f64;
+            e.2 += 1;
         }
     }
     let dups = total - by_pos.len() as u64;
     let mut data: Vec<Vec<([f64; N_FEATURES], f64)>> = vec![Vec::new(); bounds.len()];
-    for (&(me, opp), &(sum, n)) in &by_pos {
+    for (&(me, opp), &(sum, msum, n)) in &by_pos {
         let (x, e) = float_features(me, opp);
         let b = bounds.iter().position(|&lo| e >= lo).unwrap();
-        data[b].push((x, sum / n as f64));
+        data[b].push((x, if margin { msum } else { sum } / n as f64));
     }
     println!("positions {total} ({exact} with exact labels), {dups} repeats merged");
     let v07: [f64; N_FEATURES] = V07_WEIGHTS.map(|w| w as f64);
-    println!("weights per bucket (integer, {SCALE} = one logit); v0.7 rescaled by its best-fit scale");
+    if margin {
+        println!("least squares on the disc margin (integer, {MARGIN_SCALE} = one disc); rmse fitted vs v0.7 at its best scale");
+    } else {
+        println!("weights per bucket (integer, {SCALE} = one logit); v0.7 rescaled by its best-fit scale");
+    }
     println!("{:>10} {:>8}  {}  {:>9} {:>9}", "empties", "n", FEATURE_NAMES.map(|n| format!("{n:>8}")).join(" "), "loss", "v0.7 loss");
     for (b, d) in data.iter().enumerate() {
         let hi = if b == 0 { 60 } else { bounds[b - 1] - 1 };
         if d.is_empty() {
             println!("{:>4}-{:<5} {:>8}  (no positions)", hi, bounds[b], 0);
+            continue;
+        }
+        if margin {
+            let w = fit_least_squares(d);
+            let z0: Vec<f64> = d.iter().map(|(x, _)| (0..N_FEATURES).map(|k| v07[k] * x[k]).sum()).collect();
+            let k = d.iter().zip(&z0).map(|((_, y), z)| y * z).sum::<f64>() / z0.iter().map(|z| z * z).sum::<f64>();
+            let rmse = |pred: &dyn Fn(usize) -> f64| (d.iter().enumerate().map(|(i, (_, y))| (pred(i) - y).powi(2)).sum::<f64>() / d.len() as f64).sqrt();
+            let fitted = rmse(&|i| (0..N_FEATURES).map(|j| w[j] * d[i].0[j]).sum());
+            let old = rmse(&|i| k * z0[i]);
+            println!(
+                "{:>4}-{:<5} {:>8}  {}  {:>9.3} {:>9.3}",
+                hi,
+                bounds[b],
+                d.len(),
+                w.map(|x| format!("{:>8}", (x * MARGIN_SCALE).round() as i32)).join(" "),
+                fitted,
+                old
+            );
             continue;
         }
         let w = fit_logistic(d);
