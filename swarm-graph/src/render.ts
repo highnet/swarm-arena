@@ -669,6 +669,14 @@ export const createSwarmGraph = (
   const CROSSING_MOVE_MS = 180;
   /** The glide the next layout gives its moves. */
   let moveMs: number = MOVE.durationMs;
+  /** The canvas size the layout was last fitted to (the first layout, or the last re-fit). */
+  let fitted = { width, height };
+  /**
+   * A re-fit this close to the size the layout is fitted to (px, each way) re-places nothing: the
+   * last step of a page's reflow is often a pixel or two, and it can land just after the re-fit
+   * started, turning every glide in flight for a stretch of well under 1 % (#272).
+   */
+  const RESIZE_SNAP_PX = 3;
 
   const colorOf = (n: SwarmNode) => n.color ?? theme.neutral;
   /** Nodes whose host draws their information inside them (`anchor(…, 'inside')`). */
@@ -2786,7 +2794,20 @@ export const createSwarmGraph = (
     const from = resizedFrom;
     resized = 0;
     resizedFrom = null;
-    if (arrangement().kind !== from) {
+    const kind = arrangement().kind;
+    if (
+      kind === from &&
+      Math.abs(width - fitted.width) <= RESIZE_SNAP_PX &&
+      Math.abs(height - fitted.height) <= RESIZE_SNAP_PX
+    ) {
+      // Next to the fitted size: the viewBox follows the canvas, and every node stays where it is.
+      // The sectors keep standing where they were placed, so a later layout does not nudge them.
+      for (const n of nodeById.values())
+        if (n.kind === 'sector') n.ring = places.get(n.id) ?? n.ring;
+      return;
+    }
+    fitted = { width, height };
+    if (kind !== from) {
       moveMs = CROSSING_MOVE_MS;
       // Ring to grid or back (#272): the sectors stand somewhere else, so everything is placed
       // afresh around them, each node gliding from where it stands.
