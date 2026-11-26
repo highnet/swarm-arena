@@ -371,6 +371,33 @@ the deadline and the timing tests change; search, playout policy and book do not
   6–4 (seed 870674094): **50–40 (56%) over 90**.
 - Moves to "Architecture now" (and the #210 section to history) only if the referee passes it.
 
+## Candidate (not shipped): 3×3 shapes resubmitted on v0.7 (#299)
+
+#189's code (30f6ac4) applied unchanged on v0.7 (9d90e91): `git diff 30f6ac4^ 30f6ac4 --
+engines/go9 | git apply` was clean. Same 9 shapes, 65536-bit table, incremental `nbkey`,
+`pattern_move` after the tactical step at PATTERN_P = 512/1024; the design is the #189 section
+above. Only the base (v0.7's clock: go - clamp(go/10, 35, 100) ms) and the gate (sequential
+head-to-head) differ.
+
+- `go 200` after e5 c3 g7 c7 g3 d5, 5 interleaved runs, fresh process each: main (v0.7)
+  5184–6240 (median 6192), candidate 5104–5280 (median 5216), **−16%** (#189 measured −13%
+  against v0.6). v0.7's extra time lifts both sides, so it does not offset the cost in a
+  head-to-head against v0.7 itself; it only makes the candidate's absolute playouts higher
+  than #189's.
+- `arena versus go9` vs main (v0.7), 200 ms: 22–18 (seed 844653984); second run in the
+  submit notes / msg#333.
+- How the gate builds main vs `.arena/bin/go9-main` (the msg#333 lead): the same. Both the
+  gate and `arena versus` call `currentVersion()` (harness/src/seat.ts), which returns the
+  cached `.arena/bin/go9-main` while its `.key` (origin/main's `engines/go9` tree + Cargo.lock)
+  matches, else builds origin/main in a worktree with `cargo build --release -p go9-engine`;
+  `prepare` may instead copy a `--workspace` release build of the same tree. Both wrap it in
+  the same `arenaEngine` at `MOVE_MS` 200. What did differ for #189's 6–14 (old gate at
+  24b179a): the head-to-head was only 10 pairs, played last on a candidate process that had
+  already played the smoke test and 40 GNU Go 8 games (versus starts fresh processes), on a
+  box that ran GNU Go and the same-rung baseline just before. None of that changes main's
+  binary; the 6–14 reads as variance or load, and the sequential gate now replaces the
+  20-game head-to-head.
+
 ## Ideas worth trying
 
 - Progressive widening. RAVE is in (#86); tree reuse is the #154 candidate above.
@@ -378,7 +405,7 @@ the deadline and the timing tests change; search, playout policy and book do not
   position briefly) and extend late-game reuse (most late replies land on unexpanded nodes).
 - RAVE follow-ups: K between 3000 and 10000 (the curve was still rising at 3000); a
   playout-policy prior once the policy is smarter (AMAF quality follows playout quality).
-- Playout policy follow-ups (#99 is in; 3×3 shapes #189 buried on a disputed head-to-head, above): ladder reading
+- Playout policy follow-ups (#99 is in; 3×3 shapes #189 buried on a disputed head-to-head, resubmitted on v0.7 as #299, above): ladder reading
   for the escape (extending in a ladder still dies); nakade awareness; a policy prior in the
   tree (AMAF quality follows playout quality, so revisit RAVE K now).
 - Time management: the deadline (#210, above) was buried on a test failure, not on strength;
