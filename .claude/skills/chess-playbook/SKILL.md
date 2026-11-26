@@ -271,6 +271,82 @@ this run goes in the results log. What changed since #179 was measured: v0.9's S
 ~39% and v0.10 spends more of the clock, so the −17% node-rate cost of `activity` lands on a
 deeper baseline.
 
+## Candidate (not shipped): Texel-fitted evaluation weights (#293)
+
+Moves into "Architecture now" only if the referee passes it. Same terms as v0.11, new numbers.
+
+- **Structure.** `evaluate` reads every number from one `Params` struct, the `PARAMS` constant in
+  `main.rs`. `eval_terms(pos, p)` returns white-minus-black (mg, eg, phase, flat). `evaluate`
+  computes `(mg·phase + eg·(24−phase))/24 + flat` and flips the sign for Black. The formula PSTs
+  are now written as `coef × (centrality − 7)`. Their constant offsets went into material, so the
+  bishop is 332 mg / 330 eg. With the v0.11 numbers, `PARAMS` gave exactly v0.11's `evaluate` on
+  76,583 random-game positions (a one-off check against the old code). Material can now differ
+  between mg and eg; no term was added or removed. `MOBILITY_BASE` (4/6/7/13) is not tuned: times
+  the weight it is only a constant per piece, and material already carries that. Search
+  heuristics keep `value()` (SEE, MVV-LVA, delta pruning), so only the evaluation changed.
+- **Data** (`chess-engine texel gen`, `src/texel.rs`): v0.11 self-play at fixed depth 5 (the normal
+  search, one 4 MB table per side) from each of the 200 suite start lines × 30
+  variants = 6,000 games. Variant 0 is the engine's own line. In the others, at each of the first
+  16 plies after the opening, with 30% chance, the best root move is replaced by the second best
+  (searched with the best excluded) when that scores within 30 cp. Adjudication: mate, stalemate,
+  threefold, fifty moves, dead material and the engine's KPK/KQK/KRK tables score as usual. A
+  game also ends once both sides' searches report ≥ 1000 cp for the same side over 4 plies, and
+  at 400 plies it is a draw. A position is kept when it is ≥ 4 plies past the opening line, not in
+  check, the search's best move is neither a capture nor a promotion, the score is not a mate,
+  and `quiesce_score(pos) == evaluate(pos)`. Labels are the game result (1 / 0.5 / 0 from White's
+  side). Result: 428,063 quiet positions. 6,000 games in ~35–40 min on 4 cores (4 shard processes).
+  Data is not committed (`texel/data/`, gitignored).
+- **Fit** (`chess-engine texel fit`): every weight's term is linear in it, so a position's feature
+  for weight j is `eval_terms` with that weight 1 and all others 0 (the test
+  `features_times_weights_give_the_evaluation` checks that Σ w·x equals `evaluate`). Games with
+  id % 10 == 0 are the held-out test set (600 games, 44,341 positions), id % 10 == 1 the
+  validation set (600 games, 42,627), the rest train (4,797 games, 341,095). K is fitted first
+  (golden section, train set, v0.11 weights): **K = 0.9183**, with sigmoid(e) = 1/(1+10^(−K·e/400)).
+  Then all 75 weights are fitted by full-batch Adam (lr 1 cp, 1500 steps) on the MSE plus
+  λ·Σ(w − w_v0.11)². Errors below use the engine's integer evaluation with rounded weights:
+
+  | weights | train | validation | held-out |
+  | --- | --- | --- | --- |
+  | v0.11 (hand-set) | 0.136674 | 0.134861 | 0.123925 |
+  | λ = 0 | 0.133643 | 0.130921 | 0.121829 |
+  | λ = 3e-8 | 0.134082 | 0.131445 | 0.122727 |
+  | **λ = 3e-7 (shipped)** | 0.134804 | 0.132149 | **0.122935** |
+  | λ = 3e-6 | 0.135521 | 0.133219 | 0.123076 |
+
+  Every λ lowers the held-out error, so the fit generalises. λ = 0 has the lowest validation
+  error but sends rarely-seen weights to implausible values: queen 1335 mg vs 891 eg, pawn on
+  d7/e7 −169, rook on the seventh +100 mg / −14 eg, passer tables non-monotonic. On the first
+  2,000-game run it gave queen eg 1450. Games chose between them, not the error. λ = 0 and
+  λ = 3e-7 scored the same against Stockfish 6 (below), and λ = 3e-7 keeps every weight readable,
+  so it ships.
+- **Old → new** (λ = 3e-7; unchanged weights not listed): material mg P 100→90, N 320→318,
+  B 332→331, Q 900→903; eg P 100→102, N 320→309, B 330→321, R 500→507, Q 900→904. Pawn advance
+  mg 6→−6, eg 12→8; pawn centre (d/e file) by rank [0,−8,4,14,16,10] → [0,−8,−2,14,9,11]. Knight
+  centre mg 3→2, eg 2→7; bishop centre 2→1 / 1→0; queen centre 1→0 / 2→3; queen off back rank
+  −2→−4. Rook on 7th 16→18 mg / 8→10 eg, rook c–f on back rank 4→12. King shelter 18→27, king
+  per rank advanced −14→−11. Mobility mg/eg: N 4/4→6/1, B 5/5→7/5, R 2/4→9/5, Q 1/2→3/9.
+  Passers mg [0,4,8,16,28,45]→[0,1,7,15,30,46], eg [6,10,18,32,55,85]→[7,8,19,32,61,87]; free
+  stop square mg [0,1,2,4,7,11]→[0,−1,1,4,9,11], eg [1,2,4,8,14,22]→[2,0,5,9,19,23]. Bishop pair
+  30→27. In short: the fit values mobility (rook ×4.5, queen eg ×4.5) and king shelter more, and
+  early pawn pushes less.
+- **Regenerate:** `engines/chess/texel/generate.sh 5 30 4 10 1500 3e-7` (depth, variants,
+  shards, holdout-every, Adam steps, λ list; a comma list such as `0,3e-8,3e-7` fits each and
+  keeps the lowest validation error). Deterministic for the same engine source. Each fit takes
+  ~3–4 min on 428k positions.
+- **Cost:** `eval_report` `go 200` node rate, three alternating runs each: main 2372 / 2125 /
+  2368 knps (mean 2288), fitted 2261 / 2278 / 2289 (mean 2276), −0.5%. Same code path, different
+  numbers. Fixed-depth trees changed shape: d5 138.3k → 138.7k nodes, d6 489k → 622k (+27%).
+  The null-move test now asserts null tries at depth 7 from the start position, not 5. No null-window
+  node at depth 5 passes `evaluate >= beta` with the new numbers.
+- **Local** (40 games each, 200 ms, suite openings): vs v0.11, seed 29301: λ = 3e-7 +22 −10 =8,
+  λ = 3e-8 +23 −12 =5, λ = 0 +27 −12 =1. vs Stockfish level 6, seed 29302, same openings for all
+  three: λ = 3e-7 +23 −15 =2, λ = 0 +22 −15 =3, v0.11 itself +17 −21 =2.
+  `npm run arena -- versus chess --pairs 20` (shipped build vs main): +24 −11 =5 (seed 801016212).
+- **What to try next:** fit the search-side values too (`value()` for SEE/delta, `DELTA_MARGIN`).
+  Add the terms the playbook lists (king safety, pawn structure, rook on open file) and refit them
+  with this tool. Label with a blend of result and deeper search score to cut label noise. Use
+  more games: the held-out gain is ~1%, and the weights that move most are the rare ones.
+
 ## Ideas worth trying
 
 - Opening book follow-ups (#108): predict replies with the opponent's real distribution (record
@@ -308,9 +384,9 @@ deeper baseline.
   retrograde (un-move) generator, or build them lazily in `game` within a time budget.
 - Use the KPK bitbase in evaluation beyond 3 pieces: e.g. score a pawn ending as won when the
   king-and-pawn race alone is a table win, to steer trades into won KPK endings.
-- Evaluation: mobility + passed pawns were buried in #179 (see "What failed and why"). Next: king safety
-  (attackers on the king zone, pawn shield), pawn structure (isolated/doubled/backward), rook on
-  open file, and tuning all weights by self-play or a Texel-style fit on the engine's own games.
+- Evaluation: mobility + passed pawns landed in v0.11 (#274); the Texel fit of all weights is the
+  #293 candidate above (`texel/generate.sh` refits any new term). Next: king safety (attackers on
+  the king zone, pawn shield), pawn structure (isolated/doubled/backward), rook on open file.
 
 ## Novel experiments
 
