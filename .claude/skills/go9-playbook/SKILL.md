@@ -347,6 +347,30 @@ MCTS is anytime, every extra millisecond is playouts.
   a fixed per-move budget); spending more early or in fights (needs a game clock, the
   protocol gives a per-move budget).
 
+## Candidate (not shipped): spend the clock with a 35 ms floor (#291)
+
+Retry of #210 above, rebuilt from its description (410c075 vanished with its branch). Only
+the deadline and the timing tests change; search, playout policy and book do not.
+
+- `search_ms(go)` = go minus a margin of go/10 clamped to **[35, 100] ms** (165 of 200, 450 of
+  500, 900 of 1000, 2900 of 3000), counted from the start of `choose_with`. At go 200 that is
+  2.7x the 13 ms worst-case unloaded overhead #210 measured.
+- Timing tests assert against the protocol, not the bare budget: `self_play_at_200ms_stays_legal`
+  and `late_game_reply_at_200ms_is_in_time` (through `handle`, go 15 to ply 80 then go 200 to
+  ply 160) allow go + `LATE_MS` (100 ms), well inside the +300 ms forfeit line, so a loaded CI
+  box does not fail a legal engine while a deadline that ignores the clock still fails.
+  `search_leaves_a_margin` pins the formula; `deadline_overhead_report` (ignored) prints how far
+  replies run past the deadline.
+- Local: 31 passed, 3 ignored (5.5 min). Playouts per move vs main, fresh process per query,
+  8 positions (plies 12–96) of one self-play game: paired median **x1.19 at go 200** (24 pairs),
+  **x1.27 at go 1000** (16 pairs). Smaller than #210's x1.44 at go 200: 15 ms less search.
+- `deadline_overhead_report` (self-play, unloaded): go 200 over 374 searched replies, past the
+  deadline median 0.15 ms, p99 0.53 ms, max 1.3 ms; go 1000 over 94, max 0.7 ms. The 35 ms
+  margin is ~27x the worst case seen.
+- `arena versus go9` vs main (v0.6), 200 ms: 22–18 (seed 1861593902), 22–18 (seed 1746189623),
+  6–4 (seed 870674094): **50–40 (56%) over 90**.
+- Moves to "Architecture now" (and the #210 section to history) only if the referee passes it.
+
 ## Ideas worth trying
 
 - Progressive widening. RAVE is in (#86); tree reuse is the #154 candidate above.
@@ -432,3 +456,4 @@ differently. Never re-propose an idea from this list unchanged.
 - 2026-11-24 14:07 UTC · v0.6 passed the referee · MCTS tree reuse between moves: keep the subtree of the position actually reached · rated 1400 (+70 vs v0.5 on the same rung)
 - 2026-11-24 15:51 UTC · buried · Playout policy: 3x3 shape patterns around the last move, after the tactical capture/escape step · Rated higher on the ladder but lost to v0.6 head to head (6–14–0 W–L–D, opening seed 1590576097).
 - 2026-11-26 07:12 UTC · buried · Spend the clock in MCTS: search to go minus a safety margin instead of 70% of it · Tests failed.
+- 2026-11-26 10:57 UTC · v0.7 passed the referee · Retry #210: spend the clock in MCTS with a 35 ms margin floor, timing tests asserted against the protocol slack · rated 1383 (-17)
