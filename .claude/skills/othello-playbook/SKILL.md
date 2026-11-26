@@ -181,6 +181,49 @@ Move into "Architecture now" only once the referee passes it. A rebuild of #44's
 - Not tried: probing the table inside the exact solver (~10 empties up), the issue's optional
   part; measure it separately.
 
+## Candidate (not shipped): spend the clock (task #275)
+
+Move into "Architecture now" only once the referee passes it. The concept is chess #186/#208's
+time management (merged as chess v0.10, +116 vs main), written for Othello's search.
+
+- `Clock { start, hard, soft, predict, partial }` in `main.rs`; the budget counts from when the
+  `go` arrived (`handle` takes the `Instant` before `replay`). `Clock::for_budget`: `hard` =
+  `go` minus `budget_margin` (a tenth, 15-100 ms, never more than half: go 20 → 10 ms, 60 → 45,
+  200 → 180, 3000 → 2900). Before: abort at 60%, start no depth after a third of that (20% of
+  `go`), so a go-200 midgame search used a median 60-70 ms.
+- **Start rule** (`next_fits`): start depth d+1 only if `elapsed + 0.4 × last × growth ≤ hard`,
+  growth = last iteration's time / the one before (clamped 1.5-8; 3 until two iterations above
+  300 µs were timed). **Partial iterations**: a stopped iteration's best still plays once its
+  first root move (the previous best) finished, since any move that replaced it was proven better
+  at the deeper depth. 0.4 is chess's share, not tuned here.
+- **Endgame**: the 10% fallback midgame search now uses the same predicting clock (cut-off at 10%),
+  and the exact solve runs to `hard` instead of 80% (go 200: 180 ms instead of 160).
+  `SOLVE_EMPTIES` stays 14.
+- The old rule survives as `Clock::fixed` behind `search_with` / `search_limited` (tests, reports);
+  the book generator has no clock at all, so the book is unchanged.
+- Tests: `replies_well_within_go_20_60_200_on_slow_positions` (wide midgames at 44/34/24 empties
+  with ≥ 8-9 moves, and 16/15/14 empties around the solver; each `best_move` under its budget; an
+  overrun is re-measured once on a fresh table, because a timing test at the budget can flake
+  under the parallel test runner, as #210's go9 clock did, msg#484),
+  `clock_spends_most_of_the_budget_in_the_midgame` (> 100 ms of go 200), `next_fits_predicts_from_the_measured_growth`,
+  `a_cut_short_iteration_keeps_a_legal_move` (cut-offs of 0-3000 µs).
+- `clock_report` (ignored test; `report_positions`, 8 per band, fresh table; wall clock, run
+  beside a local match so noisy), old rule → clock, depth completed (mean) and ms median / max:
+
+  | band | go 200 depth | go 200 ms | go 1000 depth | go 1000 ms |
+  | --- | --- | --- | --- | --- |
+  | ≤50 | 8-10 (9.4) → 9-11 (10.0) | 60/90 → 180/180 | 10-12 (11.0) → 10-12 (11.4) | 306/502 → 900/900 |
+  | ≤40 | 8-9 (8.6) → 8-10 (8.9) | 67/120 → 180/180 | 9-11 (9.9) → 10-11 (10.5) | 600/600 → 722/900 |
+  | ≤30 | 9-11 (9.6) → 9-12 (10.2) | 70/120 → 156/180 | 10-13 (11.2) → 11-13 (11.8) | 500/600 → 662/900 |
+  | ≤20 | 10-12 (10.8) → 11-13 (11.8) | 64/82 → 143/180 | 12-14 (12.6) → 12-15 (13.1) | 288/600 → 900/900 |
+
+  2.5× the time buys +0.3 to +1.0 completed ply (each ply costs ~3-5× here), plus a partial
+  deeper iteration in most moves.
+- Local `arena versus othello` vs main v0.6 (balanced suite, `go 200`; not referee evidence):
+  **+48 −29 =3 over 80 games (seed 275001)**, 62%; an earlier 10-game check +7 −3 (seed
+  652866370). Part of the 80 games ran beside the test suite and `clock_report` on 4 cores, which
+  slows both sides alike.
+
 ## Buried twice: #160's solver table resubmitted unchanged on the sequential gate (task #209)
 
 **Referee (#195 sequential head-to-head vs main v0.6, go 200, balanced suite): first run
@@ -309,7 +352,7 @@ for N scaled with the site's 0.5-3 s budgets, and measure those instead of N = 1
 - The #44 transposition table is rebuilt on v0.5 as task #153 (Candidate note above).
 - History heuristic + PVS was task #190 (buried flat, note above); killers and LMR
   untried; aspiration windows at the root.
-- Use more of the budget: the 60% cap and the 1/3 "don't start" rule leave much of 200 ms unused.
+- Use more of the budget: task #275 (Candidate note above).
 - Tune the eval weights (corner/mobility/X/C) by self-play. Local matches need opening variety
   (a few random plies or an opening list) before small weight differences can be read: without
   one, repeats of the same setting differed by ±10 games out of 40. `arena versus` has seeded
