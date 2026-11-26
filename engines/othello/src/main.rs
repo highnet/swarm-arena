@@ -357,19 +357,83 @@ fn ordered(avail: u64, first: Option<usize>) -> Vec<usize> {
     out
 }
 
-/// Iterative-deepening alpha-beta. Stops on a clock check at ~60% of the budget and plays
-/// the best move of the last completed depth. Returns (move, depth completed).
-fn search(g: &Game, budget_ms: u64) -> (usize, u32) {
-    search_limited(g, u32::MAX, Duration::from_millis(budget_ms * 6 / 10))
+/// When to stop one `go` (task #275). `hard` is the cut-off the 1024-node clock check aborts at;
+/// a new depth starts only if `next_fits` predicts enough of it finishes before `hard` (with
+/// `predict`) or, without it, if less than `soft` has passed. With `partial`, an iteration cut
+/// short still counts once its first root move (the previous best) finished.
+#[derive(Clone, Copy)]
+struct Clock {
+    start: Instant,
+    hard: Duration,
+    soft: Duration,
+    predict: bool,
+    partial: bool,
 }
 
-/// Iterative deepening up to `max_depth` plies or until `deadline` passes, whichever is first,
-/// with the game's transposition table.
+/// Growth per ply assumed before two iterations have been timed, and the clamp on the measured
+/// one (Othello's iterations grow ~2-5x per ply here; odd/even depths alternate).
+const BRANCH_DEFAULT: f64 = 3.0;
+const BRANCH_MIN: f64 = 1.5;
+const BRANCH_MAX: f64 = 8.0;
+/// Iterations faster than this are too noisy to measure the growth from.
+const BRANCH_FLOOR: Duration = Duration::from_micros(300);
+/// Share of the next iteration's predicted cost that must fit before `hard` for it to start.
+/// With `partial`, an iteration that finishes only its first root move still plays that move.
+const START_SHARE: f64 = 0.4;
+
+impl Clock {
+    /// The rule before #275: abort at `deadline`, start no depth after a third of it.
+    #[cfg(test)]
+    fn fixed(start: Instant, deadline: Duration) -> Clock {
+        Clock { start, hard: deadline, soft: deadline / 3, predict: false, partial: false }
+    }
+
+    /// The game clock: stop with a safety margin left for unwinding, output and the slower wasm
+    /// build (a tenth of the budget, at least 15 ms, at most 100 ms, never more than half), and
+    /// start a depth only when its predicted cost fits.
+    fn for_budget(start: Instant, budget_ms: u64) -> Clock {
+        Clock::until(start, Duration::from_millis(budget_ms - budget_margin(budget_ms)))
+    }
+
+    /// The predicting clock with its cut-off at `hard` after `start`.
+    fn until(start: Instant, hard: Duration) -> Clock {
+        Clock { start, hard, soft: hard, predict: true, partial: true }
+    }
+}
+
+/// Milliseconds of `go <ms>` the engine leaves unused (see `Clock::for_budget`).
+fn budget_margin(budget_ms: u64) -> u64 {
+    (budget_ms / 10).clamp(15, 100).min(budget_ms / 2)
+}
+
+/// Whether the next iteration is worth starting: `elapsed` so far, the last iteration took
+/// `last`, the one before `before` (their ratio is the growth, clamped), cut-off at `limit`.
+fn next_fits(elapsed: Duration, last: Duration, before: Option<Duration>, limit: Duration) -> bool {
+    let growth = match before {
+        Some(b) if b >= BRANCH_FLOOR => (last.as_secs_f64() / b.as_secs_f64()).clamp(BRANCH_MIN, BRANCH_MAX),
+        _ => BRANCH_DEFAULT,
+    };
+    elapsed.as_secs_f64() + last.as_secs_f64() * growth * START_SHARE <= limit.as_secs_f64()
+}
+
+/// The midgame move for `go <budget_ms>` arrived at `start`, with the game's table:
+/// (move, depth completed).
+fn search(g: &Game, start: Instant, budget_ms: u64) -> (usize, u32) {
+    search_clocked(g, u32::MAX, Clock::for_budget(start, budget_ms))
+}
+
+/// Iterative deepening up to `max_depth` plies with the pre-#275 fixed rule at `deadline`.
+#[cfg(test)]
 fn search_limited(g: &Game, max_depth: u32, deadline: Duration) -> (usize, u32) {
+    search_clocked(g, max_depth, Clock::fixed(Instant::now(), deadline))
+}
+
+/// Iterative deepening up to `max_depth` plies under `clock`, with the game's transposition table.
+fn search_clocked(g: &Game, max_depth: u32, clock: Clock) -> (usize, u32) {
     let r = TT.with(|t| {
         let mut t = t.borrow_mut();
         t.new_search();
-        search_with(g, max_depth, deadline, Some(&mut t))
+        search_run(g, max_depth, clock, Some(&mut t))
     });
     (r.0, r.1)
 }
@@ -381,12 +445,20 @@ fn search_counted(g: &Game, max_depth: u32, deadline: Duration) -> (usize, u32, 
     (r.0, r.1, r.2)
 }
 
-/// Iterative deepening with an optional table: (move, depth completed, nodes, score of the
-/// last completed depth). The root tries the stored move first on the first iteration and the
-/// previous iteration's best after that.
+/// Iterative deepening with an optional table and the fixed rule at `deadline`: (move, depth
+/// completed, nodes, score of the last completed depth).
+#[cfg(test)]
 fn search_with(g: &Game, max_depth: u32, deadline: Duration, tt: Option<&mut Tt>) -> (usize, u32, u64, i32) {
+    search_run(g, max_depth, Clock::fixed(Instant::now(), deadline), tt)
+}
+
+/// Iterative deepening under `clock`: (move, depth completed, nodes, score of the last completed
+/// depth). The root tries the stored move first on the first iteration and the previous
+/// iteration's best after that.
+fn search_run(g: &Game, max_depth: u32, clock: Clock, tt: Option<&mut Tt>) -> (usize, u32, u64, i32) {
     let avail = g.available_moves();
-    let mut s = Search::new(deadline, tt);
+    let mut s = Search::new(clock.hard, tt);
+    s.start = clock.start;
     let order = ordered(avail, s.tt_move(g));
     let mut best = order[0];
     if order.len() == 1 {
@@ -396,7 +468,9 @@ fn search_with(g: &Game, max_depth: u32, deadline: Duration, tt: Option<&mut Tt>
     let empties = (!(me | opp)).count_ones();
     let mut done = 0;
     let mut score = 0;
+    let mut before: Option<Duration> = None;
     for depth in 1..=empties.min(max_depth) {
+        let began = s.start.elapsed();
         let mut alpha = -INF;
         let mut iter_best = None;
         for i in ordered(avail, Some(best)) {
@@ -411,6 +485,11 @@ fn search_with(g: &Game, max_depth: u32, deadline: Duration, tt: Option<&mut Tt>
             }
         }
         if s.stopped {
+            // The first move tried was the previous best; any move that replaced it was proven
+            // better at this depth, so a cut-short iteration's best is still worth playing.
+            if clock.partial {
+                best = iter_best.unwrap_or(best);
+            }
             break;
         }
         best = iter_best.unwrap_or(best);
@@ -419,8 +498,15 @@ fn search_with(g: &Game, max_depth: u32, deadline: Duration, tt: Option<&mut Tt>
         if let Some(t) = s.tt.as_mut() {
             t.store(tt_key(me, opp), depth, alpha, EXACT, Some(best));
         }
-        // A deeper iteration costs several times this one: do not start what cannot finish.
-        if s.start.elapsed() * 3 >= s.deadline {
+        let elapsed = s.start.elapsed();
+        if clock.predict {
+            let last = elapsed.saturating_sub(began);
+            if !next_fits(elapsed, last, before, clock.hard) {
+                break;
+            }
+            before = Some(last);
+        } else if elapsed >= clock.soft {
+            // A deeper iteration costs several times this one: do not start what cannot finish.
             break;
         }
     }
@@ -622,36 +708,43 @@ fn solve_root(g: &Game, order: &[usize], s: &mut Solver) -> (Option<(usize, i32)
     (best, true)
 }
 
-/// The move to play: below `SOLVE_EMPTIES` a short midgame search gives a fallback move and the
-/// root order, then the exact solve takes the rest of the budget.
-fn best_move(g: &Game, budget_ms: u64) -> usize {
+/// The move to play for `go <budget_ms>` arrived at `start`: below `SOLVE_EMPTIES` a short
+/// midgame search (a tenth of the budget) gives a fallback move and the root order, then the
+/// exact solve runs until the same cut-off as the midgame clock.
+fn best_move(g: &Game, start: Instant, budget_ms: u64) -> usize {
     // Self-generated opening book (task #109): a stored deep-search move is played instantly.
     if let Some(m) = book::probe(g) {
         return m;
     }
     let empties = (!(g.get()[0] | g.get()[1])).count_ones();
     if empties > SOLVE_EMPTIES || g.available_moves().count_ones() == 1 {
-        return search(g, budget_ms).0;
+        return search(g, start, budget_ms).0;
     }
-    let total = Duration::from_millis(budget_ms * 8 / 10);
-    let t = Instant::now();
-    let (fallback, _) = search_limited(g, u32::MAX, Duration::from_millis(budget_ms / 10));
+    let hard = Clock::for_budget(start, budget_ms).hard;
+    let (fallback, _) = search_clocked(g, u32::MAX, Clock::until(start, Duration::from_millis(budget_ms / 10)));
     let mut order = vec![fallback];
     order.extend(ordered(g.available_moves(), None).into_iter().filter(|&i| i != fallback));
-    let mut s = Solver::new(total.saturating_sub(t.elapsed()));
+    let mut s = Solver::new(hard.saturating_sub(start.elapsed()));
     match solve_root(g, &order, &mut s).0 {
         Some((m, _)) => m,
         None => fallback,
     }
 }
 
-/// Picks a move for the side to move. Passes only with no placement.
-fn choose(moves: &[String], budget_ms: u64) -> Option<String> {
+/// Picks a move for the side to move. Passes only with no placement. The budget counts from
+/// `start`, when the `go` arrived.
+fn choose_from(moves: &[String], start: Instant, budget_ms: u64) -> Option<String> {
     let g = replay(moves)?;
     if g.available_moves() == 0 {
         return Some("pass".into());
     }
-    Some(square_name(best_move(&g, budget_ms)))
+    Some(square_name(best_move(&g, start, budget_ms)))
+}
+
+/// `choose_from` with the budget counted from now.
+#[cfg(test)]
+fn choose(moves: &[String], budget_ms: u64) -> Option<String> {
+    choose_from(moves, Instant::now(), budget_ms)
 }
 
 /// Handles one protocol line, returning the reply to print (if any) and whether to quit.
@@ -667,8 +760,9 @@ fn handle(line: &str, moves: &mut Vec<String>) -> (Option<String>, bool) {
             (None, false)
         }
         Some("go") => {
+            let start = Instant::now();
             let budget = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1000);
-            let mv = choose(moves, budget).unwrap_or_else(|| "none".into());
+            let mv = choose_from(moves, start, budget).unwrap_or_else(|| "none".into());
             (Some(format!("bestmove {mv}")), false)
         }
         Some("quit") => (None, true),
@@ -1228,7 +1322,7 @@ mod tests {
                     sign = -sign;
                     continue;
                 }
-                g = g.make_move(best_move(&g, 2000)).unwrap();
+                g = g.make_move(best_move(&g, Instant::now(), 2000)).unwrap();
                 sign = -sign;
             }
             let [me, opp] = g.get();
@@ -1314,6 +1408,135 @@ mod tests {
             let k = (seed >> 33) as u32 % avail.count_ones();
             let i = (0..64).filter(|i| avail >> i & 1 == 1).nth(k as usize).unwrap();
             moves.push(square_name(i));
+        }
+    }
+
+    /// Positions where a `go` spends its whole budget: wide midgames (many replies) and the
+    /// endgame around `SOLVE_EMPTIES`, where the exact solve takes over.
+    fn slow_positions() -> Vec<Game> {
+        let mut out = Vec::new();
+        for (empties, min_moves, want) in [(44u32, 9u32, 2usize), (34, 9, 2), (24, 8, 2), (16, 4, 1), (15, 4, 1), (14, 4, 2)] {
+            let found: Vec<Game> = (0..400u64)
+                .filter_map(|s| position_at(empties, s * 7919 + empties as u64))
+                .filter(|g| (!(g.get()[0] | g.get()[1])).count_ones() == empties)
+                .filter(|g| g.available_moves().count_ones() >= min_moves && book::probe(g).is_none())
+                .take(want)
+                .collect();
+            assert_eq!(found.len(), want, "no slow position at {empties} empties");
+            out.extend(found);
+        }
+        out
+    }
+
+    #[test]
+    fn replies_well_within_go_20_60_200_on_slow_positions() {
+        // The clock stops at `go` minus its margin (#275); the referee forfeits only past
+        // `go` + 300 ms, so the assertion is the budget itself. A test thread can be preempted
+        // by its neighbours (msg#484: a go9 clock was buried on such a flake), so an overrun is
+        // re-measured once on a fresh table; a real overrun repeats.
+        for budget in [20u64, 60, 200] {
+            for (k, g) in slow_positions().iter().enumerate() {
+                let timed = || {
+                    TT.with(|t| t.borrow_mut().clear());
+                    let t = Instant::now();
+                    let m = best_move(g, t, budget);
+                    assert!(g.available_moves() >> m & 1 == 1);
+                    t.elapsed()
+                };
+                let first = timed();
+                let took = if first < Duration::from_millis(budget) { first } else { first.min(timed()) };
+                assert!(took < Duration::from_millis(budget), "go {budget}, position {k}: {took:?} (first try {first:?})");
+            }
+        }
+    }
+
+    #[test]
+    fn clock_spends_most_of_the_budget_in_the_midgame() {
+        // The old rule (abort at 60%, start nothing after a third of that) left most of `go`
+        // unused; the new clock must use well over half of it on a wide midgame, and never pass
+        // its own cut-off by more than the clock check's granularity.
+        let g = &slow_positions()[0];
+        TT.with(|t| t.borrow_mut().clear());
+        let start = Instant::now();
+        let (m, depth) = search(g, start, 200);
+        let took = start.elapsed();
+        assert!(g.available_moves() >> m & 1 == 1 && depth >= 4);
+        assert!(took < Duration::from_millis(200), "{took:?}");
+        assert!(took > Duration::from_millis(100), "only {took:?} of go 200 used (depth {depth})");
+    }
+
+    #[test]
+    fn next_fits_predicts_from_the_measured_growth() {
+        let ms = Duration::from_millis;
+        // Unmeasured growth: 3x. 10 ms elapsed, last took 5 → next ~15, 40% = 6 → fits by 16.
+        assert!(next_fits(ms(10), ms(5), None, ms(16)));
+        assert!(!next_fits(ms(10), ms(5), None, ms(15)));
+        // Measured growth 4x (2 → 8 ms): next ~32, 40% = 12.8.
+        assert!(next_fits(ms(20), ms(8), Some(ms(2)), ms(33)));
+        assert!(!next_fits(ms(20), ms(8), Some(ms(2)), ms(32)));
+        // Growth is clamped: 100x counts as 8x, 1.01x as 1.5x.
+        assert!(next_fits(ms(10), ms(10), Some(ms(0) + Duration::from_micros(400)), ms(43)));
+        assert!(!next_fits(ms(10), ms(10), Some(ms(0) + Duration::from_micros(400)), ms(41)));
+        assert!(next_fits(ms(10), ms(10), Some(ms(10)), ms(16)));
+        assert!(!next_fits(ms(10), ms(10), Some(ms(10)), ms(15)));
+        // Below the noise floor the default growth is used.
+        assert!(next_fits(ms(10), ms(5), Some(Duration::from_micros(100)), ms(16)));
+        assert!(!next_fits(ms(10), ms(5), Some(Duration::from_micros(100)), ms(15)));
+        // Margins: a tenth, 15..100 ms, never more than half.
+        assert_eq!(budget_margin(20), 10);
+        assert_eq!(budget_margin(60), 15);
+        assert_eq!(budget_margin(200), 20);
+        assert_eq!(budget_margin(3000), 100);
+    }
+
+    #[test]
+    fn a_cut_short_iteration_keeps_a_legal_move() {
+        // Tiny cut-offs stop mid-iteration at every stage; the move is always legal.
+        for g in slow_positions() {
+            for us in [0u64, 50, 200, 1000, 3000] {
+                let clock = Clock::until(Instant::now(), Duration::from_micros(us));
+                let mut t = Tt::new(16);
+                t.new_search();
+                let (m, ..) = search_run(&g, u32::MAX, clock, Some(&mut t));
+                assert!(g.available_moves() >> m & 1 == 1);
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "report: cargo test --release -p othello-engine clock_report -- --ignored --nocapture"]
+    fn clock_report() {
+        // Depth completed and wall time per `go`, old rule (60% / one third) vs the #275 clock,
+        // on `report_positions` (8 per band), fresh table each. Wall clock: informational.
+        for budget in [200u64, 1000] {
+            for band in [50u32, 40, 30, 20] {
+                let ps: Vec<Game> = report_positions().into_iter().filter(|(b, _)| *b == band).map(|(_, g)| g).collect();
+                let mut line = format!("go {budget} <={band}:");
+                for new in [false, true] {
+                    let (mut depths, mut ms) = (Vec::new(), Vec::new());
+                    for g in &ps {
+                        let mut t = Tt::new(TT_BITS);
+                        t.new_search();
+                        let start = Instant::now();
+                        let clock = if new { Clock::for_budget(start, budget) } else { Clock::fixed(start, Duration::from_millis(budget * 6 / 10)) };
+                        let (_, d, ..) = search_run(g, u32::MAX, clock, Some(&mut t));
+                        depths.push(d);
+                        ms.push(start.elapsed().as_millis() as u64);
+                    }
+                    depths.sort();
+                    ms.sort();
+                    let mean = depths.iter().sum::<u32>() as f64 / depths.len() as f64;
+                    line += &format!(
+                        "  {}: depth {}-{} (mean {mean:.1}), ms median {} max {}",
+                        if new { "clock" } else { "old" },
+                        depths[0],
+                        depths[depths.len() - 1],
+                        ms[ms.len() / 2],
+                        ms[ms.len() - 1]
+                    );
+                }
+                println!("{line}");
+            }
         }
     }
 
