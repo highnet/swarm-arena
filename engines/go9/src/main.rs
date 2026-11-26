@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 mod board;
 mod book;
+mod patterns;
 mod search;
 
 use board::{Board, Rng};
