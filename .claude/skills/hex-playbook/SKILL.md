@@ -439,3 +439,4 @@ within the noise.
 - 2026-11-24 14:14 UTC · buried · Extend inferior-cell pruning: more dead-cell patterns and the mover's vulnerable cells left out of the tree · Rated 2681 ± 109, not above 2734.
 - 2026-11-24 15:24 UTC · buried · Win back RAVE's playout rate: cheaper AMAF update per playout, same selection · Rated 2717 ± 108, not above 2734.
 - 2026-11-26 09:05 UTC · v0.6 passed the referee · Resubmit #187 on the sequential gate: exact cheaper RAVE selection and AMAF backup (commit 49ce146) · rated 2754 (+20)
+- 2026-11-26 15:27 UTC · buried · Retry #155 on v0.6 under the sequential gate: learned six-neighbour cell prior as 20 virtual AMAF visits on new nodes · The sequential test against v0.6 decided no gain: 80 pairs (160 games), score 44.4% (-39 Elo vs main), LLR -2.92 in [-2.89, 2.25], H0 -20 vs H1 +30, α = 0.1, β = 0.05.

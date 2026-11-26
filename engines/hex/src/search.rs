@@ -7,7 +7,6 @@
 //! cell ends up owned by that child's mover gets one AMAF visit (and a win if the mover won).
 
 use crate::board::{self, Rng, ALL};
-use crate::prior;
 use std::time::{Duration, Instant};
 
 /// RAVE equivalence parameter: beta = sqrt(K / (3n + K)), so AMAF and UCT weigh equally
@@ -24,14 +23,6 @@ const CHECK_EVERY: u32 = 64;
 /// Inferior-move pruning at expansion (#95): no children on dead cells or on cells the
 /// opponent of the mover has captured.
 pub const PRUNE_EXPANSION: bool = true;
-/// Learned cell prior (#155, ported onto v0.6 in #297): each new child starts with
-/// [`PRIOR_VISITS`] virtual AMAF visits at the self-play win rate of its cell's six-neighbour
-/// pattern (`prior.rs`). Off, the search is exactly v0.6's (`same_search_as_v0_5`).
-pub const PRIOR: bool = true;
-/// Virtual AMAF visits per new child. AMAF only: the real counts (and so the cached `q`/`beta`,
-/// the expansion threshold and the most-visited choice) never see them; in the real stats the
-/// prior cost 30-40% of the playouts (#155).
-pub const PRIOR_VISITS: u32 = 20;
 
 /// The cells a node with this position gets children on: every empty cell, minus (with
 /// [`PRUNE_EXPANSION`]) the dead cells and the pairs the opponent captured. Never empty while
@@ -110,28 +101,14 @@ pub struct Outcome {
     pub winrate: f32,
 }
 
-/// Run UCT from the position `black`/`white` with `black_to_move` to play, with the learned
-/// prior as [`PRIOR`] says. Returns `None` only when the board is full.
+/// Run UCT from the position `black`/`white` with `black_to_move` to play.
+/// Returns `None` only when the board is full.
 pub fn search(
     black: u128,
     white: u128,
     black_to_move: bool,
     limit: Limit,
     seed: u64,
-) -> Option<Outcome> {
-    let prior_visits = if PRIOR { PRIOR_VISITS } else { 0 };
-    search_with_prior(black, white, black_to_move, limit, seed, prior_visits)
-}
-
-/// [`search`] with `prior_visits` virtual AMAF visits per new child (0: no prior, v0.6's
-/// search exactly). The offline generator learns the table with 0.
-pub fn search_with_prior(
-    black: u128,
-    white: u128,
-    black_to_move: bool,
-    limit: Limit,
-    seed: u64,
-    prior_visits: u32,
 ) -> Option<Outcome> {
     let empties = ALL & !(black | white);
     if empties == 0 {
@@ -141,13 +118,7 @@ pub fn search_with_prior(
     let mut rng = Rng::new(seed);
     let mut nodes: Vec<Node> = Vec::with_capacity(1 << 16);
     nodes.push(Node::new(u8::MAX));
-    expand(
-        &mut nodes,
-        0,
-        (black, white, black_to_move),
-        prior_visits,
-        &mut rng,
-    );
+    expand(&mut nodes, 0, candidates(black, white, black_to_move), &mut rng);
 
     let mut path: Vec<u32> = Vec::with_capacity(128);
     let mut playouts = 0u32;
@@ -167,7 +138,7 @@ pub fn search_with_prior(
             if !node.expanded {
                 if node.visits + 1 >= EXPAND_AT && nodes.len() + 121 <= MAX_NODES {
                     if ALL & !(b | w) != 0 {
-                        expand(&mut nodes, id, (b, w, btm), prior_visits, &mut rng);
+                        expand(&mut nodes, id, candidates(b, w, btm), &mut rng);
                         continue;
                     }
                 }
@@ -249,32 +220,13 @@ fn backup(nodes: &mut [Node], path: &[u32], black_to_move: bool, final_black: u1
     }
 }
 
-/// Give node `id` (position `black`/`white`, `black_to_move` to play) one child per
-/// [`candidates`] cell, in a random order (so unvisited children are tried in a random rather
-/// than a top-left-first order), each seeded with `prior_visits` virtual AMAF visits at its
-/// pattern's learned win rate (#155). Only `amaf` changes: `visits`, `wins`, `q` and `beta`
-/// stay 0, which is what `backup` would cache for zero real visits, so nothing cached goes stale.
-/// With `prior_visits = 0` every child is `Node::new` and the RNG draws are v0.6's.
-fn expand(
-    nodes: &mut Vec<Node>,
-    id: u32,
-    (black, white, black_to_move): (u128, u128, bool),
-    prior_visits: u32,
-    rng: &mut Rng,
-) {
+/// Give node `id` one child per empty cell, in a random order (so unvisited children are
+/// tried in a random rather than a top-left-first order).
+fn expand(nodes: &mut Vec<Node>, id: u32, mut empty: u128, rng: &mut Rng) {
     let first = nodes.len();
-    let mut cells = candidates(black, white, black_to_move);
-    let rates = (prior_visits > 0).then(|| prior::Rates::new(black, white, black_to_move));
-    while cells != 0 {
-        let mv = cells.trailing_zeros() as u8;
-        let mut n = Node::new(mv);
-        if let Some(rates) = &rates {
-            let r = rates.rate(mv as usize) as u32;
-            let wins = (prior_visits * r + 127) / 255;
-            n.amaf = prior_visits as u64 | (wins as u64) << 32;
-        }
-        nodes.push(n);
-        cells &= cells - 1;
+    while empty != 0 {
+        nodes.push(Node::new(empty.trailing_zeros() as u8));
+        empty &= empty - 1;
     }
     let count = nodes.len() - first;
     for i in (1..count).rev() {
@@ -365,7 +317,7 @@ mod tests {
         assert_eq!(stats(1), (1, 1, 1, 1)); // Black 0: on the path, owned, won
         assert_eq!(stats(2), (0, 0, 0, 0)); // Black 1: White owns cell 1
         assert_eq!(stats(3), (0, 0, 1, 1)); // Black 2: owned by Black, won
-                                            // Under "Black 0" the children are White's: White owns 1 (lost), not 2.
+        // Under "Black 0" the children are White's: White owns 1 (lost), not 2.
         assert_eq!(stats(4), (1, 0, 1, 0)); // White 1: on the path, owned, lost
         assert_eq!(stats(5), (0, 0, 0, 0)); // White 2: Black owns cell 2
     }
@@ -389,8 +341,7 @@ mod tests {
         ]
     }
 
-    /// The cheaper selection and AMAF backup (#187) search exactly as v0.5 did, with the prior
-    /// off (#297: the port leaves the base exact): these moves and
+    /// The cheaper selection and AMAF backup (#187) search exactly as v0.5 did: these moves and
     /// win-rate bits were recorded on main before #187 with the same positions, seeds and
     /// playout budgets. Any change to the tree, the RAVE values or the tie-breaking shows here.
     #[test]
@@ -412,7 +363,7 @@ mod tests {
         let pos = positions();
         for (i, seed, n, mv, winrate) in MAIN {
             let (b, w, btm) = pos[i];
-            let out = search_with_prior(b, w, btm, Limit::Playouts(n), seed, 0).unwrap();
+            let out = search(b, w, btm, Limit::Playouts(n), seed).unwrap();
             assert_eq!(
                 (out.mv, out.winrate.to_bits()),
                 (mv, winrate),
@@ -455,75 +406,4 @@ mod tests {
         assert_eq!((e1 | f1 | f6) >> out.mv & 1, 0);
     }
 
-    /// v0.5's selection value, from the counts alone (nothing cached).
-    fn value_from_counts(n: &Node) -> f32 {
-        let (av, aw) = (n.amaf as u32, (n.amaf >> 32) as u32);
-        match (n.visits, av) {
-            (0, 0) => FPU,
-            (v, 0) => n.wins as f32 / v as f32,
-            (0, a) => aw as f32 / a as f32,
-            (v, a) => {
-                let q = n.wins as f32 / v as f32;
-                let beta = (RAVE_K / (3.0 * v as f32 + RAVE_K)).sqrt();
-                q + beta * (aw as f32 / a as f32 - q)
-            }
-        }
-    }
-
-    #[test]
-    fn prior_seeds_new_children_and_cached_values_stay_exact() {
-        let (b, w, btm) = positions()[2];
-        let mut rng = Rng::new(4);
-        let mut nodes = vec![Node::new(u8::MAX)];
-        expand(&mut nodes, 0, (b, w, btm), PRIOR_VISITS, &mut rng);
-        let root = nodes[0];
-        let kids = root.first as usize..root.first as usize + root.count as usize;
-        assert_eq!(root.count as u32, candidates(b, w, btm).count_ones());
-        for n in &nodes[kids.clone()] {
-            let r = prior::rate(b, w, n.mv as usize, btm) as u32;
-            assert_eq!(n.amaf as u32, PRIOR_VISITS, "virtual AMAF visits");
-            assert_eq!((n.amaf >> 32) as u32, (PRIOR_VISITS * r + 127) / 255);
-            assert_eq!((n.visits, n.wins, n.q, n.beta), (0, 0, 0.0, 0.0));
-            assert_eq!(value(n).to_bits(), value_from_counts(n).to_bits());
-        }
-        // Expand one child (with the prior) and back two playouts up root -> child -> grandchild:
-        // every cached value must equal a recomputation from the counts.
-        let c = kids.start as u32;
-        let mv = nodes[c as usize].mv;
-        let (b2, w2) = if btm {
-            (b | 1u128 << mv, w)
-        } else {
-            (b, w | 1u128 << mv)
-        };
-        expand(&mut nodes, c, (b2, w2, !btm), PRIOR_VISITS, &mut rng);
-        let g = nodes[c as usize].first;
-        assert_eq!(nodes[g as usize].amaf as u32, PRIOR_VISITS);
-        for final_black in [
-            board::fill(b2, w2, !btm, &mut rng),
-            board::fill(b2, w2, !btm, &mut rng),
-        ] {
-            backup(&mut nodes, &[0, c, g], btm, final_black);
-        }
-        for n in &nodes {
-            assert_eq!(
-                value(n).to_bits(),
-                value_from_counts(n).to_bits(),
-                "move {}",
-                n.mv
-            );
-        }
-        assert_eq!(nodes[c as usize].visits, 2);
-        // The real counts never hold virtual visits.
-        assert!(nodes[1..].iter().all(|n| n.visits <= 2));
-    }
-
-    #[test]
-    fn prior_search_is_deterministic_and_legal() {
-        for (b, w, btm) in positions() {
-            let a = search_with_prior(b, w, btm, Limit::Playouts(5000), 3, PRIOR_VISITS).unwrap();
-            let c = search_with_prior(b, w, btm, Limit::Playouts(5000), 3, PRIOR_VISITS).unwrap();
-            assert_eq!((a.mv, a.winrate.to_bits()), (c.mv, c.winrate.to_bits()));
-            assert_eq!((b | w) >> a.mv & 1, 0);
-        }
-    }
 }

@@ -1,0 +1,1 @@
+- 2026-11-26 · **learned evaluation** · Hex 11×11 · buried: The sequential test against v0.6 decided no gain: 80 pairs (160 games), score 44.4% (-39 Elo vs main), LLR -2.92 in [-2.89, 2.25], H0 -20 vs H1 +30, α = 0.1, β = 0.05. · Retry #155 on v0.6 under the sequential gate: learned six-neighbour cell prior as 20 virtual AMAF visits on new nodes
