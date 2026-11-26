@@ -16,7 +16,7 @@ const RAVE_K: f32 = 1000.0;
 const FPU: f32 = 1.1;
 /// A leaf is expanded on this visit.
 const EXPAND_AT: u32 = 2;
-/// Tree size cap (24 bytes a node: 48 MB).
+/// Tree size cap (32 bytes a node: 64 MB).
 const MAX_NODES: usize = 2_000_000;
 /// Playouts between clock checks.
 const CHECK_EVERY: u32 = 64;
@@ -42,6 +42,14 @@ pub fn candidates(black: u128, white: u128, black_to_move: bool) -> u128 {
     }
 }
 
+/// A tree node, 32 bytes. Its statistics are from the point of view of the player who made its
+/// move; its children are `first..first + count` in the arena.
+///
+/// `q` and `beta` cache the two terms of the selection value that depend only on the real
+/// counts (#187). Real counts change only on the playout's path, one node per level, while the
+/// value is read for every child of every path node, so caching them leaves selection one
+/// division per child (Q_amaf) instead of three and a square root. They are computed with the
+/// same `f32` operations from the same counts, so every value is bit-identical to v0.5's.
 #[derive(Clone, Copy)]
 struct Node {
     visits: u32,
@@ -52,6 +60,10 @@ struct Node {
     count: u8,
     mv: u8,
     expanded: bool,
+    /// Cached `wins / visits` (0 while unvisited), set in `backup` (#187).
+    q: f32,
+    /// Cached `sqrt(K / (3 visits + K))` (0 while unvisited), set in `backup` (#187).
+    beta: f32,
 }
 
 impl Node {
@@ -64,6 +76,8 @@ impl Node {
             count: 0,
             mv,
             expanded: false,
+            q: 0.0,
+            beta: 0.0,
         }
     }
 }
@@ -170,16 +184,17 @@ fn backup(nodes: &mut [Node], path: &[u32], black_to_move: bool, final_black: u1
     let black_won = board::black_connects(final_black);
     // Per-cell AMAF increments for a Black and a White mover: 1 visit if that colour owns the
     // cell at the end, plus 1 win (high half) if that colour also won. Built once per playout
-    // so the per-child update is a table load and one add.
+    // so the per-child update is a table load and one add. One branch-free pass writes every
+    // entry of both tables (#187; cells 121-127 are never a move).
+    let inc_black = 1 | (black_won as u64) << 32;
+    let inc_white = 1 | (!black_won as u64) << 32;
     let mut add = [[0u64; 128]; 2];
-    for (side, (mut bits, won)) in [(final_black, black_won), (ALL & !final_black, !black_won)]
-        .into_iter()
-        .enumerate()
-    {
-        let inc = 1 | (won as u64) << 32;
-        while bits != 0 {
-            add[side][bits.trailing_zeros() as usize] = inc;
-            bits &= bits - 1;
+    let halves = [final_black as u64, (final_black >> 64) as u64];
+    for (h, &half) in halves.iter().enumerate() {
+        for c in 0..64 {
+            let own = (half >> c & 1).wrapping_neg();
+            add[0][h * 64 + c] = inc_black & own;
+            add[1][h * 64 + c] = inc_white & !own;
         }
     }
     // The root's mover is the opponent of the side to move; alternate along the path.
@@ -190,6 +205,11 @@ fn backup(nodes: &mut [Node], path: &[u32], black_to_move: bool, final_black: u1
         if mover_black == black_won {
             node.wins += 1;
         }
+        // The two real-count terms of the selection value, exactly as `value` used to compute
+        // them per child.
+        let v = node.visits as f32;
+        node.q = node.wins as f32 / v;
+        node.beta = (RAVE_K / (3.0 * v + RAVE_K)).sqrt();
         let (first, count) = (node.first as usize, node.count as usize);
         // Children are moved by the other side.
         let table = &add[mover_black as usize];
@@ -227,6 +247,11 @@ fn select(nodes: &[Node], parent: &Node) -> u32 {
     let mut best_v = f32::NEG_INFINITY;
     for i in parent.first..parent.first + parent.count as u32 {
         let n = &nodes[i as usize];
+        // A child with neither real nor AMAF visits is worth FPU = 1.1, above any other value
+        // (all are win rates, at most 1), so the first one is the answer (#187).
+        if n.amaf == 0 && n.visits == 0 {
+            return i;
+        }
         let v = value(n);
         if v > best_v {
             best_v = v;
@@ -237,24 +262,22 @@ fn select(nodes: &[Node], parent: &Node) -> u32 {
 }
 
 /// Selection value: (1 - beta) * Q + beta * Q_amaf, beta = sqrt(K / (3n + K))
-/// (1 with no real visits, 0 with no AMAF visits, FPU with neither).
+/// (1 with no real visits, 0 with no AMAF visits, FPU with neither). Q and beta come cached in
+/// the node.
 #[inline]
 fn value(n: &Node) -> f32 {
-    let visits = n.visits as f32;
     let (amaf_visits, amaf_wins) = (n.amaf as u32, (n.amaf >> 32) as u32);
     if amaf_visits == 0 {
         if n.visits == 0 {
             return FPU;
         }
-        return n.wins as f32 / visits;
+        return n.q;
     }
     let qa = amaf_wins as f32 / amaf_visits as f32;
     if n.visits == 0 {
         return qa;
     }
-    let q = n.wins as f32 / visits;
-    let beta = (RAVE_K / (3.0 * visits + RAVE_K)).sqrt();
-    q + beta * (qa - q)
+    n.q + n.beta * (qa - n.q)
 }
 
 #[cfg(test)]
@@ -297,6 +320,56 @@ mod tests {
         // Under "Black 0" the children are White's: White owns 1 (lost), not 2.
         assert_eq!(stats(4), (1, 0, 1, 0)); // White 1: on the path, owned, lost
         assert_eq!(stats(5), (0, 0, 0, 0)); // White 2: Black owns cell 2
+    }
+
+    /// Test positions: the empty board, a 3-stone opening, and two 20-stone mid-games.
+    fn positions() -> [(u128, u128, bool); 4] {
+        let bits = |cells: &[u8]| cells.iter().fold(0u128, |m, &c| m | 1u128 << c);
+        [
+            (0, 0, true),
+            (bits(&[60, 49]), bits(&[70]), false),
+            (
+                bits(&[24, 50, 46, 37, 15, 25, 113, 48, 38, 40]),
+                bits(&[96, 58, 36, 59, 104, 57, 47, 60, 82, 69]),
+                true,
+            ),
+            (
+                bits(&[107, 49, 72, 62, 53, 58, 6, 94, 64, 75]),
+                bits(&[37, 70, 82, 95, 98, 26, 23, 34, 39, 65]),
+                true,
+            ),
+        ]
+    }
+
+    /// The cheaper selection and AMAF backup (#187) search exactly as v0.5 did: these moves and
+    /// win-rate bits were recorded on main before #187 with the same positions, seeds and
+    /// playout budgets. Any change to the tree, the RAVE values or the tie-breaking shows here.
+    #[test]
+    fn same_search_as_v0_5() {
+        const MAIN: [(usize, u64, u32, u8, u32); 12] = [
+            (0, 1, 20_000, 100, 0x3f0aa063),
+            (0, 7, 20_000, 59, 0x3f094ffa),
+            (0, 12345, 20_000, 58, 0x3f08fa35),
+            (1, 1, 20_000, 82, 0x3f005210),
+            (1, 7, 20_000, 71, 0x3f0473b4),
+            (1, 12345, 20_000, 71, 0x3f042eb6),
+            (2, 1, 20_000, 52, 0x3ec9aa9b),
+            (2, 7, 100_000, 62, 0x3ec09ce7),
+            (2, 12345, 20_000, 61, 0x3ecd7562),
+            (3, 1, 20_000, 30, 0x3f22c3fd),
+            (3, 7, 20_000, 30, 0x3f1f1b61),
+            (3, 12345, 20_000, 20, 0x3f1df110),
+        ];
+        let pos = positions();
+        for (i, seed, n, mv, winrate) in MAIN {
+            let (b, w, btm) = pos[i];
+            let out = search(b, w, btm, Limit::Playouts(n), seed).unwrap();
+            assert_eq!(
+                (out.mv, out.winrate.to_bits()),
+                (mv, winrate),
+                "position {i}, seed {seed}"
+            );
+        }
     }
 
     #[test]

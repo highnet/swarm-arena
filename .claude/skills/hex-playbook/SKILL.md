@@ -259,6 +259,13 @@ within the noise.
   free strength, exact) together with a change that needs the time, or once the gate resolves
   smaller gains. Next speed idea if wanted: the fill-in and the select descent, not the AMAF
   update (only ~16% of instructions).
+  **Candidate (not shipped): resubmitted unchanged under the sequential gate (#276).** 49ce146's
+  engines/hex diff reapplies cleanly to main (no hex engine commit landed since its parent) and
+  is byte-identical to it. Exactness re-checked beyond the pinned test: a scratch probe hashing
+  every tree node's (move, visits, wins, AMAF) plus every root child's visit count matched main on
+  all 12 `same_search_as_v0_5` searches. `go 200` here (5 rounds of f6 / f6 e7 d5 / c3 i9 f6 e5,
+  main and candidate interleaved): 975k → 1149k playouts in all, **+18%**. Move this entry to
+  "Architecture now" only if the referee passes it.
 - Vulnerable-cell pruning (#180, **buried at 2681 ± 109: the referee went 17–23 vs v0.5**, after
   71–49 over 120 local games). Code reverted; commit e44b827 on pr#185's branch has it
   (`search::PRUNE_VULNERABLE`, `board::vulnerable`, `search::dominated`).
