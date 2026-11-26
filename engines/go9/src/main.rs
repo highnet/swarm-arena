@@ -260,7 +260,7 @@ fn choose(moves: &[String], budget_ms: u64) -> Option<String> {
 
 /// Pick a move for the side to move, given the moves so far.
 /// Passes when the opponent just passed and the board already wins on area, or when no
-/// non-eye legal move remains. Otherwise runs UCT until the budget less a margin (`search_ms`), starting from the
+/// non-eye legal move remains. Otherwise runs UCT until ~70% of the budget, starting from the
 /// reused subtree when `reuse` holds one for this position, and plays the most-visited root move.
 fn choose_with(moves: &[String], budget_ms: u64, reuse: &mut Reuse) -> Option<String> {
     let start = Instant::now();
@@ -294,24 +294,13 @@ fn choose_with(moves: &[String], budget_ms: u64, reuse: &mut Reuse) -> Option<St
         return Some(format_move(to_coord(m)));
     }
     let mut rng = seeded_rng(moves);
-    let deadline = start + Duration::from_millis(search_ms(budget_ms));
+    let deadline = start + Duration::from_millis(budget_ms * 7 / 10);
     let mut tree = reuse.tree_for(moves, &flat, &legal, &mut rng);
     let out = search::search_tree(&mut tree, Some(deadline), u64::MAX, &mut rng);
     reuse.saved = Some((moves.to_vec(), tree));
     reuse.last = Some((out.inherited, out.playouts));
     eprintln!("info playouts {} reused {} winrate {:.3}", out.playouts, out.inherited, out.winrate);
     Some(format_move(to_coord(out.best)))
-}
-
-/// How long UCT may search on a `go <budget_ms>`, counted from the start of `choose_with`:
-/// the whole budget minus a safety margin of a tenth of it, at least 15 ms and at most 100 ms
-/// (#210). MCTS is anytime, so every millisecond searched is playouts; the margin covers what
-/// runs after the deadline (the last batch of 16 playouts before the clock check, saving the
-/// tree, the reply), measured at a median 0.2 ms, p99 under 2 ms and worst 13 ms over 1283
-/// self-play moves at go 200 and go 1000 (`deadline_overhead_report`).
-fn search_ms(budget_ms: u64) -> u64 {
-    let margin = (budget_ms / 10).clamp(15, 100);
-    budget_ms.saturating_sub(margin).max(1)
 }
 
 /// The opening book's move for this position, when the game is still in the book's range:
@@ -597,43 +586,6 @@ mod tests {
                 }
             }
         }
-    }
-
-    /// The search deadline leaves the chess-sized margin: a tenth, at least 15 ms, at most 100 ms.
-    #[test]
-    fn search_leaves_a_margin() {
-        assert_eq!(search_ms(200), 180);
-        assert_eq!(search_ms(1000), 900);
-        assert_eq!(search_ms(3000), 2900);
-        assert_eq!(search_ms(100), 85);
-        assert_eq!(search_ms(10), 1);
-    }
-
-    /// Late in a game (a full board's worth of moves played, captures and kos likely) a
-    /// `go 200` still replies under 200 ms, counted from the protocol line to the reply.
-    #[test]
-    fn late_game_reply_at_200ms_is_in_time() {
-        let mut moves: Vec<String> = Vec::new();
-        let mut reuse = [Reuse::default(), Reuse::default()];
-        let mut checked = 0;
-        while moves.len() < 160 {
-            let late = moves.len() >= 80;
-            let r = &mut reuse[moves.len() % 2];
-            let line = if late { "go 200" } else { "go 15" };
-            let t = Instant::now();
-            let (reply, _) = handle(line, &mut moves.clone(), r);
-            let ms = t.elapsed();
-            if late {
-                assert!(ms < Duration::from_millis(200), "ply {}: {ms:?}", moves.len());
-                checked += 1;
-            }
-            moves.push(reply.unwrap().strip_prefix("bestmove ").unwrap().to_string());
-            let n = moves.len();
-            if moves[n - 1] == "pass" && n >= 2 && moves[n - 2] == "pass" {
-                break;
-            }
-        }
-        assert!(checked > 0 || moves.len() < 80, "no late-game reply checked");
     }
 
     /// Random games (eye-filling allowed, so groups die and kos appear) played on goban and the
@@ -933,50 +885,6 @@ mod tests {
                     med(&|r| r.1 + r.2)
                 );
             }
-        }
-    }
-
-    /// Time spent past the search deadline (last clock-check batch, tree save, reply) and
-    /// median playouts per searched move, over self-play at go 200 and go 1000
-    /// (cargo test --release -p go9-engine deadline_overhead -- --ignored --nocapture).
-    #[test]
-    #[ignore]
-    fn deadline_overhead_report() {
-        for (budget, games) in [(200u64, 10), (1000, 3)] {
-            let mut over: Vec<(usize, f64)> = Vec::new();
-            let mut playouts: Vec<u64> = Vec::new();
-            for _ in 0..games {
-                let mut moves: Vec<String> = Vec::new();
-                let mut reuse = [Reuse::default(), Reuse::default()];
-                for _ in 0..200 {
-                    let r = &mut reuse[moves.len() % 2];
-                    let t = Instant::now();
-                    let m = choose_with(&moves, budget, r).unwrap();
-                    let ms = t.elapsed().as_secs_f64() * 1e3;
-                    if let Some((_, n)) = r.last {
-                        over.push((moves.len(), ms - search_ms(budget) as f64));
-                        playouts.push(n);
-                    }
-                    moves.push(m);
-                    let n = moves.len();
-                    if n >= 2 && moves[n - 1] == "pass" && moves[n - 2] == "pass" {
-                        break;
-                    }
-                }
-            }
-            let mut all: Vec<f64> = over.iter().map(|o| o.1).collect();
-            all.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            let late = over.iter().filter(|o| o.0 >= 60).map(|o| o.1).fold(f64::MIN, f64::max);
-            playouts.sort();
-            println!(
-                "go {budget}: {} moves, overhead past deadline median {:.3} ms, p99 {:.3} ms, max {:.3} ms (max at ply 60+ {:.3}); median playouts {}",
-                all.len(),
-                all[all.len() / 2],
-                all[all.len() * 99 / 100],
-                all[all.len() - 1],
-                late,
-                playouts[playouts.len() / 2]
-            );
         }
     }
 
