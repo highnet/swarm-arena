@@ -347,6 +347,27 @@ MCTS is anytime, every extra millisecond is playouts.
   a fixed per-move budget); spending more early or in fights (needs a game clock, the
   protocol gives a per-move budget).
 
+## Candidate (not shipped): spend the clock with a 35 ms floor (#291)
+
+Retry of #210 above, rebuilt from its description (410c075 vanished with its branch). Only
+the deadline and the timing tests change; search, playout policy and book do not.
+
+- `search_ms(go)` = go minus a margin of go/10 clamped to **[35, 100] ms** (165 of 200, 450 of
+  500, 900 of 1000, 2900 of 3000), counted from the start of `choose_with`. At go 200 that is
+  2.7x the 13 ms worst-case unloaded overhead #210 measured.
+- Timing tests assert against the protocol, not the bare budget: `self_play_at_200ms_stays_legal`
+  and `late_game_reply_at_200ms_is_in_time` (through `handle`, go 15 to ply 80 then go 200 to
+  ply 160) allow go + `LATE_MS` (100 ms), well inside the +300 ms forfeit line, so a loaded CI
+  box does not fail a legal engine while a deadline that ignores the clock still fails.
+  `search_leaves_a_margin` pins the formula; `deadline_overhead_report` (ignored) prints how far
+  replies run past the deadline.
+- Local: 31 passed, 3 ignored (5.5 min). Playouts per move vs main, fresh process per query,
+  8 positions (plies 12–96) of one self-play game: paired median **x1.19 at go 200** (24 pairs),
+  **x1.27 at go 1000** (16 pairs). Smaller than #210's x1.44 at go 200: 15 ms less search.
+- `arena versus go9` vs main (v0.6), 200 ms: 22–18 over 40 (seed 1861593902), 6–4 over 10
+  (seed 870674094).
+- Moves to "Architecture now" (and the #210 section to history) only if the referee passes it.
+
 ## Ideas worth trying
 
 - Progressive widening. RAVE is in (#86); tree reuse is the #154 candidate above.
