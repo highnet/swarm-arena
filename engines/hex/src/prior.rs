@@ -145,6 +145,51 @@ pub fn rate(black: u128, white: u128, cell: usize, black_moves: bool) -> u8 {
     tables()[black_moves as usize][pattern(black, white, cell, black_moves)]
 }
 
+/// Every cell's learned rate for one position and mover, built once per expansion: the six
+/// neighbour states are read from a byte per cell instead of six `u128` shifts and branches
+/// (same index as [`pattern`], so the same rate as [`rate`]).
+pub struct Rates {
+    state: [u8; 128],
+    table: &'static [u8; PATTERNS],
+}
+
+impl Rates {
+    pub fn new(black: u128, white: u128, black_moves: bool) -> Self {
+        let (mut own, mut opp) = if black_moves {
+            (black, white)
+        } else {
+            (white, black)
+        };
+        let mut state = [EMPTY; 128];
+        while own != 0 {
+            state[own.trailing_zeros() as usize] = OWN;
+            own &= own - 1;
+        }
+        while opp != 0 {
+            state[opp.trailing_zeros() as usize] = OPP;
+            opp &= opp - 1;
+        }
+        (state[BLACK_EDGE as usize], state[WHITE_EDGE as usize]) = if black_moves {
+            (OWN_EDGE, OPP_EDGE)
+        } else {
+            (OPP_EDGE, OWN_EDGE)
+        };
+        Rates {
+            state,
+            table: &tables()[black_moves as usize],
+        }
+    }
+
+    /// The learned win rate (× 255) of the mover playing `cell`.
+    #[inline]
+    pub fn rate(&self, cell: usize) -> u8 {
+        let nb = &NB[cell];
+        let s = |d: usize| self.state[nb[d] as usize] as usize;
+        let idx = s(0) + 5 * (s(1) + 5 * (s(2) + 5 * (s(3) + 5 * (s(4) + 5 * s(5)))));
+        self.table[idx]
+    }
+}
+
 /// The raw table (for tests and the generator).
 pub fn raw() -> &'static [u8; PATTERNS] {
     TABLE
@@ -248,5 +293,26 @@ mod tests {
         assert_eq!(p, [OWN_EDGE, OWN_EDGE, EMPTY, EMPTY, OPP_EDGE, OPP_EDGE]);
         let p = digits(pattern(1 << 1, 1 << 11, 0, false));
         assert_eq!(p, [OPP_EDGE, OPP_EDGE, OPP, OWN, OWN_EDGE, OWN_EDGE]);
+    }
+
+    #[test]
+    fn rates_match_rate() {
+        let mut rng = crate::board::Rng::new(21);
+        for _ in 0..300 {
+            let (mut b, mut w) = (0u128, 0u128);
+            for c in 0..CELLS {
+                match rng.below(3) {
+                    0 => b |= 1u128 << c,
+                    1 => w |= 1u128 << c,
+                    _ => {}
+                }
+            }
+            for black_moves in [true, false] {
+                let r = Rates::new(b, w, black_moves);
+                for c in 0..CELLS {
+                    assert_eq!(r.rate(c), rate(b, w, c, black_moves));
+                }
+            }
+        }
     }
 }

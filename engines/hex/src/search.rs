@@ -264,11 +264,12 @@ fn expand(
 ) {
     let first = nodes.len();
     let mut cells = candidates(black, white, black_to_move);
+    let rates = (prior_visits > 0).then(|| prior::Rates::new(black, white, black_to_move));
     while cells != 0 {
         let mv = cells.trailing_zeros() as u8;
         let mut n = Node::new(mv);
-        if prior_visits > 0 {
-            let r = prior::rate(black, white, mv as usize, black_to_move) as u32;
+        if let Some(rates) = &rates {
+            let r = rates.rate(mv as usize) as u32;
             let wins = (prior_visits * r + 127) / 255;
             n.amaf = prior_visits as u64 | (wins as u64) << 32;
         }
