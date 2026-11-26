@@ -236,6 +236,21 @@ pub(crate) struct Params {
     pub passer_free_eg: [i32; 8],
     /// Both bishops (added after the taper).
     pub bishop_pair: i32,
+    /// King safety (#301, middlegame): per square of the enemy king zone (king square and its
+    /// neighbours) attacked by one of our knight, bishop, rook, queen, counted per attacker.
+    pub king_attack: [i32; 4],
+    /// Own pawns in front of a castled king (king on its first two ranks, files a-c or f-h), on
+    /// the king's and adjacent files: one rank ahead, two ranks ahead (middlegame).
+    pub pawn_shield: [i32; 2],
+    /// Pawn structure (#301), per pawn, mg and eg: no own pawn on an adjacent file; the rear pawn
+    /// of each pair on a file; not isolated, no own pawn beside or behind it on an adjacent file,
+    /// and its stop square attacked by an enemy pawn.
+    pub isolated: [i32; 2],
+    pub doubled: [i32; 2],
+    pub backward: [i32; 2],
+    /// Rook on a file with no pawns, and on one with only enemy pawns (#301), mg and eg.
+    pub rook_open: [i32; 2],
+    pub rook_half_open: [i32; 2],
 }
 
 /// The safe-square count at which a piece's mobility scores 0: knight, bishop, rook, queen.
@@ -265,6 +280,13 @@ pub(crate) const PARAMS: Params = Params {
     passer_free_mg: [0, 0, -1, 1, 4, 9, 11, 0],
     passer_free_eg: [0, 2, 0, 5, 9, 19, 23, 0],
     bishop_pair: 27,
+    king_attack: [0, 0, 0, 0],
+    pawn_shield: [0, 0],
+    isolated: [0, 0],
+    doubled: [0, 0],
+    backward: [0, 0],
+    rook_open: [0, 0],
+    rook_half_open: [0, 0],
 };
 
 /// Piece-square bonus for a piece of `role` on (file, rank), rank seen from its owner's side.
@@ -332,6 +354,7 @@ fn activity_with(pos: &Chess, p: &Params) -> (i32, i32) {
         let unsafe_sq = own | pawn_attack_set(enemy_pawns, !color);
         let safe = !unsafe_sq;
         let occ_raw = occ;
+        let zone = board.king_of(!color).map_or(0, |k| attacks::king_attacks(k).0 | 1u64 << k as u32);
         let sets = [
             (board.knights().0 & own, 0usize),
             (board.bishops().0 & own, 1),
@@ -349,8 +372,18 @@ fn activity_with(pos: &Chess, p: &Params) -> (i32, i32) {
                     _ => attacks::queen_attacks(sq, occ_raw),
                 };
                 let n = (att.0 & safe).count_ones() as i32 - base;
-                mg += sign * wm * n;
+                mg += sign * (wm * n + p.king_attack[i] * (att.0 & zone).count_ones() as i32);
                 eg += sign * we * n;
+                if i == 2 {
+                    let file = FILE_A << sq.file().to_usize();
+                    if pawns & file == 0 {
+                        mg += sign * p.rook_open[0];
+                        eg += sign * p.rook_open[1];
+                    } else if own_pawns & file == 0 {
+                        mg += sign * p.rook_half_open[0];
+                        eg += sign * p.rook_half_open[1];
+                    }
+                }
             }
         }
         for sq in Bitboard(own_pawns) {
@@ -375,6 +408,64 @@ fn activity_with(pos: &Chess, p: &Params) -> (i32, i32) {
             if stop.is_some_and(|s| !occ.contains(s)) {
                 mg += sign * p.passer_free_mg[rank];
                 eg += sign * p.passer_free_eg[rank];
+            }
+        }
+    }
+    (mg, eg)
+}
+
+/// Pawn structure and pawn shield (#301), white minus black, as (middlegame, endgame): isolated,
+/// doubled and backward pawns, and own pawns on the two ranks in front of a castled king.
+#[inline(always)]
+fn structure_with(pos: &Chess, p: &Params) -> (i32, i32) {
+    let board = pos.board();
+    let pawns = board.pawns().0;
+    let (mut mg, mut eg) = (0i32, 0i32);
+    for color in [Color::White, Color::Black] {
+        let sign = if color == Color::White { 1 } else { -1 };
+        let own_pawns = pawns & board.by_color(color).0;
+        let enemy_att = pawn_attack_set(pawns & board.by_color(!color).0, !color);
+        for sq in Bitboard(own_pawns) {
+            let file = sq.file().to_usize() as u32;
+            let raw = sq.rank().to_usize() as u32;
+            let f = FILE_A << file;
+            let adj = ((f & !FILE_H) << 1) | ((f & !FILE_A) >> 1);
+            let ahead = match color {
+                Color::White => if raw == 7 { 0 } else { !0u64 << (8 * (raw + 1)) },
+                Color::Black => (1u64 << (8 * raw)) - 1,
+            };
+            if own_pawns & f & ahead != 0 {
+                mg += sign * p.doubled[0];
+                eg += sign * p.doubled[1];
+            }
+            if own_pawns & adj == 0 {
+                mg += sign * p.isolated[0];
+                eg += sign * p.isolated[1];
+            } else if own_pawns & adj & !ahead == 0 {
+                let stop = match color {
+                    Color::White => sq.offset(8),
+                    Color::Black => sq.offset(-8),
+                };
+                if stop.is_some_and(|s| enemy_att & (1u64 << s as u32) != 0) {
+                    mg += sign * p.backward[0];
+                    eg += sign * p.backward[1];
+                }
+            }
+        }
+        if let Some(k) = board.king_of(color) {
+            let kf = k.file().to_usize() as u32;
+            let kr = k.rank().to_usize() as u32;
+            let rel = if color == Color::White { kr } else { 7 - kr };
+            if rel <= 1 && !(3..=4).contains(&kf) {
+                let f = FILE_A << kf;
+                let files = f | ((f & !FILE_H) << 1) | ((f & !FILE_A) >> 1);
+                let rank_bb = |r: u32| 0xffu64 << (8 * r);
+                let (r1, r2) = match color {
+                    Color::White => (rank_bb(kr + 1), rank_bb(kr + 2)),
+                    Color::Black => (rank_bb(kr - 1), rank_bb(kr - 2)),
+                };
+                mg += sign * (p.pawn_shield[0] * (own_pawns & files & r1).count_ones() as i32
+                    + p.pawn_shield[1] * (own_pawns & files & r2).count_ones() as i32);
             }
         }
     }
@@ -414,8 +505,9 @@ pub(crate) fn eval_terms(pos: &Chess, p: &Params) -> (i32, i32, i32, i32) {
         }
     }
     let (am, ae) = activity_with(pos, p);
-    mg += am;
-    eg += ae;
+    let (sm, se) = structure_with(pos, p);
+    mg += am + sm;
+    eg += ae + se;
     let mut flat = 0;
     if bishops[Color::White as usize] >= 2 {
         flat += p.bishop_pair;
@@ -1506,6 +1598,82 @@ mod tests {
         let doubled = from_fen("4k3/8/8/2P5/2P5/8/8/4K3 w - - 0 1");
         let single = from_fen("4k3/8/8/2P5/8/8/8/4K3 w - - 0 1");
         assert_eq!(activity(&doubled), activity(&single));
+    }
+
+    /// `PARAMS` with every weight 0 except the #301 term `set` turns on, so a term reads as a count.
+    fn only(set: impl Fn(&mut Params)) -> Params {
+        let mut p = Params {
+            material_mg: [0; 5],
+            material_eg: [0; 5],
+            pawn_advance: [0; 2],
+            pawn_centre: [0; 8],
+            knight_centre: [0; 2],
+            bishop_centre: [0; 2],
+            queen_centre: [0; 2],
+            bishop_back: 0,
+            rook_seventh: [0; 2],
+            rook_back_centre: 0,
+            queen_off_back: 0,
+            king_shelter: 0,
+            king_advance: 0,
+            king_centre_eg: 0,
+            mobility: [[0; 2]; 4],
+            passer_mg: [0; 8],
+            passer_eg: [0; 8],
+            passer_free_mg: [0; 8],
+            passer_free_eg: [0; 8],
+            bishop_pair: 0,
+            king_attack: [0; 4],
+            pawn_shield: [0; 2],
+            isolated: [0; 2],
+            doubled: [0; 2],
+            backward: [0; 2],
+            rook_open: [0; 2],
+            rook_half_open: [0; 2],
+        };
+        set(&mut p);
+        p
+    }
+
+    fn count(fen: &str, p: &Params) -> (i32, i32) {
+        let (mg, eg, _, flat) = eval_terms(&from_fen(fen), p);
+        assert_eq!(flat, 0);
+        (mg, eg)
+    }
+
+    #[test]
+    fn pawn_structure_terms_count_the_right_pawns() {
+        let iso = only(|p| p.isolated = [1, 2]);
+        // White: a2 isolated, c2 + c3 doubled and isolated, g2 h2 fine. Black: h7 alone is isolated.
+        assert_eq!(count("4k3/7p/8/8/8/2P5/P1P3PP/4K3 w - - 0 1", &iso), (3 - 1, 6 - 2));
+        let dbl = only(|p| p.doubled = [1, 1]);
+        assert_eq!(count("4k3/8/8/8/8/2P5/2P5/4K3 w - - 0 1", &dbl), (1, 1));
+        assert_eq!(count("4k3/2p5/2p5/2p5/8/8/8/4K3 w - - 0 1", &dbl), (-2, -2));
+        // d2 has no own pawn beside or behind it on c/e (e3 is ahead) and c4 hits its stop d3.
+        let back = only(|p| p.backward = [1, 1]);
+        assert_eq!(count("4k3/8/8/8/2p5/4P3/3P4/4K3 w - - 0 1", &back), (1, 1));
+        // The same pawn with its stop square free of enemy pawn attacks is not backward.
+        assert_eq!(count("4k3/8/8/8/8/4P3/3P4/4K3 w - - 0 1", &back), (0, 0));
+    }
+
+    #[test]
+    fn rook_files_and_king_safety_terms() {
+        let open = only(|p| {
+            p.rook_open = [1, 10];
+            p.rook_half_open = [100, 1000];
+        });
+        // White rook on the open d file; black rook on the e file holding only a white pawn.
+        assert_eq!(count("4r1k1/8/8/8/8/8/4P3/3R2K1 w - - 0 1", &open), (1 - 100, 10 - 1000));
+        let shield = only(|p| p.pawn_shield = [1, 10]);
+        // White king g1 with f2, g2 one rank ahead and h3 two ahead; black king on e8 is not castled.
+        assert_eq!(count("4k3/pppppppp/8/8/8/7P/5PP1/6K1 w - - 0 1", &shield), (12, 0));
+        // Black castled on g8 with f7, g6, h7.
+        assert_eq!(count("6k1/5p1p/6p1/8/8/8/8/3K4 w - - 0 1", &shield), (-12, 0));
+        let attack = only(|p| p.king_attack = [1, 10, 100, 1000]);
+        // Zone of g8: f8 g8 h8 f7 g7 h7. Queen h5 attacks h7, h8 (file) and f7 (diagonal).
+        assert_eq!(count("6k1/8/8/7Q/8/8/8/K7 w - - 0 1", &attack), (3000, 0));
+        // Knight on f5 attacks g7 and h6; zone of g8 holds g7: 1.
+        assert_eq!(count("6k1/8/8/5N2/8/8/8/K7 w - - 0 1", &attack), (1, 0));
     }
 
     /// Evaluation cost report for #179: run with `cargo test --release -p chess-engine eval_report

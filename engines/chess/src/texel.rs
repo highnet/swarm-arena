@@ -159,6 +159,13 @@ fn slots(p: &mut Params) -> Vec<(String, &mut i32)> {
     arr(&mut v, "passer_free_mg", &mut p.passer_free_mg);
     arr(&mut v, "passer_free_eg", &mut p.passer_free_eg);
     v.push(("bishop_pair".into(), &mut p.bishop_pair));
+    arr(&mut v, "king_attack", &mut p.king_attack);
+    arr(&mut v, "pawn_shield", &mut p.pawn_shield);
+    arr(&mut v, "isolated", &mut p.isolated);
+    arr(&mut v, "doubled", &mut p.doubled);
+    arr(&mut v, "backward", &mut p.backward);
+    arr(&mut v, "rook_open", &mut p.rook_open);
+    arr(&mut v, "rook_half_open", &mut p.rook_half_open);
     v
 }
 
@@ -296,6 +303,17 @@ fn print_params(p: &Params) {
     println!("    passer_free_mg: {},", a(&p.passer_free_mg));
     println!("    passer_free_eg: {},", a(&p.passer_free_eg));
     println!("    bishop_pair: {},", p.bishop_pair);
+    for (name, x) in [
+        ("king_attack", &p.king_attack[..]),
+        ("pawn_shield", &p.pawn_shield[..]),
+        ("isolated", &p.isolated[..]),
+        ("doubled", &p.doubled[..]),
+        ("backward", &p.backward[..]),
+        ("rook_open", &p.rook_open[..]),
+        ("rook_half_open", &p.rook_half_open[..]),
+    ] {
+        println!("    {name}: {},", a(x));
+    }
     println!("}};");
 }
 
@@ -436,6 +454,32 @@ mod tests {
             let f = features(&pos, n);
             let lin: f64 = f.iter().map(|&(j, x)| w[j as usize] * x as f64).sum();
             let e = if pos.turn() == Color::White { evaluate(&pos) } else { -evaluate(&pos) };
+            assert!((lin - e as f64).abs() < 1.0, "{fen}: {lin} vs {e}");
+        }
+    }
+
+    #[test]
+    fn new_terms_are_linear_in_their_weights() {
+        // #301's terms with nonzero weights: the features still reproduce the evaluation.
+        let mut p = PARAMS;
+        p.king_attack = [7, 5, 4, 3];
+        p.pawn_shield = [11, 6];
+        p.isolated = [-9, -13];
+        p.doubled = [-5, -17];
+        p.backward = [-8, -4];
+        p.rook_open = [21, 9];
+        p.rook_half_open = [10, 6];
+        let w: Vec<f64> = to_vec(&p).iter().map(|&x| x as f64).collect();
+        for fen in [
+            "r1bq1rk1/pp2bppp/2n1pn2/3p4/2PP4/2N2N2/PP2BPPP/R2QKB1R w KQ - 0 8",
+            "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+            "2r3k1/5pp1/p2p3p/1p1Pp3/4P1q1/1P3N2/P4QPP/2R3K1 b - - 0 30",
+            "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
+        ] {
+            let pos = parse_fen(fen).unwrap();
+            let f = features(&pos, w.len());
+            let lin: f64 = f.iter().map(|&(j, x)| w[j as usize] * x as f64).sum();
+            let e = white_eval(&pos, &p);
             assert!((lin - e as f64).abs() < 1.0, "{fen}: {lin} vs {e}");
         }
     }
