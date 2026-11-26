@@ -420,3 +420,4 @@ differently. Never re-propose an idea from this list unchanged.
 - 2026-11-24 14:04 UTC · buried · Piece mobility and passed pawns in the chess evaluation, tapered by phase · Rated 1520 ± 111, not above 1547.
 - 2026-11-24 15:12 UTC · buried · Spend the clock: predict the next iteration's cost instead of stopping at 30%/60% of go · Rated 1539 ± 109, not above 1547.
 - 2026-11-25 11:51 UTC · v0.10 passed the referee · Resubmit #186 unchanged on the sequential gate: spend the clock (commit 3476103) · rated 1530 (-17)
+- 2026-11-26 08:12 UTC · v0.11 passed the referee · Resubmit #179 on the sequential gate: mobility and passed pawns in evaluate (commit c87d35a) · rated 1583 (+53)
