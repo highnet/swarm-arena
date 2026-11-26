@@ -486,3 +486,4 @@ differently. Never re-propose an idea from this list unchanged.
 - 2026-11-24 15:51 UTC · buried · Playout policy: 3x3 shape patterns around the last move, after the tactical capture/escape step · Rated higher on the ladder but lost to v0.6 head to head (6–14–0 W–L–D, opening seed 1590576097).
 - 2026-11-26 07:12 UTC · buried · Spend the clock in MCTS: search to go minus a safety margin instead of 70% of it · Tests failed.
 - 2026-11-26 10:57 UTC · v0.7 passed the referee · Retry #210: spend the clock in MCTS with a 35 ms margin floor, timing tests asserted against the protocol slack · rated 1383 (-17)
+- 2026-11-26 16:56 UTC · v0.8 passed the referee · Retry #189 on v0.7 under the sequential gate: 3×3 shape patterns around the last move at p = 1/2 · rated 1489 (+106)

@@ -1,0 +1,1 @@
+- 2026-11-26 · **playout policy** · Go 9×9 · v0.8 rated 1489 (+106) · Retry #189 on v0.7 under the sequential gate: 3×3 shape patterns around the last move at p = 1/2
