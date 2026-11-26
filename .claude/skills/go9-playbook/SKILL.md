@@ -319,7 +319,7 @@ why in "What failed and why".
   then RAVE K re-check (3000 vs 10000); weight shapes instead of uniform (e.g. cuts above
   hanes); shapes around the second-to-last move too.
 
-## Candidate (not shipped): spend the clock, go minus a margin (#210)
+## Buried, not shipped: spend the clock, go minus a margin (#210)
 
 Port of chess #186. `choose_with` stopped UCT at 70% of `go <ms>`; the candidate searches to
 `search_ms(go)` = go minus a margin of a tenth, at least 15 ms, at most 100 ms (180 of 200,
@@ -340,7 +340,9 @@ MCTS is anytime, every extra millisecond is playouts.
   local job shared the CPU during part of it).
 - Tests: `search_leaves_a_margin` (the formula), `late_game_reply_at_200ms_is_in_time` (go 15
   to ply 80, then every go 200 reply to ply 160, counted from the protocol line, under 200 ms);
-  the 20-game self-play test (every reply < 200 ms) still passes.
+  the 20-game self-play test (every reply < 200 ms). They passed locally (31 passed, 3 ignored,
+  4 of 4 runs by the author, once more by the reviewer), but **the referee buried it on
+  "Tests failed."**: see "What failed and why".
 - Not tried: early stop when the most-visited root child cannot be overtaken (saves nothing at
   a fixed per-move budget); spending more early or in fights (needs a game clock, the
   protocol gives a per-move budget).
@@ -355,7 +357,8 @@ MCTS is anytime, every extra millisecond is playouts.
 - Playout policy follow-ups (#99 is in; 3×3 shapes #189 buried on a disputed head-to-head, above): ladder reading
   for the escape (extending in a ladder still dies); nakade awareness; a policy prior in the
   tree (AMAF quality follows playout quality, so revisit RAVE K now).
-- Time management: the deadline is the #210 candidate above. Per-move budgets leave little
+- Time management: the deadline (#210, above) was buried on a test failure, not on strength;
+  retry it with a wider margin at go 200 (see "What failed and why"). Per-move budgets leave little
   else: an early stop when the leader cannot be overtaken only helps with a game clock; pass
   when the board is settled.
 - Playout speed: `random_move` rescans all 81 cells per move and `is_suicide` rescans
@@ -392,6 +395,15 @@ within the noise.
   answers every move on the gate machine. Then resubmit with a looser "settled" test, so the
   solve reaches real endgames.
 
+- Spend the clock, go minus max(15, min(100, go/10)) ms (#210, code 410c075): +44% playouts
+  at go 200, 24–16 vs main (seed 179805604), but the referee's `cargo test` failed and it was
+  buried "Tests failed." (no test output in the log). The full suite at 410c075 passes locally
+  (31 passed, 3 ignored, ~6 min). Likely cause: a timing test (`self_play_at_200ms_stays_legal`
+  or `late_game_reply_at_200ms_is_in_time`) going over its 200 ms budget under the gate's load:
+  at go 200 the margin is only 20 ms, against a 13 ms worst-case overhead measured unloaded.
+  Next attempt: a wider margin at go 200 (go/10 with a 30–40 ms floor still gives +15–20%
+  search time), or have those tests assert against the protocol's +300 ms slack rather than
+  the bare go budget.
 - 3×3 shape patterns at p = 1/2 (#189): rated above v0.6 on the GNU Go 8 rung (24–16 against
   20–20) but lost the gate's head-to-head 6–14 vs v0.6 (seed 1590576097). That 20-game result
   disagrees with everything else: the same seed replayed locally went 13–7 for the candidate,
