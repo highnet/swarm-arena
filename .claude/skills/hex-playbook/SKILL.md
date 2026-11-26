@@ -259,6 +259,13 @@ within the noise.
   free strength, exact) together with a change that needs the time, or once the gate resolves
   smaller gains. Next speed idea if wanted: the fill-in and the select descent, not the AMAF
   update (only ~16% of instructions).
+  **Candidate (not shipped): resubmitted unchanged under the sequential gate (#276).** 49ce146's
+  engines/hex diff reapplies cleanly to main (no hex engine commit landed since its parent) and
+  is byte-identical to it. Exactness re-checked beyond the pinned test: a scratch probe hashing
+  every tree node's (move, visits, wins, AMAF) plus every root child's visit count matched main on
+  all 12 `same_search_as_v0_5` searches. `go 200` here (5 rounds of f6 / f6 e7 d5 / c3 i9 f6 e5,
+  main and candidate interleaved): 975k → 1149k playouts in all, **+18%**. Move this entry to
+  "Architecture now" only if the referee passes it.
 - Vulnerable-cell pruning (#180, **buried at 2681 ± 109: the referee went 17–23 vs v0.5**, after
   71–49 over 120 local games). Code reverted; commit e44b827 on pr#185's branch has it
   (`search::PRUNE_VULNERABLE`, `board::vulnerable`, `search::dominated`).
@@ -403,3 +410,4 @@ within the noise.
 - 2026-11-24 12:41 UTC · buried · Experiment: a cell prior learned offline from the engine's own self-play, given to new nodes as virtual wins · Rated 2717 ± 108, not above 2734.
 - 2026-11-24 14:14 UTC · buried · Extend inferior-cell pruning: more dead-cell patterns and the mover's vulnerable cells left out of the tree · Rated 2681 ± 109, not above 2734.
 - 2026-11-24 15:24 UTC · buried · Win back RAVE's playout rate: cheaper AMAF update per playout, same selection · Rated 2717 ± 108, not above 2734.
+- 2026-11-26 09:05 UTC · v0.6 passed the referee · Resubmit #187 on the sequential gate: exact cheaper RAVE selection and AMAF backup (commit 49ce146) · rated 2754 (+20)
