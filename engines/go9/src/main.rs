@@ -258,10 +258,21 @@ fn choose(moves: &[String], budget_ms: u64) -> Option<String> {
     choose_with(moves, budget_ms, &mut Reuse::default())
 }
 
+/// Milliseconds of a `go <ms>` budget the search may use, counted from the start of
+/// `choose_with`: the budget minus a margin of a tenth, at least 35 ms and at most 100 ms
+/// (165 of 200, 900 of 1000, 2900 of 3000). The margin covers the work after the deadline
+/// (the last playouts between clock checks, picking the move, saving the tree, printing),
+/// measured at 13 ms worst case unloaded, with room for a loaded machine. MCTS is anytime,
+/// so every millisecond inside the budget is more playouts.
+fn search_ms(budget_ms: u64) -> u64 {
+    let margin = (budget_ms / 10).clamp(35, 100);
+    budget_ms.saturating_sub(margin)
+}
+
 /// Pick a move for the side to move, given the moves so far.
 /// Passes when the opponent just passed and the board already wins on area, or when no
-/// non-eye legal move remains. Otherwise runs UCT until ~70% of the budget, starting from the
-/// reused subtree when `reuse` holds one for this position, and plays the most-visited root move.
+/// non-eye legal move remains. Otherwise runs UCT until `search_ms(budget)` after the call
+/// started (the budget minus a safety margin), starting from the reused subtree when `reuse` holds one for this position, and plays the most-visited root move.
 fn choose_with(moves: &[String], budget_ms: u64, reuse: &mut Reuse) -> Option<String> {
     let start = Instant::now();
     reuse.last = None;
@@ -294,7 +305,7 @@ fn choose_with(moves: &[String], budget_ms: u64, reuse: &mut Reuse) -> Option<St
         return Some(format_move(to_coord(m)));
     }
     let mut rng = seeded_rng(moves);
-    let deadline = start + Duration::from_millis(budget_ms * 7 / 10);
+    let deadline = start + Duration::from_millis(search_ms(budget_ms));
     let mut tree = reuse.tree_for(moves, &flat, &legal, &mut rng);
     let out = search::search_tree(&mut tree, Some(deadline), u64::MAX, &mut rng);
     reuse.saved = Some((moves.to_vec(), tree));
@@ -563,8 +574,14 @@ mod tests {
         assert_eq!(area_score(&one), 81.0 - KOMI);
     }
 
+    /// How late past `go <ms>` a reply may come in the timing tests. The protocol forfeits
+    /// only after go + 300 ms; the engine aims under go (see `search_ms`). The tests allow
+    /// go + 100 ms, well inside the slack, so a loaded CI box does not fail a legal engine
+    /// while a broken deadline (one that ignores the margin or the clock) still fails.
+    const LATE_MS: u64 = 100;
+
     /// Self-play at the gate's 200 ms: every chosen move must be legal under goban and the
-    /// seen-board set, and every reply must come in time.
+    /// seen-board set, and every reply must come within the budget plus `LATE_MS`.
     #[test]
     fn self_play_at_200ms_stays_legal() {
         for game in 0..20 {
@@ -574,7 +591,8 @@ mod tests {
             for _ in 0..200 {
                 let t = Instant::now();
                 let m = choose_with(&moves, 200, &mut reuse[moves.len() % 2]).unwrap();
-                assert!(t.elapsed() < Duration::from_millis(200), "game {game}: slow reply");
+                let took = t.elapsed();
+                assert!(took < Duration::from_millis(200 + LATE_MS), "game {game}: slow reply {took:?} at ply {}", moves.len());
                 let p = Position::from_moves(&moves);
                 if m != "pass" {
                     assert!(legal(&p, &m), "game {game}: illegal {m} after {moves:?}");
@@ -885,6 +903,83 @@ mod tests {
                     med(&|r| r.1 + r.2)
                 );
             }
+        }
+    }
+
+    /// The margin formula: a tenth of the budget, clamped to [35, 100] ms.
+    #[test]
+    fn search_leaves_a_margin() {
+        assert_eq!(search_ms(200), 165);
+        assert_eq!(search_ms(500), 450);
+        assert_eq!(search_ms(1000), 900);
+        assert_eq!(search_ms(3000), 2900);
+        assert_eq!(search_ms(20), 0);
+        for go in [50, 100, 200, 350, 500, 1000, 2000, 3000, 10000] {
+            let s = search_ms(go);
+            assert!(go - s >= 35 && go - s <= 100 && s < go, "go {go}: search {s}");
+        }
+    }
+
+    /// Late in a game (big trees, long playouts, many seen boards for superko) every go 200
+    /// reply, counted from the protocol line, still comes within 200 + `LATE_MS` ms.
+    #[test]
+    fn late_game_reply_at_200ms_is_in_time() {
+        let mut moves: Vec<String> = Vec::new();
+        let mut r = Reuse::default();
+        handle("game go9", &mut moves, &mut r);
+        let mut played: Vec<String> = Vec::new();
+        let mut worst = Duration::ZERO;
+        for ply in 0..160 {
+            handle(&format!("position {}", played.join(" ")), &mut moves, &mut r);
+            let go = if ply < 80 { 15 } else { 200 };
+            let t = Instant::now();
+            let reply = handle(&format!("go {go}"), &mut moves, &mut r).0.unwrap();
+            let took = t.elapsed();
+            if go == 200 {
+                worst = worst.max(took);
+                assert!(took < Duration::from_millis(200 + LATE_MS), "ply {ply}: reply in {took:?}");
+            }
+            let m = reply.strip_prefix("bestmove ").unwrap().to_string();
+            played.push(m);
+            let n = played.len();
+            if n >= 2 && played[n - 1] == "pass" && played[n - 2] == "pass" {
+                break;
+            }
+        }
+        println!("late game: worst go 200 reply {worst:?} over {} plies", played.len());
+    }
+
+    /// Self-play at go 200 and go 1000: how far each searched reply runs past the search
+    /// deadline (cargo test --release deadline_overhead_report -- --ignored --nocapture).
+    #[test]
+    #[ignore]
+    fn deadline_overhead_report() {
+        for (go, games) in [(200u64, 4), (1000, 1)] {
+            let mut over: Vec<f64> = Vec::new();
+            for _ in 0..games {
+                let mut moves: Vec<String> = Vec::new();
+                let mut reuse = [Reuse::default(), Reuse::default()];
+                for _ in 0..160 {
+                    let r = &mut reuse[moves.len() % 2];
+                    let t = Instant::now();
+                    let m = choose_with(&moves, go, r).unwrap();
+                    let ms = t.elapsed().as_secs_f64() * 1e3;
+                    if r.last.is_some() {
+                        over.push(ms - search_ms(go) as f64);
+                    }
+                    moves.push(m);
+                    let n = moves.len();
+                    if n >= 2 && moves[n - 1] == "pass" && moves[n - 2] == "pass" {
+                        break;
+                    }
+                }
+            }
+            over.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let q = |f: f64| over[((over.len() - 1) as f64 * f) as usize];
+            println!(
+                "go {go}: {} searched replies, past the deadline median {:.2} ms, p99 {:.2} ms, max {:.2} ms",
+                over.len(), q(0.5), q(0.99), q(1.0)
+            );
         }
     }
 
