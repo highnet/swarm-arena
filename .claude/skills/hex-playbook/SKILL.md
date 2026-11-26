@@ -262,7 +262,8 @@ what it is, why it might work, and its verdict. Never fill this from another eng
   balanced openings expose what the prior helps with, or the local runs undersell it. Verdict:
   **buried** at 2717 ± 108, not above v0.5's 2734, though the 40-game gate went 25–15; code
   reverted, why and what to try instead under 'What failed'.
-  **Candidate (not shipped): retried on v0.6 under the sequential gate (#297).** Same design
+  **Retried on v0.6 under the sequential gate (#297): buried, −39 Elo.** Code reverted; commit
+  c350f7c on branch `agent/297-retry-155-on-v0-6-under-the-sequential-gat` has it. Same design
   (AMAF only, `PRIOR_VISITS = 20`), `src/prior.bin` reused unchanged (it was generated with the
   prior off on v0.5's search, which v0.6 reproduces bit for bit), behind `search::PRIOR`;
   `search_with_prior(.., 0)` is v0.6's search exactly (`same_search_as_v0_5`), and
@@ -281,9 +282,9 @@ what it is, why it might work, and its verdict. Never fill this from another eng
   every local run of #155 was. First submit: **inconclusive**, the sequential test hit its cap
   at 100 pairs (200 games, seed 1463552157), score 48.5% (−10 Elo vs v0.6), LLR −1.25 in
   [−2.89, 2.25]; resubmitted unchanged on fresh openings. With the local 80 that is ~48% over
-  280 games: the prior's −25% playouts on v0.6 is not paid back. If it is buried, the named
-  next variant is msg#258's urgency (played-vs-available) table; also worth trying: a cheaper
-  hook (prior only at nodes near the root, where the shape cost is small).
+  280 games. Second submit: **buried**, the sequential test decided no gain at 80 pairs (160
+  games, seed 406932910), score 44.4% (−39 Elo vs v0.6), LLR −2.92. Why, and what next: under
+  'What failed' (#155's entry).
 
 ## What failed and why
 
@@ -371,6 +372,17 @@ within the noise.
   when it was on the board, the Go "urgency" form) rather than the outcome win rate; larger
   patterns (the 12-cell radius-2 ring, with bridges); or the table in the playouts' split rather
   than the tree.
+  **#297 retried it unchanged on v0.6 (sequential gate): buried, 44.4% over 160 games (−39 Elo,
+  LLR −2.92), after an inconclusive 48.5% over 200.** So the old gate's 25–15 was noise, and on
+  v0.6 the prior is a net loss. Why: it costs ~25% of the playouts (5% at f6 e7 g5, 29% in a
+  20-stone mid-game at `go 200`), not #155's 6%. v0.6's base is faster, so the per-child lookup
+  weighs more, and a child is never AMAF-empty, so v0.6's FPU early exit never fires and the
+  prior-shaped tree runs deeper. Meanwhile the outcome win rate adds nothing that RAVE does not
+  learn within a few hundred playouts. Do not retry the outcome table as AMAF visits. **Next
+  variant: msg#258's urgency (played-vs-available) table**: how often the pattern was chosen
+  when it was on the board. It has to come with a cheaper hook, for example prior visits only
+  within a few plies of the root, or children ordered by the prior with no virtual visits
+  (which keeps the FPU early exit), so its cost stays near zero.
 - RAVE with a UCB term (#50): C = 0.3 lost 1–7 to plain UCT, C = 0.1 3–5. AMAF already spreads
   statistics over all children; the exploration bonus just diverts real visits. Use C = 0.
 - Second-row edge-template pairing in the fill-in (#73, buried at 2607 ± 108, i.e. no gain over
@@ -418,7 +430,7 @@ within the noise.
 
 | Concept | Here | Verdict |
 | --- | --- | --- |
-| learned evaluation | pattern -> self-play win rate as virtual AMAF visits on new nodes (#155) | buried at 2717 ± 108, not above v0.5's 2734, though the 40-game gate went 25–15 (+89, pr#169); local 40-game runs all within noise |
+| learned evaluation | pattern -> self-play win rate as virtual AMAF visits on new nodes (#155, retried on v0.6 in #297) | buried twice: #155 at 2717 ± 108 (40-game gate 25–15 was noise); #297 on the sequential gate 44.4% over 160 games vs v0.6 (−39 Elo, LLR −2.92): ~25% fewer playouts on v0.6's faster search, no gain to pay for it. Next: urgency (played-vs-available) table with a near-free hook |
 | inferior-move pruning | dead cells and opponent-captured pairs left out of each node's children (#95) | pruning 30–10 vs v0.4 locally; the same cells in the fill-in lost 14–26 |
 | rave/amaf | same RAVE search made cheaper: Q and β cached per node, FPU early exit, branch-free AMAF tables (#187, #276) | shipped as v0.6 at 2754 (+20): sequential gate 94–84 over 178 games vs v0.5, LLR 2.30 (pr#296), after a burial at 2717 ± 108 on the old 40-game gate (#187); +18% playouts at `go 200`, bit-identical moves |
 | inferior-move pruning | vulnerable cells (killed by one opponent reply next to them) left out when the killer is a child (#180) | buried at 2681 ± 109 (referee 17–23 vs v0.5) after 71–49 over 120 local games (control 60–60); the complete local dead test alone 40–40 |
