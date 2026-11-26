@@ -260,6 +260,17 @@ it). Only the clock policy changed (`Clock`, `next_fits`, `run_clock` in
   `arena play chess <bin> stockfish-6 --pairs 20` (no openings): this build +21 −18 =1, main
   +14 −26 =0.
 
+## Candidate (not shipped): mobility + passed pawns (#179, resubmitted unchanged as #274)
+
+Resubmitted by #274 on the sequential head-to-head gate (#195, pr#201) against v0.10: the diff of
+`engines/chess/src/main.rs` against main is exactly commit c87d35a's evaluation hunks (the patch
+`git diff c87d35a^ c87d35a -- engines/chess/src/main.rs` applied cleanly to v0.10, whose clock
+code from #186 sits elsewhere in the file). No tuning, no other change. The original #179 record,
+weights and cost are under "What failed and why: Mobility + passed pawns (#179)"; the verdict of
+this run goes in the results log. What changed since #179 was measured: v0.9's SEE cut qnodes
+~39% and v0.10 spends more of the clock, so the −17% node-rate cost of `activity` lands on a
+deeper baseline.
+
 ## Ideas worth trying
 
 - Opening book follow-ups (#108): predict replies with the opponent's real distribution (record
@@ -409,3 +420,4 @@ differently. Never re-propose an idea from this list unchanged.
 - 2026-11-24 14:04 UTC · buried · Piece mobility and passed pawns in the chess evaluation, tapered by phase · Rated 1520 ± 111, not above 1547.
 - 2026-11-24 15:12 UTC · buried · Spend the clock: predict the next iteration's cost instead of stopping at 30%/60% of go · Rated 1539 ± 109, not above 1547.
 - 2026-11-25 11:51 UTC · v0.10 passed the referee · Resubmit #186 unchanged on the sequential gate: spend the clock (commit 3476103) · rated 1530 (-17)
+- 2026-11-26 08:12 UTC · v0.11 passed the referee · Resubmit #179 on the sequential gate: mobility and passed pawns in evaluate (commit c87d35a) · rated 1583 (+53)

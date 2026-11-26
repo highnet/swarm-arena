@@ -8,7 +8,7 @@ mod endgame;
 use endgame::Tb;
 use shakmaty::uci::UciMove;
 use shakmaty::zobrist::Zobrist64;
-use shakmaty::{Chess, Color, EnPassantMode, Move, Position, Rank, Role, Square};
+use shakmaty::{attacks, Bitboard, Chess, Color, EnPassantMode, Move, Position, Rank, Role, Square};
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::io::{self, BufRead, Write};
@@ -223,8 +223,96 @@ fn placement(role: Role, file: i32, rank: i32) -> (i32, i32) {
     }
 }
 
-/// Static evaluation from the side to move's point of view: material, tapered placement, and a
-/// bishop-pair bonus.
+const FILE_A: u64 = 0x0101_0101_0101_0101;
+const FILE_H: u64 = FILE_A << 7;
+
+/// Squares attacked by the pawns of `color` (a pawn bitboard), by shifting the whole set at once.
+fn pawn_attack_set(pawns: u64, color: Color) -> u64 {
+    match color {
+        Color::White => ((pawns & !FILE_A) << 7) | ((pawns & !FILE_H) << 9),
+        Color::Black => ((pawns & !FILE_A) >> 9) | ((pawns & !FILE_H) >> 7),
+    }
+}
+
+/// Mobility weight per safe square, (middlegame, endgame), and the centred baseline (the square
+/// count that scores 0): knight, bishop, rook, queen. Modest on purpose: chess is tactical, and a
+/// mobility swing must stay well below a pawn in ordinary positions.
+const MOBILITY: [(i32, i32, i32); 4] = [(4, 4, 4), (5, 5, 6), (2, 4, 7), (1, 2, 13)];
+
+/// Passed-pawn bonus by rank seen from the pawn's owner (index 1 = second rank .. 6 = seventh),
+/// middlegame and endgame, and the extra bonus when its stop square is empty.
+const PASSER_MG: [i32; 8] = [0, 0, 4, 8, 16, 28, 45, 0];
+const PASSER_EG: [i32; 8] = [0, 6, 10, 18, 32, 55, 85, 0];
+const PASSER_FREE_MG: [i32; 8] = [0, 0, 1, 2, 4, 7, 11, 0];
+const PASSER_FREE_EG: [i32; 8] = [0, 1, 2, 4, 8, 14, 22, 0];
+
+/// Mobility and passed-pawn terms, white minus black, as (middlegame, endgame). Mobility counts,
+/// for each knight, bishop, rook and queen, the squares it attacks that hold no own piece and are
+/// not attacked by an enemy pawn. A pawn is passed when no enemy pawn stands ahead of it on its
+/// own or an adjacent file.
+fn activity(pos: &Chess) -> (i32, i32) {
+    let board = pos.board();
+    let occ = board.occupied();
+    let pawns = board.pawns().0;
+    let (mut mg, mut eg) = (0i32, 0i32);
+    for color in [Color::White, Color::Black] {
+        let sign = if color == Color::White { 1 } else { -1 };
+        let own = board.by_color(color).0;
+        let own_pawns = pawns & own;
+        let enemy_pawns = pawns & board.by_color(!color).0;
+        let unsafe_sq = own | pawn_attack_set(enemy_pawns, !color);
+        let safe = !unsafe_sq;
+        let occ_raw = occ;
+        let sets = [
+            (board.knights().0 & own, 0usize),
+            (board.bishops().0 & own, 1),
+            (board.rooks().0 & own, 2),
+            (board.queens().0 & own, 3),
+        ];
+        for (set, i) in sets {
+            let (wm, we, base) = MOBILITY[i];
+            for sq in Bitboard(set) {
+                let att = match i {
+                    0 => attacks::knight_attacks(sq),
+                    1 => attacks::bishop_attacks(sq, occ_raw),
+                    2 => attacks::rook_attacks(sq, occ_raw),
+                    _ => attacks::queen_attacks(sq, occ_raw),
+                };
+                let n = (att.0 & safe).count_ones() as i32 - base;
+                mg += sign * wm * n;
+                eg += sign * we * n;
+            }
+        }
+        for sq in Bitboard(own_pawns) {
+            let file = sq.file().to_usize() as u32;
+            let raw = sq.rank().to_usize() as u32;
+            let files = (FILE_A << file) | ((FILE_A << file) & !FILE_H) << 1 | ((FILE_A << file) & !FILE_A) >> 1;
+            let ahead = match color {
+                Color::White => if raw == 7 { 0 } else { !0u64 << (8 * (raw + 1)) },
+                Color::Black => (1u64 << (8 * raw)) - 1,
+            };
+            // Blocked by an enemy pawn in front or beside, or the rear pawn of a doubled pair.
+            if enemy_pawns & files & ahead != 0 || own_pawns & (FILE_A << file) & ahead != 0 {
+                continue;
+            }
+            let rank = if color == Color::White { raw } else { 7 - raw } as usize;
+            mg += sign * PASSER_MG[rank];
+            eg += sign * PASSER_EG[rank];
+            let stop = match color {
+                Color::White => sq.offset(8),
+                Color::Black => sq.offset(-8),
+            };
+            if stop.is_some_and(|s| !occ.contains(s)) {
+                mg += sign * PASSER_FREE_MG[rank];
+                eg += sign * PASSER_FREE_EG[rank];
+            }
+        }
+    }
+    (mg, eg)
+}
+
+/// Static evaluation from the side to move's point of view: material, tapered placement,
+/// mobility and passed pawns, and a bishop-pair bonus.
 fn evaluate(pos: &Chess) -> i32 {
     let board = pos.board();
     let (mut mg, mut eg, mut phase) = (0i32, 0i32, 0i32);
@@ -248,6 +336,9 @@ fn evaluate(pos: &Chess) -> i32 {
             bishops[piece.color as usize] += 1;
         }
     }
+    let (am, ae) = activity(pos);
+    mg += am;
+    eg += ae;
     let phase = phase.min(24);
     let mut s = (mg * phase + eg * (24 - phase)) / 24;
     if bishops[Color::White as usize] >= 2 {
@@ -1239,6 +1330,106 @@ mod tests {
     fn from_fen(fen: &str) -> Chess {
         let f: shakmaty::fen::Fen = fen.parse().unwrap();
         f.into_position(shakmaty::CastlingMode::Standard).unwrap()
+    }
+
+    fn mirrored(pos: &Chess) -> Chess {
+        let setup = pos.clone().to_setup(EnPassantMode::Legal).into_mirrored();
+        <Chess as shakmaty::FromSetup>::from_setup(setup, shakmaty::CastlingMode::Standard).unwrap()
+    }
+
+    /// Evaluation from White's point of view.
+    fn white_eval(pos: &Chess) -> i32 {
+        if pos.turn() == Color::White { evaluate(pos) } else { -evaluate(pos) }
+    }
+
+    #[test]
+    fn symmetric_positions_evaluate_to_zero() {
+        for fen in [
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "r1bqkb1r/pppp1ppp/2n2n2/4p3/4P3/2N2N2/PPPP1PPP/R1BQKB1R w KQkq - 4 4",
+            "4k3/1p4p1/8/3p4/3P4/8/1P4P1/4K3 w - - 0 1",
+            "3rk3/8/2n5/p6p/P6P/2N5/8/3RK3 b - - 0 1",
+        ] {
+            let pos = from_fen(fen);
+            assert_eq!(activity(&pos), (0, 0), "{fen}");
+            assert_eq!(evaluate(&pos), 0, "{fen}");
+        }
+    }
+
+    #[test]
+    fn a_mirrored_position_negates() {
+        for fen in TT_FENS.iter().chain(MATE_IN_3.iter()) {
+            let pos = from_fen(fen);
+            let m = mirrored(&pos);
+            let (am, ae) = activity(&pos);
+            assert_eq!(activity(&m), (-am, -ae), "{fen}");
+            assert_eq!(white_eval(&m), -white_eval(&pos), "{fen}");
+            assert_eq!(evaluate(&m), evaluate(&pos), "{fen}");
+        }
+    }
+
+    #[test]
+    fn a_passed_pawn_on_the_seventh_beats_one_on_the_fourth() {
+        let seventh = from_fen("4k3/2P5/8/8/8/8/8/4K3 w - - 0 1");
+        let fourth = from_fen("4k3/8/8/8/2P5/8/8/4K3 w - - 0 1");
+        assert!(activity(&seventh).1 > activity(&fourth).1);
+        assert!(activity(&seventh).0 > activity(&fourth).0);
+        // An enemy pawn on an adjacent file ahead of it stops it being passed.
+        let held = from_fen("4k3/1p6/8/8/2P5/8/8/4K3 w - - 0 1");
+        let free = from_fen("4k3/p7/8/8/2P5/8/8/4K3 w - - 0 1");
+        assert!(activity(&free).1 > activity(&held).1);
+        // Free stop square counts extra.
+        let blocked = from_fen("8/8/2k5/2P5/8/8/8/4K3 w - - 0 1");
+        let open = from_fen("8/8/k7/2P5/8/8/8/4K3 w - - 0 1");
+        assert!(activity(&open).1 > activity(&blocked).1);
+        // The rear pawn of a doubled pair is not a second passer.
+        let doubled = from_fen("4k3/8/8/2P5/2P5/8/8/4K3 w - - 0 1");
+        let single = from_fen("4k3/8/8/2P5/8/8/8/4K3 w - - 0 1");
+        assert_eq!(activity(&doubled), activity(&single));
+    }
+
+    /// Evaluation cost report for #179: run with `cargo test --release -p chess-engine eval_report
+    /// -- --ignored --nocapture`. Prints the activity terms, fixed-depth nodes and `go 200` depth,
+    /// nodes and node rate over the TT FENs.
+    #[test]
+    #[ignore]
+    fn eval_report() {
+        for fen in TT_FENS {
+            let pos = from_fen(fen);
+            println!("activity {:?} eval {} {fen}", activity(&pos), evaluate(&pos));
+        }
+        for depth in [5, 6] {
+            let (mut nodes, mut ms) = (0u64, 0u128);
+            for fen in TT_FENS {
+                let t = Instant::now();
+                let o = search_depth(&from_fen(fen), &HashSet::new(), depth).unwrap();
+                ms += t.elapsed().as_millis();
+                nodes += o.nodes;
+            }
+            println!("fixed d{depth}: nodes {nodes} in {ms} ms");
+        }
+        let (mut nodes, mut us) = (0u64, 0u128);
+        for fen in TT_FENS {
+            let pos = from_fen(fen);
+            let hard = Duration::from_millis(120);
+            let soft = Duration::from_millis(60);
+            let t = Instant::now();
+            let o = run(&pos, &HashSet::new(), hard, soft, MAX_DEPTH, &mut Tt::new(TT_BITS), true, true, true, &[]).unwrap();
+            us += t.elapsed().as_micros();
+            nodes += o.nodes;
+            println!("go 200: depth {} nodes {} qnodes {} {fen}", o.depth, o.nodes, o.qnodes);
+        }
+        println!("go 200 rate: {:.0} knps", nodes as f64 * 1000.0 / us as f64);
+    }
+
+    #[test]
+    fn mobility_swing_stays_below_a_pawn() {
+        // The whole mobility + passer term in ordinary opening and middlegame positions.
+        for fen in TT_FENS.iter().take(4).chain(MATE_IN_3.iter().take(2)) {
+            let pos = from_fen(fen);
+            let (mg, _) = activity(&pos);
+            assert!(mg.abs() < 100, "{fen}: {mg}");
+        }
     }
 
     #[test]
