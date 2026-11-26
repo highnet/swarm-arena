@@ -3,6 +3,7 @@
 //! Protocol and library policy: ../PROTOCOL.md.
 
 mod book;
+mod tune;
 
 use othello::Game;
 use std::io::{self, BufRead, Write};
@@ -44,16 +45,42 @@ const X_SQUARES: [(usize, usize); 4] = [(9, 0), (14, 7), (49, 56), (54, 63)];
 const C_SQUARES: [(usize, usize); 8] =
     [(1, 0), (8, 0), (6, 7), (15, 7), (48, 56), (57, 56), (55, 63), (62, 63)];
 
-const CORNER_W: i32 = 30;
-const MOBILITY_W: i32 = 4;
-const X_W: i32 = 18;
-const C_W: i32 = 8;
-/// Potential mobility: per square of difference, scaled by empties / 60 (2 in the opening,
-/// fading to 0 as the board fills, where real mobility and stability take over).
-const POTMOB_W: i32 = 2;
-/// Edge-anchored stable disc, flat per disc (well below a corner's 30). Tuning with local
-/// matches found larger or phase-growing weights lost to v0.2; see the playbook.
-const STABLE_W: i32 = 2;
+/// The six evaluation features, side to move minus opponent (`features`): corners, mobility,
+/// X-squares and C-squares next to a still-empty corner, potential mobility, edge-anchored
+/// stable discs. Potential mobility is scaled by empties / 60 inside `evaluate`.
+pub const N_FEATURES: usize = 6;
+pub const FEATURE_NAMES: [&str; N_FEATURES] = ["corner", "mobility", "x", "c", "potmob", "stable"];
+
+/// v0.7's hand-picked weights, one set for every phase (kept for tests and the fit's report):
+/// corner 30, mobility 4, X −18, C −8, potential mobility 2 × empties / 60, stable 2.
+pub const V07_WEIGHTS: [i32; N_FEATURES] = [30, 4, -18, -8, 2, 2];
+
+/// One phase of the game by empty squares: `weights` apply from `min_empties` up to the next
+/// phase's lower bound.
+pub struct Phase {
+    pub min_empties: u32,
+    pub weights: [i32; N_FEATURES],
+}
+
+/// Weights per phase, highest empties first (task #295). Placeholder: v0.7's weights.
+pub const PHASES: [Phase; 1] = [Phase { min_empties: 0, weights: V07_WEIGHTS }];
+
+/// Set only by the offline fit's self-play (`tune gen`): play with v0.7's weights, so the data
+/// set reproduces whatever `PHASES` holds. Never set during a game.
+static SELF_PLAY_V07: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The weights `evaluate` uses at `empties` empty squares.
+fn phase_weights(empties: u32) -> &'static [i32; N_FEATURES] {
+    if SELF_PLAY_V07.load(std::sync::atomic::Ordering::Relaxed) {
+        return &V07_WEIGHTS;
+    }
+    for p in &PHASES {
+        if empties >= p.min_empties {
+            return &p.weights;
+        }
+    }
+    &PHASES[PHASES.len() - 1].weights
+}
 /// Terminal scores sit far above any heuristic score.
 const WIN: i32 = 100_000;
 const INF: i32 = 1_000_000;
@@ -104,35 +131,48 @@ fn edge_stable(own: u64, occupied: u64) -> u64 {
     }
 }
 
-/// Static evaluation from the side to move's point of view. Original terms: corner ownership,
-/// mobility difference, a penalty for X/C-squares next to a still-empty corner, potential
-/// mobility (scaled down as the board fills), and edge-anchored stable discs.
-fn evaluate(g: &Game) -> i32 {
+/// The raw features of `g` from the side to move's point of view (see `N_FEATURES`); every one
+/// is "mine minus the opponent's", so swapping the two sides negates them all.
+pub fn features(g: &Game) -> [i32; N_FEATURES] {
     let [me, opp] = g.get();
     let occupied = me | opp;
     let empty = !occupied;
-    let empties = empty.count_ones() as i32;
-    let mut s = CORNER_W * ((me & CORNERS).count_ones() as i32 - (opp & CORNERS).count_ones() as i32);
+    let corner = (me & CORNERS).count_ones() as i32 - (opp & CORNERS).count_ones() as i32;
     let mut o = g.clone();
     o.pass_move();
-    s += MOBILITY_W * (g.available_moves().count_ones() as i32 - o.available_moves().count_ones() as i32);
-    for &(x, c) in &X_SQUARES {
+    let mobility = g.available_moves().count_ones() as i32 - o.available_moves().count_ones() as i32;
+    let mut x = 0;
+    for &(sq, c) in &X_SQUARES {
         if empty >> c & 1 == 1 {
-            s -= X_W * ((me >> x & 1) as i32 - (opp >> x & 1) as i32);
+            x += (me >> sq & 1) as i32 - (opp >> sq & 1) as i32;
         }
     }
+    let mut cs = 0;
     for &(sq, c) in &C_SQUARES {
         if empty >> c & 1 == 1 {
-            s -= C_W * ((me >> sq & 1) as i32 - (opp >> sq & 1) as i32);
+            cs += (me >> sq & 1) as i32 - (opp >> sq & 1) as i32;
         }
     }
     let pm = potential_mobility(opp, empty).count_ones() as i32 - potential_mobility(me, empty).count_ones() as i32;
-    s += POTMOB_W * pm * empties / 60;
-    if occupied & CORNERS != 0 {
-        let st = edge_stable(me, occupied).count_ones() as i32 - edge_stable(opp, occupied).count_ones() as i32;
-        s += STABLE_W * st;
-    }
-    s
+    let stable = if occupied & CORNERS != 0 {
+        edge_stable(me, occupied).count_ones() as i32 - edge_stable(opp, occupied).count_ones() as i32
+    } else {
+        0
+    };
+    [corner, mobility, x, cs, pm, stable]
+}
+
+/// `features` weighted by `w`: potential mobility counts × empties / 60, so it fades as the board
+/// fills. Integer division truncates toward zero, so the score stays antisymmetric.
+pub fn weighted(f: &[i32; N_FEATURES], w: &[i32; N_FEATURES], empties: i32) -> i32 {
+    w[0] * f[0] + w[1] * f[1] + w[2] * f[2] + w[3] * f[3] + w[4] * f[4] * empties / 60 + w[5] * f[5]
+}
+
+/// Static evaluation from the side to move's point of view: the six original features, weighted
+/// by the phase's fitted weights (`PHASES`).
+fn evaluate(g: &Game) -> i32 {
+    let empties = (!(g.get()[0] | g.get()[1])).count_ones();
+    weighted(&features(g), phase_weights(empties), empties as i32)
 }
 
 /// Final score for the side to move once neither side can place: disc difference.
@@ -383,7 +423,6 @@ const START_SHARE: f64 = 0.4;
 
 impl Clock {
     /// The rule before #275: abort at `deadline`, start no depth after a third of it.
-    #[cfg(test)]
     fn fixed(start: Instant, deadline: Duration) -> Clock {
         Clock { start, hard: deadline, soft: deadline / 3, predict: false, partial: false }
     }
@@ -777,6 +816,11 @@ fn main() {
         book::command(&args[1..]);
         return;
     }
+    // Offline evaluation fit (`tune/generate.sh`, task #295); never used during a game.
+    if args.first().map(String::as_str) == Some("tune") {
+        tune::command(&args[1..]);
+        return;
+    }
     let stdin = io::stdin();
     let mut out = io::stdout();
     let mut moves = Vec::new();
@@ -947,6 +991,98 @@ mod tests {
         let h = Game::new(other, own).unwrap();
         assert_eq!(evaluate(&g), -evaluate(&h), "evaluation is symmetric between colours");
         assert!(evaluate(&g) > 0);
+    }
+
+    /// Seeded pseudo-random positions at every empty count from 59 down to 1 (task #295 tests).
+    fn positions_every_phase() -> Vec<Game> {
+        let mut out = Vec::new();
+        for seed in 0..24u64 {
+            let mut g = Game::default();
+            let mut r = 0x2545_f491_4f6c_dd1d ^ seed;
+            loop {
+                let mut avail = g.available_moves();
+                if avail == 0 {
+                    g.pass_move();
+                    avail = g.available_moves();
+                    if avail == 0 {
+                        break;
+                    }
+                }
+                out.push(g.clone());
+                r = r.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                let k = (r >> 33) as u32 % avail.count_ones();
+                let i = (0..64).filter(|i| avail >> i & 1 == 1).nth(k as usize).unwrap();
+                g = g.make_move(i).unwrap();
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn evaluation_is_antisymmetric_under_every_phase() {
+        // Swapping the two sides negates every feature, so it must negate the score, whichever
+        // phase's weights apply. Checked on every phase's weights at every empty count (not only
+        // the empties each phase is used at), and through evaluate() on positions of every phase.
+        let ps = positions_every_phase();
+        let mut seen = std::collections::BTreeSet::new();
+        for g in &ps {
+            let [me, opp] = g.get();
+            let h = Game::new(opp, me).unwrap();
+            let e = (!(me | opp)).count_ones();
+            seen.insert(e);
+            assert_eq!(evaluate(g), -evaluate(&h), "evaluate at {e} empties");
+            let (f, fh) = (features(g), features(&h));
+            assert_eq!(f, fh.map(|x| -x), "features negate at {e} empties");
+            for p in PHASES.iter().map(|p| &p.weights).chain([&V07_WEIGHTS]) {
+                assert_eq!(weighted(&f, p, e as i32), -weighted(&fh, p, e as i32));
+            }
+        }
+        for p in &PHASES {
+            assert!(seen.iter().any(|&e| phase_weights(e) == &p.weights), "phase from {} empties never checked", p.min_empties);
+        }
+        assert!(seen.len() >= 55, "only {} empty counts covered", seen.len());
+    }
+
+    #[test]
+    fn phases_cover_every_empty_count_in_order() {
+        assert!(PHASES.windows(2).all(|w| w[0].min_empties > w[1].min_empties));
+        assert_eq!(PHASES[PHASES.len() - 1].min_empties, 0);
+        for e in 0..=60 {
+            let w = phase_weights(e);
+            let p = PHASES.iter().find(|p| e >= p.min_empties).unwrap();
+            assert_eq!(w, &p.weights);
+        }
+    }
+
+    #[test]
+    fn v07_weights_reproduce_the_old_evaluation() {
+        // The refactor into features × weights is exact: v0.7's weights give v0.7's formula.
+        for g in positions_every_phase() {
+            let [me, opp] = g.get();
+            let occupied = me | opp;
+            let empty = !occupied;
+            let empties = empty.count_ones() as i32;
+            let mut s = 30 * ((me & CORNERS).count_ones() as i32 - (opp & CORNERS).count_ones() as i32);
+            let mut o = g.clone();
+            o.pass_move();
+            s += 4 * (g.available_moves().count_ones() as i32 - o.available_moves().count_ones() as i32);
+            for &(x, c) in &X_SQUARES {
+                if empty >> c & 1 == 1 {
+                    s -= 18 * ((me >> x & 1) as i32 - (opp >> x & 1) as i32);
+                }
+            }
+            for &(sq, c) in &C_SQUARES {
+                if empty >> c & 1 == 1 {
+                    s -= 8 * ((me >> sq & 1) as i32 - (opp >> sq & 1) as i32);
+                }
+            }
+            let pm = potential_mobility(opp, empty).count_ones() as i32 - potential_mobility(me, empty).count_ones() as i32;
+            s += 2 * pm * empties / 60;
+            if occupied & CORNERS != 0 {
+                s += 2 * (edge_stable(me, occupied).count_ones() as i32 - edge_stable(opp, occupied).count_ones() as i32);
+            }
+            assert_eq!(weighted(&features(&g), &V07_WEIGHTS, empties), s);
+        }
     }
 
     #[test]
