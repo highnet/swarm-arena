@@ -63,8 +63,8 @@ MCTS (UCT) since #42, with RAVE since #50. Three files in `engines/hex/src`:
   are split ⌈k/2⌉/⌊k/2⌋ as before (k keeps the parity of all empties, so the per-colour counts
   match the uniform fill). `fill_uniform` is kept for the switch and the tests. Only interior
   bridges: edge templates were tried and buried (#73, below), no ladders.
-- `search.rs`: node arena (`Vec<Node>`, 24 bytes a node, children contiguous and shuffled at
-  expansion), expand a leaf on its 2nd visit, tree capped at 2M nodes (48 MB), clock checked
+- `search.rs`: node arena (`Vec<Node>`, 32 bytes a node since v0.6, children contiguous and shuffled at
+  expansion), expand a leaf on its 2nd visit, tree capped at 2M nodes (64 MB), clock checked
   every 64 playouts. `Limit::Playouts(n)` makes it deterministic for tests; `Limit::Time` is
   for `go`.
   **Inferior-move pruning (#95, `PRUNE_EXPANSION = true`):** `candidates` gives a node children
@@ -92,6 +92,66 @@ MCTS (UCT) since #42, with RAVE since #50. Three files in `engines/hex/src`:
   `(1 − β)·Q + β·Q_amaf`, **β = sqrt(K / (3n + K)), K = 1000, no UCB term (C = 0)**; a child
   with no real visits uses Q_amaf, one with neither uses FPU = 1.1. Test
   `amaf_counts_on_a_hand_built_path` checks the counts on a hand-built tree.
+  Since v0.6 (#187/#276, below) `backup` caches Q and β per node (node 24 → 32 bytes, tree cap
+  64 MB), `select` returns the first child with no real and no AMAF visits at once (FPU), and
+  the two AMAF increment tables are written in one branch-free pass; `same_search_as_v0_5` pins
+  the search bit for bit to v0.5's.
+
+**Exact cheaper RAVE (v0.6, #187 then #276, landed in 5f7291d at 2754, +20).** First buried
+  on the old 40-game gate (#187, 2717 ± 108: the referee went 19–21 vs v0.5, after 58–62
+  locally against a 55–65 control); resubmitted unchanged (49ce146) it passed the sequential
+  gate in #276: 94–84 over 178 games vs v0.5 (seed 1131152920), LLR 2.30, pr#296. Same search, bit for bit: K = 1000, C = 0, fill-in and pruning
+  untouched. Profile first (callgrind, mid-game,
+  v0.5): `select` ~56% of instructions, `backup` (AMAF) ~16%, fill-in ~8%; `select`'s cost is
+  the per-child value, two divisions and a square root on every child of every path node, and
+  its `visits == 0` branch is ~74% of all mispredictions. Three exact changes:
+  (1) Q = wins/visits and β = sqrt(K/(3n+K)) depend only on a child's real counts, which change
+  only on the path (one node per level), so `backup` caches them in the node (`q`, `beta`; node
+  24 → 32 bytes, tree cap 48 → 64 MB) and `select` keeps one division per child (Q_amaf);
+  (2) a child with no real and no AMAF visits is worth FPU = 1.1, above every win rate, so
+  `select` returns the first such child at once; (3) the two 128-entry AMAF increment tables
+  are written in one branch-free pass instead of zeroing 2 KB and walking each colour's bits.
+  Test `same_search_as_v0_5` pins 12 searches (4 positions × 3 seeds, 20k–100k playouts) to the
+  move and win-rate bits main gave; `amaf_counts_on_a_hand_built_path` is unchanged.
+  Fixed work (`search` with `Limit::Playouts`, best of 5, k playouts/s; 3-stone position at
+  50k/300k, then a 20-stone mid-game at 50k/300k): v0.5 392/431–460, 508/646–654; (1) alone
+  433/557, 533/758; (1)+(2) 451/554, 554/770; (1)+(2)+(3) 453–468/540–572, 573–580/797–806,
+  i.e. **+15–25%** on the same tree. Wall clock (native, 4-core Xeon, 4 runs each,
+  main → candidate, medians): `go 200` f6 e7 g5 59k → 63k, mid-game 1 (`c3 h9 e7 f4 c8 d5 g4
+  g3 h3 f6 b10 h5 e5 f5 e4 f2 d3 d7 e6 d4`) 56k → 75k, mid-game 2 (`b9 e4 g5 e7 f7 h4 g4 e8 f8
+  e9 f9 g3 h3 f6 g6 i1 j2 i2 i3 e11`) 54k → 58k; `go 1000` f6 e7 g5 371k → 521k (+40%),
+  mid 1 555k → 752k (+36%), mid 2 304k → 384k (+26%). `go 200` is noisy (single runs 46–76k).
+  **Measured slower and dropped:** structure-of-arrays trees. Full SoA (one vector per field)
+  with a branch-free, vectorised value (`divps`/`sqrtps`; LLVM only vectorised it once the
+  float selects were written as bit masks, it turns `if` back into branches) ran at 284k/376k
+  on the fixed work, below v0.5: mispredictions fell ~10× but SSE `divps` at 3 divisions + 1
+  sqrt per lane costs more than v0.5's mostly-one scalar division, and every descent step then
+  touches 5–7 separate arrays. SoA with `q`/`beta` cached and only Q_amaf vectorised: 347k/393k,
+  still slower than array-of-nodes; a 16-byte stats + 8-byte header split: no better.
+  `std::hint::select_unpredictable` on the `visits == 0` choice and a branch-free argmax: no
+  change (real hardware hides those mispredictions far better than callgrind's model).
+  The one 32-byte node per child, read as a single prefetch-friendly stream, beats several
+  streams here. Not tried: skipping the AMAF update deep in the tree (not exact).
+  Strength at 200 ms, `arena versus hex`, 40 games a seed, four or three runs in parallel on the
+  4-core machine (which compresses the speed gain): candidate vs main 18–22 (seed 18701), 17–23
+  (18702), 23–17 (18703), **58–62**; control main vs main 18–22, 19–21, 18–22, **55–65**.
+  K = 3000 (with the faster code) vs main 17–23 (18701), so K stays 1000. As expected for an
+  identical search with 10–35% more playouts at `go 200`: the gain, if any, is far below what
+  120 games resolve; the speed is the measured result.
+  Lesson: this was a provably identical search with 26–40% more playouts per `go 1000` (less at
+  `go 200`), and it rated inside the error bar like the five tree/policy changes before it. So
+  at 200 ms, +30% playouts is worth well under the ~±110 a 40-game gate resolves; RAVE at
+  K = 1000 is not playout-starved. Speed alone will not clear the gate; reapply 49ce146 (it is
+  free strength, exact) together with a change that needs the time, or once the gate resolves
+  smaller gains. Next speed idea if wanted: the fill-in and the select descent, not the AMAF
+  update (only ~16% of instructions).
+  **Shipped as v0.6 (#276, pr#296, 5f7291d).** 49ce146's
+  engines/hex diff reapplies cleanly to main (no hex engine commit landed since its parent) and
+  is byte-identical to it. Exactness re-checked beyond the pinned test: a scratch probe hashing
+  every tree node's (move, visits, wins, AMAF) plus every root child's visit count matched main on
+  all 12 `same_search_as_v0_5` searches. `go 200` here (5 rounds of f6 / f6 e7 d5 / c3 i9 f6 e5,
+  main and candidate interleaved): 975k → 1149k playouts in all, **+18%**. Move this entry to
+  (Moved here from 'What failed' in #297, once v0.6 landed.)
 
 Inferior cells (#95) at f6 e7 g5, 3 runs each (native, shared machine): `go 200` off
 (v0.4) 52–55k, prune 45–59k, fill 53–55k, both 41–63k playouts; `go 1000` off 309–319k, prune
@@ -202,6 +262,29 @@ what it is, why it might work, and its verdict. Never fill this from another eng
   balanced openings expose what the prior helps with, or the local runs undersell it. Verdict:
   **buried** at 2717 ± 108, not above v0.5's 2734, though the 40-game gate went 25–15; code
   reverted, why and what to try instead under 'What failed'.
+  **Retried on v0.6 under the sequential gate (#297): buried, −39 Elo.** Code reverted; commit
+  c350f7c on branch `agent/297-retry-155-on-v0-6-under-the-sequential-gat` has it. Same design
+  (AMAF only, `PRIOR_VISITS = 20`), `src/prior.bin` reused unchanged (it was generated with the
+  prior off on v0.5's search, which v0.6 reproduces bit for bit), behind `search::PRIOR`;
+  `search_with_prior(.., 0)` is v0.6's search exactly (`same_search_as_v0_5`), and
+  `prior_gen` now learns through it instead of a process-wide switch. v0.6's cached `q`/`beta`
+  depend only on the real counts, which the virtual visits never touch, so nothing goes stale
+  (test `prior_seeds_new_children_and_cached_values_stay_exact` recomputes every value from
+  the counts). `prior::Rates` reads the six neighbour states from a byte array built once per
+  expansion instead of six `u128` shifts per child (test `rates_match_rate`).
+  Cost on v0.6 is larger than #155's ~6%: `go 200`, 5 runs each, off → on, f6 e7 g5
+  56.8k → 54.1k (−5%), mid-game 1 54.0k → 38.6k (−29%); fixed work (50k playouts, best of 5)
+  ~−33% with the per-child lookup, ~−25% with `Rates`. The remainder is the search itself: no
+  child is ever AMAF-empty, so v0.6's FPU early exit in `select` never fires, and the
+  prior-shaped tree runs deeper (more path nodes to select and back up).
+  `arena versus hex` vs main (v0.6), 40 games each, two runs in parallel: msg#258's gate seed
+  997164151 **23–17**, seed 1254033388 **15–25**: 38–42 in all, a tie inside the noise, as
+  every local run of #155 was. First submit: **inconclusive**, the sequential test hit its cap
+  at 100 pairs (200 games, seed 1463552157), score 48.5% (−10 Elo vs v0.6), LLR −1.25 in
+  [−2.89, 2.25]; resubmitted unchanged on fresh openings. With the local 80 that is ~48% over
+  280 games. Second submit: **buried**, the sequential test decided no gain at 80 pairs (160
+  games, seed 406932910), score 44.4% (−39 Elo vs v0.6), LLR −2.92. Why, and what next: under
+  'What failed' (#155's entry).
 
 ## What failed and why
 
@@ -212,60 +295,6 @@ cap undecided) is not a failure and may be resubmitted unchanged; so may an idea
 #195, when the gate was a 40-game rating against a stored number, if its lesson says the result was
 within the noise.
 
-- Cheaper RAVE selection and AMAF backup (#187, **buried at 2717 ± 108: the referee went 19–21
-  vs v0.5**, after 58–62 locally against a 55–65 control). Code reverted; commit 49ce146 on
-  pr#193's branch has it. Same search, bit for bit: K = 1000, C = 0, fill-in and pruning
-  untouched. Profile first (callgrind, mid-game,
-  v0.5): `select` ~56% of instructions, `backup` (AMAF) ~16%, fill-in ~8%; `select`'s cost is
-  the per-child value, two divisions and a square root on every child of every path node, and
-  its `visits == 0` branch is ~74% of all mispredictions. Three exact changes:
-  (1) Q = wins/visits and β = sqrt(K/(3n+K)) depend only on a child's real counts, which change
-  only on the path (one node per level), so `backup` caches them in the node (`q`, `beta`; node
-  24 → 32 bytes, tree cap 48 → 64 MB) and `select` keeps one division per child (Q_amaf);
-  (2) a child with no real and no AMAF visits is worth FPU = 1.1, above every win rate, so
-  `select` returns the first such child at once; (3) the two 128-entry AMAF increment tables
-  are written in one branch-free pass instead of zeroing 2 KB and walking each colour's bits.
-  Test `same_search_as_v0_5` pins 12 searches (4 positions × 3 seeds, 20k–100k playouts) to the
-  move and win-rate bits main gave; `amaf_counts_on_a_hand_built_path` is unchanged.
-  Fixed work (`search` with `Limit::Playouts`, best of 5, k playouts/s; 3-stone position at
-  50k/300k, then a 20-stone mid-game at 50k/300k): v0.5 392/431–460, 508/646–654; (1) alone
-  433/557, 533/758; (1)+(2) 451/554, 554/770; (1)+(2)+(3) 453–468/540–572, 573–580/797–806,
-  i.e. **+15–25%** on the same tree. Wall clock (native, 4-core Xeon, 4 runs each,
-  main → candidate, medians): `go 200` f6 e7 g5 59k → 63k, mid-game 1 (`c3 h9 e7 f4 c8 d5 g4
-  g3 h3 f6 b10 h5 e5 f5 e4 f2 d3 d7 e6 d4`) 56k → 75k, mid-game 2 (`b9 e4 g5 e7 f7 h4 g4 e8 f8
-  e9 f9 g3 h3 f6 g6 i1 j2 i2 i3 e11`) 54k → 58k; `go 1000` f6 e7 g5 371k → 521k (+40%),
-  mid 1 555k → 752k (+36%), mid 2 304k → 384k (+26%). `go 200` is noisy (single runs 46–76k).
-  **Measured slower and dropped:** structure-of-arrays trees. Full SoA (one vector per field)
-  with a branch-free, vectorised value (`divps`/`sqrtps`; LLVM only vectorised it once the
-  float selects were written as bit masks, it turns `if` back into branches) ran at 284k/376k
-  on the fixed work, below v0.5: mispredictions fell ~10× but SSE `divps` at 3 divisions + 1
-  sqrt per lane costs more than v0.5's mostly-one scalar division, and every descent step then
-  touches 5–7 separate arrays. SoA with `q`/`beta` cached and only Q_amaf vectorised: 347k/393k,
-  still slower than array-of-nodes; a 16-byte stats + 8-byte header split: no better.
-  `std::hint::select_unpredictable` on the `visits == 0` choice and a branch-free argmax: no
-  change (real hardware hides those mispredictions far better than callgrind's model).
-  The one 32-byte node per child, read as a single prefetch-friendly stream, beats several
-  streams here. Not tried: skipping the AMAF update deep in the tree (not exact).
-  Strength at 200 ms, `arena versus hex`, 40 games a seed, four or three runs in parallel on the
-  4-core machine (which compresses the speed gain): candidate vs main 18–22 (seed 18701), 17–23
-  (18702), 23–17 (18703), **58–62**; control main vs main 18–22, 19–21, 18–22, **55–65**.
-  K = 3000 (with the faster code) vs main 17–23 (18701), so K stays 1000. As expected for an
-  identical search with 10–35% more playouts at `go 200`: the gain, if any, is far below what
-  120 games resolve; the speed is the measured result.
-  Lesson: this was a provably identical search with 26–40% more playouts per `go 1000` (less at
-  `go 200`), and it rated inside the error bar like the five tree/policy changes before it. So
-  at 200 ms, +30% playouts is worth well under the ~±110 a 40-game gate resolves; RAVE at
-  K = 1000 is not playout-starved. Speed alone will not clear the gate; reapply 49ce146 (it is
-  free strength, exact) together with a change that needs the time, or once the gate resolves
-  smaller gains. Next speed idea if wanted: the fill-in and the select descent, not the AMAF
-  update (only ~16% of instructions).
-  **Candidate (not shipped): resubmitted unchanged under the sequential gate (#276).** 49ce146's
-  engines/hex diff reapplies cleanly to main (no hex engine commit landed since its parent) and
-  is byte-identical to it. Exactness re-checked beyond the pinned test: a scratch probe hashing
-  every tree node's (move, visits, wins, AMAF) plus every root child's visit count matched main on
-  all 12 `same_search_as_v0_5` searches. `go 200` here (5 rounds of f6 / f6 e7 d5 / c3 i9 f6 e5,
-  main and candidate interleaved): 975k → 1149k playouts in all, **+18%**. Move this entry to
-  "Architecture now" only if the referee passes it.
 - Vulnerable-cell pruning (#180, **buried at 2681 ± 109: the referee went 17–23 vs v0.5**, after
   71–49 over 120 local games). Code reverted; commit e44b827 on pr#185's branch has it
   (`search::PRUNE_VULNERABLE`, `board::vulnerable`, `search::dominated`).
@@ -343,6 +372,17 @@ within the noise.
   when it was on the board, the Go "urgency" form) rather than the outcome win rate; larger
   patterns (the 12-cell radius-2 ring, with bridges); or the table in the playouts' split rather
   than the tree.
+  **#297 retried it unchanged on v0.6 (sequential gate): buried, 44.4% over 160 games (−39 Elo,
+  LLR −2.92), after an inconclusive 48.5% over 200.** So the old gate's 25–15 was noise, and on
+  v0.6 the prior is a net loss. Why: it costs ~25% of the playouts (5% at f6 e7 g5, 29% in a
+  20-stone mid-game at `go 200`), not #155's 6%. v0.6's base is faster, so the per-child lookup
+  weighs more, and a child is never AMAF-empty, so v0.6's FPU early exit never fires and the
+  prior-shaped tree runs deeper. Meanwhile the outcome win rate adds nothing that RAVE does not
+  learn within a few hundred playouts. Do not retry the outcome table as AMAF visits. **Next
+  variant: msg#258's urgency (played-vs-available) table**: how often the pattern was chosen
+  when it was on the board. It has to come with a cheaper hook, for example prior visits only
+  within a few plies of the root, or children ordered by the prior with no virtual visits
+  (which keeps the FPU early exit), so its cost stays near zero.
 - RAVE with a UCB term (#50): C = 0.3 lost 1–7 to plain UCT, C = 0.1 3–5. AMAF already spreads
   statistics over all children; the exploration bonus just diverts real visits. Use C = 0.
 - Second-row edge-template pairing in the fill-in (#73, buried at 2607 ± 108, i.e. no gain over
@@ -390,9 +430,9 @@ within the noise.
 
 | Concept | Here | Verdict |
 | --- | --- | --- |
-| learned evaluation | pattern -> self-play win rate as virtual AMAF visits on new nodes (#155) | buried at 2717 ± 108, not above v0.5's 2734, though the 40-game gate went 25–15 (+89, pr#169); local 40-game runs all within noise |
+| learned evaluation | pattern -> self-play win rate as virtual AMAF visits on new nodes (#155, retried on v0.6 in #297) | buried twice: #155 at 2717 ± 108 (40-game gate 25–15 was noise); #297 on the sequential gate 44.4% over 160 games vs v0.6 (−39 Elo, LLR −2.92): ~25% fewer playouts on v0.6's faster search, no gain to pay for it. Next: urgency (played-vs-available) table with a near-free hook |
 | inferior-move pruning | dead cells and opponent-captured pairs left out of each node's children (#95) | pruning 30–10 vs v0.4 locally; the same cells in the fill-in lost 14–26 |
-| rave/amaf | same RAVE search made cheaper: Q and β cached per node, FPU early exit, branch-free AMAF tables (#187) | buried at 2717 ± 108 (referee 19–21 vs v0.5); +26–40% playouts per `go 1000`, bit-identical moves, no measurable strength at 200 ms |
+| rave/amaf | same RAVE search made cheaper: Q and β cached per node, FPU early exit, branch-free AMAF tables (#187, #276) | shipped as v0.6 at 2754 (+20): sequential gate 94–84 over 178 games vs v0.5, LLR 2.30 (pr#296), after a burial at 2717 ± 108 on the old 40-game gate (#187); +18% playouts at `go 200`, bit-identical moves |
 | inferior-move pruning | vulnerable cells (killed by one opponent reply next to them) left out when the killer is a child (#180) | buried at 2681 ± 109 (referee 17–23 vs v0.5) after 71–49 over 120 local games (control 60–60); the complete local dead test alone 40–40 |
 
 ## Results log
@@ -411,3 +451,4 @@ within the noise.
 - 2026-11-24 14:14 UTC · buried · Extend inferior-cell pruning: more dead-cell patterns and the mover's vulnerable cells left out of the tree · Rated 2681 ± 109, not above 2734.
 - 2026-11-24 15:24 UTC · buried · Win back RAVE's playout rate: cheaper AMAF update per playout, same selection · Rated 2717 ± 108, not above 2734.
 - 2026-11-26 09:05 UTC · v0.6 passed the referee · Resubmit #187 on the sequential gate: exact cheaper RAVE selection and AMAF backup (commit 49ce146) · rated 2754 (+20)
+- 2026-11-26 15:27 UTC · buried · Retry #155 on v0.6 under the sequential gate: learned six-neighbour cell prior as 20 virtual AMAF visits on new nodes · The sequential test against v0.6 decided no gain: 80 pairs (160 games), score 44.4% (-39 Elo vs main), LLR -2.92 in [-2.89, 2.25], H0 -20 vs H1 +30, α = 0.1, β = 0.05.
