@@ -6,7 +6,14 @@
  * Active time: a gap between two consecutive events longer than the idle threshold counts as
  * at most that threshold, so an overnight pause or a stopped loop does not eat the window.
  */
-import { sectorNodeId, type SwarmFlow } from './model';
+import {
+  lifeOf,
+  sectorNodeId,
+  type SwarmAgent,
+  type SwarmFlow,
+  type SwarmGraph,
+  type SwarmLifetimes,
+} from './model';
 
 const HOUR = 3_600_000;
 const MINUTE = 60_000;
@@ -141,6 +148,33 @@ export type SwarmReplayPlanOptions = {
    * back to back). A burst plays as one beat, as the live graph coalesces it. Default 70 ms.
    */
   burstStepMs?: number;
+  /**
+   * The live graph's `lifetimes` (`LIFETIMES` for the preset). Given, the plan carries each
+   * agent's and work item's presence (`presence`, `presentAt`): the replay opens with only what
+   * was active at the window's start, and the rest spawn at their first flow in the window and
+   * leave when their lifetime ends (#279). Absent, there is no presence and every node shows.
+   */
+  lifetimes?: SwarmLifetimes | null;
+  /** The live graph's liveness rule (`SwarmGraphOptions.isLive`), asked at the playhead's time. */
+  isLive?: ((agent: SwarmAgent, nowMs: number) => boolean) | null;
+};
+
+/**
+ * When an agent or work node is on the replay's graph. Built from the flows alone: a node is
+ * active from a flow that touches it (it is on the flow's path) and stays while the live graph's
+ * rule would keep it, measured from its last touch.
+ */
+export type SwarmReplayPresence = {
+  lifetimes: SwarmLifetimes;
+  isLive: ((agent: SwarmAgent, nowMs: number) => boolean) | null;
+  /** The window's opening time, ms: frame one is judged at this clock. */
+  startMs: number;
+  /** Per node id: its last touch before the window (ms), if it had one. */
+  before: Record<string, number>;
+  /** Per node id: the indexes (into the window's flows) of the flows that touch it, in order. */
+  touches: Record<string, number[]>;
+  /** Work node ids merged by a flow, with the index of that flow (-1: before the window). */
+  closedAt: Record<string, number>;
 };
 
 export type SwarmReplayPlan = {
@@ -166,6 +200,8 @@ export type SwarmReplayPlan = {
   burst: number[];
   startAt: string | null;
   endAt: string | null;
+  /** Agent and work node presence through the window; null without `lifetimes` (all shown). */
+  presence: SwarmReplayPresence | null;
 };
 
 /**
@@ -244,7 +280,130 @@ export const planReplay = (
     burst,
     startAt: shown[0]?.at ?? null,
     endAt: shown.at(-1)?.at ?? null,
+    presence: options.lifetimes
+      ? presenceOf(flows, win.start, options.lifetimes, options.isLive ?? null)
+      : null,
   };
+};
+
+/**
+ * Plan a replay of a graph its host prunes by time (`buildSwarmGraph` with `now`). The graph
+ * pruned at now only routes flows through the nodes still alive now: an agent or branch active
+ * mid-window but gone since is on no flow's path, so its presence is never known and it never
+ * spawns (#279). So the window is found on the `live` graph, and the plan is made from the graph
+ * pruned at the window's start (`graphAt(opensAt)`), which keeps every node active from then on.
+ * The host shows that same graph during the replay (prune from `opensAt`). Null when there is
+ * nothing to play.
+ */
+export const planPrunedReplay = (
+  live: Pick<SwarmGraph, 'flows' | 'hubId'>,
+  graphAt: (now: string) => Pick<SwarmGraph, 'flows' | 'hubId'>,
+  options: SwarmReplayPlanOptions = {},
+): { opensAt: string; plan: SwarmReplayPlan } | null => {
+  const { mode, activeMs, idleMs } = options;
+  const opensAt = planReplay(live.flows, live.hubId, { mode, activeMs, idleMs }).startAt;
+  if (!opensAt) return null;
+  const basis = graphAt(opensAt);
+  return { opensAt, plan: planReplay(basis.flows, basis.hubId, options) };
+};
+
+/** Agents and work items come and go; sectors and the trunk are structural and always shown. */
+const transient = (id: string) => id.startsWith('agent:') || id.startsWith('work:');
+
+const presenceOf = (
+  flows: SwarmFlow[],
+  start: number,
+  lifetimes: SwarmLifetimes,
+  isLive: SwarmReplayPresence['isLive'],
+): SwarmReplayPresence => {
+  const before: Record<string, number> = {};
+  const touches: Record<string, number[]> = {};
+  const closedAt: Record<string, number> = {};
+  flows.forEach((f, i) => {
+    const at = timeOf(f);
+    for (const id of new Set(f.path)) {
+      if (!transient(id)) continue;
+      if (i < start) before[id] = Math.max(before[id] ?? -Infinity, at);
+      else (touches[id] ??= []).push(i - start);
+      if (f.kind === 'merge' && id.startsWith('work:') && !(id in closedAt))
+        closedAt[id] = i < start ? -1 : i - start;
+    }
+  });
+  const startMs = flows[start] ? timeOf(flows[start]) : 0;
+  return { lifetimes, isLive, startMs, before, touches, closedAt };
+};
+
+/**
+ * Whether a node last touched at `touchedMs` is still on the graph at `nowMs`, by the live
+ * graph's rules: an agent while it is live (its last touch as its last heartbeat, asked of the
+ * host's `isLive`) or within `agentMs` of it; a work item within `closedMs` of its merge, or a
+ * branch within `branchMs` of its last activity.
+ */
+const keeps = (
+  p: SwarmReplayPresence,
+  id: string,
+  touchedMs: number,
+  nowMs: number,
+  closed: boolean,
+) => {
+  const dead = nowMs - touchedMs;
+  const life = p.lifetimes;
+  if (id.startsWith('agent:')) {
+    const seat: SwarmAgent = {
+      id: id.slice('agent:'.length),
+      role: 'worker',
+      status: 'working',
+      sector: null,
+      lastSeen: new Date(touchedMs).toISOString(),
+    };
+    if (p.isLive?.(seat, nowMs)) return true;
+    return lifeOf(dead, life.agentMs, life.fadingMs) !== 'gone';
+  }
+  return lifeOf(dead, closed ? life.closedMs : life.branchMs, life.fadingMs) !== 'gone';
+};
+
+/**
+ * The agent and work node ids on the graph once the first `index` flows of the window have
+ * played, judged at the clock of the last one played (frame one: the window's start). Null when
+ * the plan has no presence: every node shows. Sectors and the trunk are never in the set; they
+ * are always shown.
+ *
+ * `lasting` names the nodes the live graph keeps for as long as they are open, with no lifetime
+ * (open issues and pull requests): one is on from its first touch, before the window or in it,
+ * and stays; one the flows never touch carries no time and is on throughout. Any other node the
+ * flows never touch is not in the set.
+ */
+export const presentAt = (
+  plan: Pick<SwarmReplayPlan, 'flows' | 'presence'>,
+  index: number,
+  lasting: ReadonlySet<string> = new Set(),
+): Set<string> | null => {
+  const p = plan.presence;
+  if (!p) return null;
+  const i = Math.max(0, Math.min(index, plan.flows.length));
+  const nowMs = i > 0 ? timeOf(plan.flows[i - 1]) : p.startMs;
+  const out = new Set<string>();
+  const ids = new Set([...Object.keys(p.before), ...Object.keys(p.touches)]);
+  for (const id of lasting) {
+    if (!ids.has(id) || id in p.before || (p.touches[id]?.[0] ?? Infinity) < i) out.add(id);
+  }
+  for (const id of ids) {
+    if (lasting.has(id)) continue;
+    const list = p.touches[id] ?? [];
+    // The last touch among the flows already played.
+    let lo = 0;
+    let hi = list.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (list[mid] < i) lo = mid + 1;
+      else hi = mid;
+    }
+    const touchedMs = lo > 0 ? timeOf(plan.flows[list[lo - 1]]) : p.before[id];
+    if (touchedMs === undefined) continue;
+    const closed = id in p.closedAt && p.closedAt[id] < i;
+    if (keeps(p, id, touchedMs, nowMs, closed)) out.add(id);
+  }
+  return out;
 };
 
 /**

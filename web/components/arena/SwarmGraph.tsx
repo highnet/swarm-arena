@@ -10,7 +10,7 @@ import {
   createSwarmGraph,
   defaultEffectOf,
   LIFETIMES,
-  planReplay,
+  planPrunedReplay,
   stateAt,
   summarizeReplay,
   type SwarmAgent,
@@ -713,15 +713,20 @@ const SwarmGraph = ({
   }, []);
   /** While a replay plays, pruning is measured from its window's start: whatever was alive then. */
   const [pruneFrom, setPruneFrom] = useState<string | null>(null);
-  const graph = useMemo(
-    () =>
+  /** The graph as pruned at `now`. */
+  const graphAt = useCallback(
+    (now: string) =>
       buildSwarmGraph(merged, {
         lifetimes: presetId === 'all' ? LIFETIMES.everything : LIFETIMES.live,
-        now: pruneFrom ?? new Date(Math.max(clock, Date.parse(merged.asOf))).toISOString(),
+        now,
         // A seat that goes quiet while the page is open stops working on the next tick (#200).
         isLive: graphAgentIsLive,
       }),
-    [merged, presetId, pruneFrom, clock],
+    [merged, presetId],
+  );
+  const graph = useMemo(
+    () => graphAt(pruneFrom ?? new Date(Math.max(clock, Date.parse(merged.asOf))).toISOString()),
+    [graphAt, merged.asOf, pruneFrom, clock],
   );
   const shownGraph = useMemo(
     () => ({ ...graph, flows: graph.flows.filter((f) => showsFlow(preset, f)) }),
@@ -1013,12 +1018,27 @@ const SwarmGraph = ({
       .find(Boolean) ?? undefined;
   /** The last 24 actively worked hours (or the whole run), from the state when it began. */
   const startReplay = (mode: SwarmReplayMode = 'window') => {
-    const plan = planReplay(shownGraph.flows, shownGraph.hubId, {
-      mode,
-      durationMs: 60_000,
-      isMilestone: replayMilestone,
-    });
-    if (!plan.flows.length) return;
+    // The live graph's flows only reach the nodes still alive now: an agent or branch active
+    // mid-window but gone since is on no flow's path, so it could never spawn. Plan from the
+    // graph pruned at the window's start, the one the renderer shows during the replay (#279).
+    const planned = planPrunedReplay(
+      shownGraph,
+      (now) => {
+        const g = graphAt(now);
+        return { ...g, flows: g.flows.filter((f) => showsFlow(preset, f)) };
+      },
+      {
+        mode,
+        durationMs: 60_000,
+        isMilestone: replayMilestone,
+        // Frame one holds only what was active when the window opened, by the live graph's own
+        // lifetimes and liveness rule; the rest spawn at their first event in it (#279).
+        lifetimes: presetId === 'all' ? LIFETIMES.everything : LIFETIMES.live,
+        isLive: graphAgentIsLive,
+      },
+    );
+    if (!planned?.plan.flows.length) return;
+    const { opensAt, plan } = planned;
     setLiveNote('');
     const q = tickerQueue.current;
     clearTimeout(q.timer);
@@ -1028,7 +1048,7 @@ const SwarmGraph = ({
     // The renderer reports the old replay stopping first; the new plan must land after that.
     renderer.current?.replay(plan);
     setReplayPlan(plan);
-    setPruneFrom(plan.startAt);
+    setPruneFrom(opensAt);
   };
   const stopReplay = () => {
     renderer.current?.stopReplay();
