@@ -35,8 +35,10 @@ import {
   type Pose,
 } from './lifecycle';
 import {
+  arrangeSectors,
   startLayout,
   type LayoutJob,
+  type SectorArrangement,
   type LayoutLink,
   type LayoutNode,
   type LayoutPoint,
@@ -424,6 +426,8 @@ const pointAt = (a: SimNode, b: SimNode, t: number) => {
  * sector's count is drawn as text, not area; size only hints at effort.
  */
 const SECTOR_RADIUS = { min: 26, max: 40 };
+/** Room a sector keeps beyond its body for its progress arc (out to r + 8.5) and a margin. */
+const SECTOR_ROOM = 12;
 /** No node label, sub-line or glyph is drawn smaller than this at the default zoom (px). */
 export const MIN_LABEL_PX = 11;
 
@@ -487,8 +491,8 @@ export const createSwarmGraph = (
     return iconCache.get(n.agent.id) ?? null;
   };
 
-  let width = Math.max(320, container.clientWidth);
-  let height = Math.max(320, container.clientHeight);
+  let width = Math.max(200, container.clientWidth);
+  let height = Math.max(200, container.clientHeight);
 
   const svg = d3
     .select(container)
@@ -642,7 +646,37 @@ export const createSwarmGraph = (
   /** What placed each node there (its sector, phase, ties): when it changes, it is re-placed. */
   const placedBy = new Map<string, string>();
   /** Nodes on their way to a new place: a straight line with one ease-out, nothing else. */
-  const moves = new Map<string, { from: LayoutPoint; to: LayoutPoint; start: number }>();
+  const moves = new Map<
+    string,
+    { from: LayoutPoint; to: LayoutPoint; start: number; ms: number }
+  >();
+  /**
+   * A resize waiting for the canvas to stop changing size (#272): when it last changed (0: none
+   * pending), and the arrangement the graph was laid out in before it. A page reflow resizes the
+   * canvas in a few steps over a few hundred ms, so the graph is re-fitted once, at the size it
+   * ends at, rather than once per step (each would turn every glide in flight).
+   */
+  let resized = 0;
+  let resizedFrom: SectorArrangement['kind'] | null = null;
+  /** Quiet time before a pending resize is applied (the gaps between reflow steps reach ~80 ms). */
+  const RESIZE_QUIET_MS = 90;
+  /** The glide of a resize's re-fit: one quick move, so it is over soon after the page settles. */
+  const RESIZE_MOVE_MS = 320;
+  /**
+   * The glide of a ring/grid crossing's re-place: shorter still. The page's reflow to (or from) a
+   * wide canvas costs long frames of its own, so this one has to be over sooner to settle in time.
+   */
+  const CROSSING_MOVE_MS = 180;
+  /** The glide the next layout gives its moves. */
+  let moveMs: number = MOVE.durationMs;
+  /** The canvas size the layout was last fitted to (the first layout, or the last re-fit). */
+  let fitted = { width, height };
+  /**
+   * A re-fit this close to the size the layout is fitted to (px, each way) re-places nothing: the
+   * last step of a page's reflow is often a pixel or two, and it can land just after the re-fit
+   * started, turning every glide in flight for a stretch of well under 1 % (#272).
+   */
+  const RESIZE_SNAP_PX = 3;
 
   const colorOf = (n: SwarmNode) => n.color ?? theme.neutral;
   /** Nodes whose host draws their information inside them (`anchor(…, 'inside')`). */
@@ -651,14 +685,35 @@ export const createSwarmGraph = (
   let drawnHosted = '';
   let restyle = 0;
   const effortOf = (n: SimNode) => (replayOverride ? (replayOverride.get(n.id) ?? 0) : n.effort);
-  /** The sector ring is an ellipse fitted to the canvas, leaving room for satellites outside it. */
-  const ringRadii = () => ({
-    x: Math.max(100, width / 2 - 140 * sizeScale()),
-    y: Math.max(100, height / 2 - 120 * sizeScale()),
-  });
+  /**
+   * Where the sectors stand and how big they are (`arrangeSectors`): a ring fitted to a wide
+   * canvas, a grid on a phone (#272). Decided by the canvas and the sector count only.
+   */
+  let arranged: { key: string; value: SectorArrangement } | null = null;
+  const arrangement = () => {
+    const count = graph ? graph.nodes.filter((n) => n.kind === 'sector').length : 0;
+    const key = `${width}x${height}:${count}`;
+    if (arranged?.key !== key)
+      arranged = {
+        key,
+        value: arrangeSectors({
+          count,
+          width,
+          height,
+          maxBody: (options.sectorRadius ?? SECTOR_RADIUS).max,
+          ringRoom: SECTOR_ROOM,
+          hubRoom: radiusOf({ kind: 'hub' } as SwarmNode, 0) + 4,
+        }),
+      };
+    return arranged.value;
+  };
+  /** The arrangement's half extent: places are kept relative to it across a resize. */
+  const ringRadii = () => arrangement().radii;
   const ringRadius = () => Math.min(ringRadii().x, ringRadii().y);
-  /** Sectors shrink on narrow canvases so the ring still fits a phone. */
-  const sizeScale = () => Math.max(0.6, Math.min(1, Math.min(width, height) / 620));
+  /** Sectors shrink on narrow canvases so the ring (or the grid) still fits a phone. */
+  const sizeScale = () => arrangement().scale;
+  /** A phone's canvas: sectors in a grid, shorter labels. */
+  const compact = () => arrangement().kind === 'grid';
   const rOf = (n: SimNode) =>
     radiusOf(n, effortOf(n), sizeScale(), options.sectorRadius ?? SECTOR_RADIUS);
   /** Room for the body plus the progress arc drawn around sectors and open work. */
@@ -666,7 +721,7 @@ export const createSwarmGraph = (
     n.kind === 'sector'
       ? // A sector keeps room for its largest size, so gaining effort (live, or in a replay)
         // never pushes its neighbours: it grows into space that was already its own.
-        Math.max(n.r, (options.sectorRadius ?? SECTOR_RADIUS).max * sizeScale()) + 12
+        Math.max(n.r, (options.sectorRadius ?? SECTOR_RADIUS).max * sizeScale()) + SECTOR_ROOM
       : n.r + (n.kind === 'agent' ? 6 : n.kind === 'work' ? 7 : 4);
 
   /**
@@ -677,6 +732,17 @@ export const createSwarmGraph = (
     if (n.kind === 'sector') return n.ring ?? { x: 0, y: 0 };
     const ring = n.sectorId ? nodeById.get(`sector:${n.sectorId}`)?.ring : undefined;
     if (!ring) return { x: 0, y: 0 };
+    if (compact()) {
+      // The grid (#272): branches and pull requests in the band through the hub, under their
+      // sector; issues and agents in the band outside its row; landed work in the sector.
+      const a = arrangement();
+      const side = Math.sign(ring.y) || 1;
+      const outside = Math.abs(ring.y) + (options.sectorRadius ?? SECTOR_RADIUS).max * a.scale + 26;
+      if (n.kind === 'work' && n.phase === 'landed') return ring;
+      if (n.kind === 'work' && (n.phase === 'branch' || n.phase === 'pr'))
+        return { x: ring.x * 0.8, y: side * 24 };
+      return { x: ring.x, y: side * outside };
+    }
     // Branches and pull requests live between the integration branch they forked from and the
     // sector they change; issues wait outside the ring; landed work sits in its sector.
     const k =
@@ -875,7 +941,7 @@ export const createSwarmGraph = (
       }
       const going = moves.get(n.id);
       if (going && Math.hypot(going.to.x - to.x, going.to.y - to.y) < 0.5) continue;
-      moves.set(n.id, { from: { x: n.x, y: n.y }, to, start: now });
+      moves.set(n.id, { from: { x: n.x, y: n.y }, to, start: now, ms: moveMs });
     }
   };
 
@@ -888,7 +954,7 @@ export const createSwarmGraph = (
         moves.delete(id);
         continue;
       }
-      const p = progressAt(now, m.start, MOVE.durationMs);
+      const p = progressAt(now, m.start, m.ms);
       const at = movePoint(m.from, m.to, p);
       n.x = at.x;
       n.y = at.y;
@@ -900,12 +966,10 @@ export const createSwarmGraph = (
   const placeRing = () => {
     if (!graph) return;
     const sectors = graph.nodes.filter((n) => n.kind === 'sector');
-    const R = ringRadii();
+    const { slots } = arrangement();
     sectors.forEach((s, i) => {
       const node = nodeById.get(s.id);
-      if (!node) return;
-      const a = (i / sectors.length) * Math.PI * 2 - Math.PI / 2;
-      node.ring = { x: Math.cos(a) * R.x, y: Math.sin(a) * R.y };
+      if (node) node.ring = slots[i];
     });
   };
 
@@ -1538,17 +1602,55 @@ export const createSwarmGraph = (
     return '';
   };
 
+  /**
+   * Text widths for the label layout: measured once per string on a canvas in the page's own
+   * fonts (cached), so a placed label's box is the label (#272). Without a canvas (tests), an
+   * estimate from the character count.
+   */
+  const widths = new Map<string, number>();
+  let measurer: CanvasRenderingContext2D | null | undefined;
+  const fontFamily = (css: string) => {
+    // `var(--name, fallback)`: the page's value of the variable, else the fallback.
+    const m = /^var\((--[\w-]+),\s*(.*)\)$/.exec(css.trim());
+    if (!m) return css;
+    const v = getComputedStyle(container).getPropertyValue(m[1]).trim();
+    return v || m[2];
+  };
+  const textWidth = (text: string, px: number, weight: number, mono: boolean, estimate: number) => {
+    if (!text) return 0;
+    const key = `${weight} ${px} ${mono ? 'm' : 's'} ${text}`;
+    const known = widths.get(key);
+    if (known !== undefined) return known;
+    if (measurer === undefined) {
+      try {
+        measurer = document.createElement('canvas').getContext('2d');
+      } catch {
+        measurer = null;
+      }
+    }
+    let w = text.length * estimate;
+    if (measurer) {
+      measurer.font = `${weight} ${px}px ${fontFamily(mono ? theme.monoFont : theme.font)}`;
+      const measured = measurer.measureText(text).width;
+      if (measured > 0) w = Math.ceil(measured) + 1;
+    }
+    if (widths.size > 2000) widths.clear();
+    widths.set(key, w);
+    return w;
+  };
+
   /** Who gets first pick of label room: the hovered node, sectors, live agents, PRs, branches. */
   const labelRank = (n: SimNode) =>
     n === hovered
       ? 0
-      : n.kind === 'sector' || n.kind === 'hub'
+      : n.kind === 'sector' || (n.kind === 'hub' && !compact())
         ? 1
         : n.kind === 'agent'
           ? 2
           : n.phase === 'pr'
             ? 3
-            : 4;
+            : // On a phone the hub's "integration branch" gives way to the agents and their work.
+              4;
 
   /**
    * Place every visible label (name + sub-line) where it collides with nothing placed before it:
@@ -1556,18 +1658,25 @@ export const createSwarmGraph = (
    * this runs every tick without forcing a layout.
    */
   const lastSpot = new Map<string, number>();
+  /** Which of a node's texts the label layout shows: 2 both, 1 the name only, 0 neither. */
+  const shown = new Map<string, 0 | 1 | 2>();
   const layoutLabels = () => {
     type Box = { x0: number; y0: number; x1: number; y1: number };
+    type Candidate = { box: Box; anchor: string; x: number; top: number };
     const hit = (a: Box, b: Box) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+    // A node's box takes in its progress arc: a label never covers a node, its ring or its icon.
     const bodies = [...nodeById.values()].map((n) => ({
       n,
-      box: {
-        x0: (n.x ?? 0) - n.r,
-        y0: (n.y ?? 0) - n.r,
-        x1: (n.x ?? 0) + n.r,
-        y1: (n.y ?? 0) + n.r,
-      },
+      x: n.x ?? 0,
+      y: n.y ?? 0,
+      r: hasArc(n) ? arcRadii(n)[1] : n.r,
     }));
+    /** Whether a box touches a circle: the box's nearest point to the centre is inside it. */
+    const touches = (b: Box, o: { x: number; y: number; r: number }) =>
+      Math.hypot(
+        o.x - Math.max(b.x0, Math.min(o.x, b.x1)),
+        o.y - Math.max(b.y0, Math.min(o.y, b.y1)),
+      ) < o.r;
     // The HTML chips beside a node (rating, agents) are obstacles too: a label never hides under one.
     const chips = [...chipBoxes.values()];
     const placed: Box[] = [];
@@ -1575,63 +1684,102 @@ export const createSwarmGraph = (
       .filter((n) => labelOf(n) || subOf(n))
       .sort((a, b) => labelRank(a) - labelRank(b) || a.id.localeCompare(b.id));
     const spot = new Map<string, { anchor: string; x: number; label: number; sub: number }>();
+    // Below the node, else above, right, left.
+    const candidatesOf = (n: SimNode, w: number, h: number): Candidate[] => {
+      const cx = n.x ?? 0;
+      const cy = n.y ?? 0;
+      const r = hasArc(n) ? arcRadii(n)[1] : n.r;
+      const gap = 4;
+      return [
+        {
+          box: { x0: cx - w / 2, y0: cy + r + gap, x1: cx + w / 2, y1: cy + r + gap + h },
+          anchor: 'middle',
+          x: 0,
+          top: r + gap,
+        },
+        {
+          box: { x0: cx - w / 2, y0: cy - r - gap - h, x1: cx + w / 2, y1: cy - r - gap },
+          anchor: 'middle',
+          x: 0,
+          top: -r - gap - h,
+        },
+        {
+          box: { x0: cx + r + 4, y0: cy - h / 2, x1: cx + r + 4 + w, y1: cy + h / 2 },
+          anchor: 'start',
+          x: r + 4,
+          top: -h / 2,
+        },
+        {
+          box: { x0: cx - r - 4 - w, y0: cy - h / 2, x1: cx - r - 4, y1: cy + h / 2 },
+          anchor: 'end',
+          x: -r - 4,
+          top: -h / 2,
+        },
+      ];
+    };
+    const inside = (c: Candidate) =>
+      c.box.x0 >= -width / 2 + 2 &&
+      c.box.x1 <= width / 2 - 2 &&
+      c.box.y0 >= -height / 2 + 2 &&
+      c.box.y1 <= height / 2 - 2;
+    const clashes = (n: SimNode, c: Candidate) =>
+      placed.filter((b) => hit(b, c.box)).length +
+      chips.filter((b) => hit(b, c.box)).length +
+      bodies.filter((o) => o.n !== n && touches(c.box, o)).length;
+    const free = (n: SimNode, c: Candidate) => inside(c) && clashes(n, c) === 0;
+    const block = (n: SimNode, label: string, sub: string) => {
+      const big = n.kind === 'sector';
+      const mono = n.kind === 'work' && (n.phase === 'branch' || n.phase === 'pr');
+      const lw = textWidth(
+        label,
+        big ? 13 : MIN_LABEL_PX,
+        big ? 600 : 500,
+        mono,
+        big ? 7.6 : mono ? 6.7 : 6.1,
+      );
+      const sw = textWidth(sub, MIN_LABEL_PX, 400, false, 5.4);
+      const lh = label ? (big ? 16 : 14) : 0;
+      return { w: Math.max(lw, sw), lh, h: lh + (sub ? 13 : 0) };
+    };
     for (const n of ordered) {
       const label = labelOf(n);
       const sub = subOf(n);
       const big = n.kind === 'sector';
-      const mono = n.kind === 'work' && (n.phase === 'branch' || n.phase === 'pr');
-      const lw = label.length * (big ? 7.6 : mono ? 6.7 : 6.1);
-      const sw = sub.length * 5.4;
-      const w = Math.max(lw, sw);
-      const lh = label ? (big ? 16 : 14) : 0;
-      const h = lh + (sub ? 13 : 0);
-      const cx = n.x ?? 0;
-      const cy = n.y ?? 0;
-      const gap = 4;
-      // Each candidate: the block's box, its anchor and baselines relative to the node.
-      const below = {
-        box: { x0: cx - w / 2, y0: cy + n.r + gap, x1: cx + w / 2, y1: cy + n.r + gap + h },
-        anchor: 'middle',
-        x: 0,
-        top: n.r + gap,
-      };
-      const above = {
-        box: { x0: cx - w / 2, y0: cy - n.r - gap - h, x1: cx + w / 2, y1: cy - n.r - gap },
-        anchor: 'middle',
-        x: 0,
-        top: -n.r - gap - h,
-      };
-      const right = {
-        box: { x0: cx + n.r + 6, y0: cy - h / 2, x1: cx + n.r + 6 + w, y1: cy + h / 2 },
-        anchor: 'start',
-        x: n.r + 6,
-        top: -h / 2,
-      };
-      const left = {
-        box: { x0: cx - n.r - 6 - w, y0: cy - h / 2, x1: cx - n.r - 6, y1: cy + h / 2 },
-        anchor: 'end',
-        x: -n.r - 6,
-        top: -h / 2,
-      };
-      const inside = (c: typeof below) =>
-        c.box.x0 >= -width / 2 + 2 &&
-        c.box.x1 <= width / 2 - 2 &&
-        c.box.y0 >= -height / 2 + 2 &&
-        c.box.y1 <= height / 2 - 2;
-      const clashes = (c: typeof below) =>
-        placed.filter((b) => hit(b, c.box)).length +
-        chips.filter((b) => hit(b, c.box)).length +
-        bodies.filter((o) => o.n !== n && hit(o.box, c.box)).length;
-      const free = (c: typeof below) => inside(c) && clashes(c) === 0;
-      const candidates = [below, above, right, left];
+      // Each label is tried whole, then without its sub-line, and is hidden when even its name
+      // has nowhere clear to go (#272): a label never sits on another label, a node or an icon.
+      // The hovered node and the sectors always show theirs; the hover card has the rest.
+      const must = n === hovered || big;
+      const tries: { label: string; sub: string; show: 1 | 2 }[] = [{ label, sub, show: 2 }];
+      if (!must && label && sub) tries.push({ label, sub: '', show: 1 });
       const prev = lastSpot.get(n.id);
-      const pick =
-        (prev !== undefined && free(candidates[prev]) ? candidates[prev] : undefined) ??
-        candidates.find(free) ??
+      let chosen: { pick: Candidate; at: number; lh: number; show: 0 | 1 | 2 } | null = null;
+      for (const t of tries) {
+        const { w, lh, h } = block(n, t.label, t.sub);
+        const cands = candidatesOf(n, w, h);
+        const at =
+          prev !== undefined && free(n, cands[prev]) ? prev : cands.findIndex((c) => free(n, c));
+        if (at >= 0) {
+          chosen = { pick: cands[at], at, lh, show: t.show };
+          break;
+        }
+      }
+      if (!chosen && must) {
+        const { w, lh, h } = block(n, label, sub);
+        const cands = candidatesOf(n, w, h);
         // Nowhere clear: the on-canvas spot with the fewest collisions.
-        [...candidates.filter(inside)].sort((a, b) => clashes(a) - clashes(b))[0] ??
-        below;
-      lastSpot.set(n.id, candidates.indexOf(pick));
+        const best = cands
+          .map((c, at) => ({ c, at }))
+          .filter(({ c }) => inside(c))
+          .sort((a, b) => clashes(n, a.c) - clashes(n, b.c))[0] ?? { c: cands[0], at: 0 };
+        chosen = { pick: best.c, at: best.at, lh, show: 2 };
+      }
+      if (!chosen) {
+        shown.set(n.id, 0);
+        continue;
+      }
+      const { pick, at, lh, show } = chosen;
+      lastSpot.set(n.id, at);
+      shown.set(n.id, show);
       placed.push(pick.box);
       spot.set(n.id, {
         anchor: pick.anchor,
@@ -1640,14 +1788,17 @@ export const createSwarmGraph = (
         sub: pick.top + lh + 10,
       });
     }
+    const visible = (n: SimNode, part: 1 | 2) => (shown.get(n.id) ?? 2) >= part;
     const groups = tagGroups();
     groups
       .select<SVGTextElement>('text.sg-label')
+      .attr('display', (n) => (visible(n, 1) ? null : 'none'))
       .attr('text-anchor', (n) => spot.get(n.id)?.anchor ?? 'middle')
       .attr('x', (n) => spot.get(n.id)?.x ?? 0)
       .attr('y', (n) => spot.get(n.id)?.label ?? 0);
     groups
       .select<SVGTextElement>('text.sg-sub')
+      .attr('display', (n) => (visible(n, 2) ? null : 'none'))
       .attr('text-anchor', (n) => spot.get(n.id)?.anchor ?? 'middle')
       .attr('x', (n) => spot.get(n.id)?.x ?? 0)
       .attr('y', (n) => spot.get(n.id)?.sub ?? 0);
@@ -1953,6 +2104,7 @@ export const createSwarmGraph = (
   const timer = d3.timer(() => {
     const now = performance.now();
     if (intro) stepIntro(now);
+    if (resized && now - resized >= RESIZE_QUIET_MS) refit();
     if (pending) runLayout(SLICE_MS);
     const moved = stepMoves(now);
     if (stepLife(now) || moved) draw();
@@ -2618,21 +2770,68 @@ export const createSwarmGraph = (
     if (on) bursts = [];
   };
 
-  const observer = new ResizeObserver(() => {
-    const w = Math.max(320, container.clientWidth);
-    const h = Math.max(320, container.clientHeight);
-    if (w === width && h === height) return;
+  /** Take the container's current size, if it changed: true when it did. */
+  const takeSize = () => {
+    const w = Math.max(200, container.clientWidth);
+    const h = Math.max(200, container.clientHeight);
+    if (w === width && h === height) return false;
+    resizedFrom ??= arrangement().kind;
     width = w;
     height = h;
     finishIntro();
     setViewBox();
     placeRing();
     resize();
-    // The layout stretches with the canvas, once: every place scales with the ring, overlaps the
-    // new sizes make are cleared, and each node glides there. Back to the old size, back home.
-    const R = ringRadii();
-    for (const [id, h] of homes) if (places.has(id)) places.set(id, { x: h.x * R.x, y: h.y * R.y });
-    relayout(true);
+    return true;
+  };
+
+  /** Apply a resize once its reflow is over: the one re-fit it makes. */
+  const refit = () => {
+    // A step of the reflow its ResizeObserver has not reported yet (observers run after this
+    // frame's tick): taken now, so the re-fit is laid out at the size the page ends at instead of
+    // being followed by a second one that restarts every glide.
+    takeSize();
+    const from = resizedFrom;
+    resized = 0;
+    resizedFrom = null;
+    const kind = arrangement().kind;
+    if (
+      kind === from &&
+      Math.abs(width - fitted.width) <= RESIZE_SNAP_PX &&
+      Math.abs(height - fitted.height) <= RESIZE_SNAP_PX
+    ) {
+      // Next to the fitted size: the viewBox follows the canvas, and every node stays where it is.
+      // The sectors keep standing where they were placed, so a later layout does not nudge them.
+      for (const n of nodeById.values())
+        if (n.kind === 'sector') n.ring = places.get(n.id) ?? n.ring;
+      return;
+    }
+    fitted = { width, height };
+    if (kind !== from) {
+      moveMs = CROSSING_MOVE_MS;
+      // Ring to grid or back (#272): the sectors stand somewhere else, so everything is placed
+      // afresh around them, each node gliding from where it stands.
+      places.clear();
+      homes.clear();
+      placedBy.clear();
+      relayout();
+    } else {
+      moveMs = RESIZE_MOVE_MS;
+      // The layout stretches with the canvas, once: every place scales with the ring, overlaps
+      // the new sizes make are cleared, and each node glides there. Back to the old size, back
+      // home.
+      const R = ringRadii();
+      for (const [id, h] of homes)
+        if (places.has(id)) places.set(id, { x: h.x * R.x, y: h.y * R.y });
+      relayout(true);
+    }
+    moveMs = MOVE.durationMs;
+  };
+
+  const observer = new ResizeObserver(() => {
+    if (!takeSize()) return;
+    // The nodes move once the canvas stops changing size (`refit`, from the timer).
+    resized = performance.now();
   });
   observer.observe(container);
 

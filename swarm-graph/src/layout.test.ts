@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  arrangeSectors,
+  COMPACT_WIDTH,
   layoutGraph,
   startLayout,
   type LayoutLink,
@@ -244,4 +246,56 @@ test('a layout run in slices gives exactly the one-shot result', () => {
   const sliced = job.result();
   assert.equal(sliced.ticks, whole.ticks);
   for (const [id, p] of whole.positions) assert.deepEqual(sliced.positions.get(id), p, id);
+});
+
+// ---- sector arrangement (#272) --------------------------------------------------------------
+
+/** The site's numbers: sectors of 90–100 px at full size, 12 px of arc and margin, hub room 30. */
+const arrange = (count: number, width: number, height: number) =>
+  arrangeSectors({ count, width, height, maxBody: 100, ringRoom: 12, hubRoom: 30 });
+
+test('a wide canvas keeps the ring, exactly as before (#272: desktop unchanged)', () => {
+  const a = arrange(6, 1398, 600);
+  assert.equal(a.kind, 'ring');
+  assert.equal(a.scale, Math.max(0.6, Math.min(1, 600 / 620)));
+  const R = { x: Math.max(100, 699 - 140 * a.scale), y: Math.max(100, 300 - 120 * a.scale) };
+  a.slots.forEach((p, i) => {
+    const t = (i / 6) * Math.PI * 2 - Math.PI / 2;
+    assert.ok(Math.abs(p.x - Math.cos(t) * R.x) < 1e-9 && Math.abs(p.y - Math.sin(t) * R.y) < 1e-9);
+  });
+});
+
+test('below COMPACT_WIDTH the sectors stand in a grid where no two (arcs included) overlap', () => {
+  for (const width of [254, 286, 326, 341, 356, 396, COMPACT_WIDTH - 1])
+    for (const count of [1, 2, 3, 4, 5, 6, 7, 8, 9]) {
+      const height = 416;
+      const a = arrange(count, width, height);
+      assert.equal(a.kind, 'grid');
+      const room = 100 * a.scale + 12;
+      for (let i = 0; i < count; i++) {
+        const p = a.slots[i];
+        // Clear of the hub and inside the canvas.
+        assert.ok(Math.hypot(p.x, p.y) >= room + 30, `sector ${i} clears the hub at ${width}`);
+        assert.ok(Math.abs(p.x) + room <= width / 2 + 1e-9, `sector ${i} inside at ${width}`);
+        for (let j = i + 1; j < count; j++) {
+          const q = a.slots[j];
+          assert.ok(Math.hypot(p.x - q.x, p.y - q.y) >= 2 * room - 1e-9, `${i}/${j} at ${width}`);
+        }
+      }
+    }
+});
+
+test('six sectors on a phone: three by two, with the hub in the band between the rows', () => {
+  const a = arrange(6, 356, 416);
+  assert.deepEqual([a.cols, a.rows], [3, 2]);
+  assert.ok(a.slots.slice(0, 3).every((p) => p.y < 0));
+  assert.ok(a.slots.slice(3).every((p) => p.y > 0));
+  // Legible circles at 390 px (a 356 px canvas), and the whole grid within the canvas height.
+  assert.ok(100 * a.scale >= 40, `body ${100 * a.scale}`);
+  assert.ok(Math.max(...a.slots.map((p) => Math.abs(p.y))) + 100 * a.scale + 12 <= 208);
+});
+
+test('the arrangement is a pure function of the canvas and the count', () => {
+  assert.deepEqual(arrange(6, 356, 416), arrange(6, 356, 416));
+  assert.deepEqual(arrange(5, 1200, 600), arrange(5, 1200, 600));
 });

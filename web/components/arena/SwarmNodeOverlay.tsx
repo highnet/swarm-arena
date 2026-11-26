@@ -468,7 +468,8 @@ const SwarmNodeOverlay = ({
       {/* Compact: a small circle keeps the name, the count and the rating, nothing outside. */}
       <div
         data-slot="sector-compact"
-        className="absolute inset-[16%] flex flex-col items-center justify-center @min-[10.5rem]:hidden"
+        // The middle of a circle is wider than its inscribed square: the name gets that width.
+        className="absolute inset-x-[7%] inset-y-[16%] flex flex-col items-center justify-center @min-[10.5rem]:hidden"
       >
         <Typography
           as="div"

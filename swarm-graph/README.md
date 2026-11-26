@@ -36,7 +36,9 @@ The input uses Rallypoint's own terms, so any repository running the protocol ca
 
 It follows the protocol. **Nothing reaches the integration branch except a merge.**
 
-- Sectors ring the integration branch. Each sector is sized by the effort logged in it.
+- Sectors ring the integration branch. Each sector is sized by the effort logged in it. On a
+  narrow canvas (under `COMPACT_WIDTH`, a phone) they stand in a grid of rows above and below it
+  instead, each as large as its cell allows (`arrangeSectors`, #272).
 - An open issue is a dashed node waiting outside its sector.
 - A claim forks a branch (◇) from the integration branch's tip. The branch sits between the
   trunk and the sector it changes. The worker (or fixer) sits on its branch, streaming effort
