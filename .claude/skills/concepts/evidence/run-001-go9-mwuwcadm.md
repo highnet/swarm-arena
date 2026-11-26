@@ -1,0 +1,1 @@
+- 2026-11-26 · **time management** · Go 9×9 · buried: Tests failed. · Spend the clock in MCTS: search to go minus a safety margin instead of 70% of it
