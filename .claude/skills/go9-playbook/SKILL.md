@@ -364,8 +364,11 @@ the deadline and the timing tests change; search, playout policy and book do not
 - Local: 31 passed, 3 ignored (5.5 min). Playouts per move vs main, fresh process per query,
   8 positions (plies 12–96) of one self-play game: paired median **x1.19 at go 200** (24 pairs),
   **x1.27 at go 1000** (16 pairs). Smaller than #210's x1.44 at go 200: 15 ms less search.
-- `arena versus go9` vs main (v0.6), 200 ms: 22–18 over 40 (seed 1861593902), 6–4 over 10
-  (seed 870674094).
+- `deadline_overhead_report` (self-play, unloaded): go 200 over 374 searched replies, past the
+  deadline median 0.15 ms, p99 0.53 ms, max 1.3 ms; go 1000 over 94, max 0.7 ms. The 35 ms
+  margin is ~27x the worst case seen.
+- `arena versus go9` vs main (v0.6), 200 ms: 22–18 (seed 1861593902), 22–18 (seed 1746189623),
+  6–4 (seed 870674094): **50–40 (56%) over 90**.
 - Moves to "Architecture now" (and the #210 section to history) only if the referee passes it.
 
 ## Ideas worth trying
