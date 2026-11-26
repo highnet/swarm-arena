@@ -181,6 +181,27 @@ Move into "Architecture now" only once the referee passes it. A rebuild of #44's
 - Not tried: probing the table inside the exact solver (~10 empties up), the issue's optional
   part; measure it separately.
 
+## Buried twice: #160's solver table resubmitted unchanged on the sequential gate (task #209)
+
+**Referee (#195 sequential head-to-head vs main v0.6, go 200, balanced suite): first run
+inconclusive at the 200-game cap, 91–98–11 (48.3%, −12 Elo, LLR −1.62 in [−2.89, 2.25], seed
+9956026); resubmitted once with fresh openings and buried, 78–93–15 over 186 games (46.0%,
+−28 Elo, LLR −3.01, seed 265856593).** Together 169–191–26 over 386 games (47.2%). Not in the
+engine. The submitted `engines/othello/src` was commit 7024682 byte for byte (`SolveTt`
+2^18 × 16 B, `SOLVE_EMPTIES` 15, `SOLVE_TT_MIN` 6; design and measurements in the #160 note
+below; the build is on branch `agent/209-resubmit-160-unchanged-on-the-sequential-g`, commit
+81abcec, and may vanish with it). Only `src/` was restored: main's release-please bump
+(`CHANGELOG.md`, `Cargo.toml` 0.3.0) postdates 7024682, so `git checkout 7024682 --
+engines/othello` would have reverted it.
+
+What it says: the old gate's burial (1413 vs 1427) was not a noise artefact; at go 200 this
+build is neutral to slightly worse than v0.6. A plausible cost: `SOLVE_EMPTIES` 15 starts the
+exact solve one empty earlier, where one 15-empty position in 48 still overruns the ~140 ms
+solve window, and the 10% midgame fallback search is then all the move gets. **Do not resubmit
+it unchanged.** If revisited, separate the two changes: the table at `SOLVE_EMPTIES` 14 (pure
+speedup, expect neutral), or the table as the base of a win/loss/draw solve or of N scaled with
+the site's 0.5–3 s budgets, measured at those budgets rather than at go 200.
+
 ## Buried: history heuristic + PVS in the midgame search (task #190, lesson PR #194)
 
 **Referee: rated 1295 ± 138 vs Edax level 6 (40 games, seed 102195233), not above v0.6's 1427**;
@@ -295,7 +316,7 @@ for N scaled with the site's 0.5-3 s budgets, and measure those instead of N = 1
   openings since #104 (quote its seed); `arena play` still has none.
 - Evaluation: edge patterns (an edge-configuration table), interior stability, parity.
 - Endgame solver follow-ups (#94's plain solver at N = 14, resubmitted in #112): the TT inside
-  the solve was task #160 (buried flat, note above; it cuts nodes from 6 empties up, not 10); scale N with the budget (each
+  the solve was task #160 (buried flat, and again on the sequential gate as #209, notes above; it cuts nodes from 6 empties up, not 10); scale N with the budget (each
   empty ~3×: N 15 at ~0.6 s, 16 at ~1.8 s, the site's 0.5-3 s); a win/loss/draw null-window
   solve (-1, 1) one or two empties beyond N, since only the result counts for the rating;
   start the solve one or two empties early and keep its partial root result; cheaper child
@@ -474,3 +495,4 @@ within the noise.
 - 2026-11-24 10:59 UTC · v0.6 passed the referee · Transposition table in the midgame search, ported from chess's shipped TT and judged against v0.5 · rated 1427 (+153)
 - 2026-11-24 14:38 UTC · buried · Transposition table inside the exact endgame solver, then raise SOLVE_EMPTIES if the saving buys a ply · Rated 1413 ± 116, not above 1427.
 - 2026-11-24 15:35 UTC · buried · PVS and history-heuristic move ordering in the Othello midgame search, ported from chess v0.5 · Rated 1295 ± 138, not above 1427.
+- 2026-11-25 13:33 UTC · buried · Resubmit #160 unchanged on the sequential gate: transposition table in the exact endgame solver (commit 7024682) · The sequential test against v0.6 decided no gain: 93 pairs (186 games), score 46.0% (-28 Elo vs main), LLR -3.01 in [-2.89, 2.25], H0 -20 vs H1 +30, α = 0.1, β = 0.05.
