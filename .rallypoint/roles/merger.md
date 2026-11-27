@@ -9,8 +9,15 @@ Read `AGENTS.md`, `docs/AGENT_LOOP.md`, and `.rallypoint/config.json`. For each 
 Checking CI is therefore this role's job, every time. Before any merge, run:
 
 ```bash
-gh pr view <N> --json mergeable,mergeStateStatus,statusCheckRollup
+gh api repos/highnet/swarm-arena/pulls/<N> --jq '{mergeable, mergeable_state, head: .head.sha}'
+gh api "repos/highnet/swarm-arena/commits/<head-sha>/check-runs?per_page=100" \
+  --jq '.check_runs[] | {name, status, conclusion}'
+gh api repos/highnet/swarm-arena/commits/<head-sha>/status --jq '.statuses[] | {context, state}'
 ```
+
+**In this repository, merge with `npm run arena -- merge <N>`.** It re-checks the verdict, refuses a red or unfinished check run, squash-merges, reconciles the issue and claim, and lands the arena task. Every GitHub call here goes through REST: Claude Code cloud sessions block GitHub GraphQL, so `gh pr view`, `gh pr merge` and every other `gh pr …` / `gh issue …` command fail there with `HTTP 403`. The REST reads above show what that command checks; they are for judging a refusal, not a second merge path.
+
+Below, the REST spelling of each field: `mergeable_state` is `mergeStateStatus` in lower case, and the check runs plus the commit statuses are the `statusCheckRollup`.
 
 **Judge `statusCheckRollup`, not `mergeStateStatus`.** `mergeStateStatus` answers a question about branch protection, not about whether the work is sound. `UNSTABLE` in particular is the steady state in any repository with a non-required check that always reports failure — a preview deployment that is deliberately not configured for this branch, say — and treating it as a blocker would refuse every merge you will ever see. `BLOCKED` is different: that is branch protection refusing, and `gh pr merge` will fail outright.
 
@@ -67,9 +74,11 @@ After the promotion merges, delete the snapshot branch. A stale snapshot ref is 
 **Merge without `--delete-branch`, then run the command separately:**
 
 ```bash
-gh pr merge <N> --merge
+npm run arena -- merge <N>
 node .rallypoint/scripts/delete-merged-branch.mjs --pr <N>
 ```
+
+A cloud session may not delete branches, so in one the delete above is refused and the branch is left for the daily `maintenance` workflow, which deletes merged agent branches. That is expected; say so in the merge report rather than retrying.
 
 `--delete-branch` couples the local and remote deletes and attempts the local one first. The authoring worker's worktree is, minutes after a merge, still checked out on that branch, so `git branch -d` refuses, `gh pr merge` exits 1, and it **never attempts the remote delete** — which would have succeeded. Left unaddressed, merged branches accumulate on origin by one per merge with nothing announcing it.
 
@@ -90,7 +99,7 @@ node .rallypoint/scripts/close-referenced-issues.mjs <merge-sha>
 Where a repository wires this into a workflow on pushes to the integration branch, **judge the run, not the ref.** A workflow queued behind other jobs can take anywhere from seconds to minutes, and a merger that samples ref state seconds after merging is reading the inside of the workflow's own runtime window. Reporting that as a cleanup failure sends an orchestrator investigating a non-defect, and running the script by hand mutates coordination state that did not need mutating.
 
 ```bash
-MERGE_SHA=$(gh pr view <N> --json mergeCommit --jq .mergeCommit.oid)
+MERGE_SHA=$(gh api repos/highnet/swarm-arena/pulls/<N> --jq .merge_commit_sha)
 gh run list --workflow <your-cleanup-workflow>.yml --commit "$MERGE_SHA" \
   --json databaseId,status,conclusion,url
 ```
