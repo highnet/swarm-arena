@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/highnet/swarm-arena/compare/othello-engine-v0.3.0...othello-engine-v0.4.0) (2026-11-28)
+
+
+### Features
+
+* **othello:** Phase-bucketed self-play fit of the Othello evaluation weights (corner, mobility, X/C, potential mobility, stable discs) ([#302](https://github.com/highnet/swarm-arena/issues/302)) ([fd87c80](https://github.com/highnet/swarm-arena/commit/fd87c80ceda90ab835768957216bc4c06a8365e7))
+* **othello:** Spend the clock: search to go minus a safety margin instead of the 1/3 'don't start' rule ([#294](https://github.com/highnet/swarm-arena/issues/294)) ([4a7b0f8](https://github.com/highnet/swarm-arena/commit/4a7b0f8766113eb4fbf94de836123951cfa3eefa))
+
 ## [0.3.0](https://github.com/highnet/swarm-arena/compare/othello-engine-v0.2.0...othello-engine-v0.3.0) (2026-11-25)
 
 
