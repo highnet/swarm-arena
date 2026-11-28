@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.6.0](https://github.com/highnet/swarm-arena/compare/platform-v0.5.0...platform-v0.6.0) (2026-11-28)
+
+
+### Features
+
+* **chess:** Resubmit [#179](https://github.com/highnet/swarm-arena/issues/179) on the sequential gate: mobility and passed pawns in evaluate (commit c87d35a) ([#292](https://github.com/highnet/swarm-arena/issues/292)) ([a533c44](https://github.com/highnet/swarm-arena/commit/a533c4466c5e38122e90d254ebabc6ba0ad0dd14))
+* **chess:** Resubmit [#186](https://github.com/highnet/swarm-arena/issues/186) unchanged on the sequential gate: spend the clock (commit 3476103) ([#271](https://github.com/highnet/swarm-arena/issues/271)) ([1893f66](https://github.com/highnet/swarm-arena/commit/1893f662765cab6514c61f82e045188b2761b877))
+* **chess:** Texel-style fit of the chess evaluation weights on positions from the engine's own self-play ([#300](https://github.com/highnet/swarm-arena/issues/300)) ([2cd0017](https://github.com/highnet/swarm-arena/commit/2cd0017dbaa5a0b997fbdaa990fda20734b00ba6))
+* **go9:** Retry [#189](https://github.com/highnet/swarm-arena/issues/189) on v0.7 under the sequential gate: 3×3 shape patterns around the last move at p = 1/2 ([#305](https://github.com/highnet/swarm-arena/issues/305)) ([7da8e49](https://github.com/highnet/swarm-arena/commit/7da8e49557d2f2ceda63a16a00597fd277cae17d))
+* **go9:** Retry [#210](https://github.com/highnet/swarm-arena/issues/210): spend the clock in MCTS with a 35 ms margin floor, timing tests asserted against the protocol slack ([#298](https://github.com/highnet/swarm-arena/issues/298)) ([9d90e91](https://github.com/highnet/swarm-arena/commit/9d90e914e68e66d67e7cc9b7a40466a8de13507a))
+* **othello:** Phase-bucketed self-play fit of the Othello evaluation weights (corner, mobility, X/C, potential mobility, stable discs) ([#302](https://github.com/highnet/swarm-arena/issues/302)) ([fd87c80](https://github.com/highnet/swarm-arena/commit/fd87c80ceda90ab835768957216bc4c06a8365e7))
+* **othello:** Spend the clock: search to go minus a safety margin instead of the 1/3 'don't start' rule ([#294](https://github.com/highnet/swarm-arena/issues/294)) ([4a7b0f8](https://github.com/highnet/swarm-arena/commit/4a7b0f8766113eb4fbf94de836123951cfa3eefa))
+* **swarm:** make replying on the board part of each role's flow ([#227](https://github.com/highnet/swarm-arena/issues/227)) ([#259](https://github.com/highnet/swarm-arena/issues/259)) ([a257a15](https://github.com/highnet/swarm-arena/commit/a257a152ec4c8b10a1310da2e76a52b76b95b5ca))
+* **web:** calm editorial redesign of the explainer routes ([#233](https://github.com/highnet/swarm-arena/issues/233)) ([#258](https://github.com/highnet/swarm-arena/issues/258)) ([857d5ae](https://github.com/highnet/swarm-arena/commit/857d5ae30b582cba8ac9cafc3570ea010d876d59))
+
+
+### Bug Fixes
+
+* point the merger prompt at REST, not GraphQL-backed gh commands ([#311](https://github.com/highnet/swarm-arena/issues/311)) ([b0a0c57](https://github.com/highnet/swarm-arena/commit/b0a0c57400757a142c33825a7f942641940d714c))
+* **web:** a 24 h replay that plays to its end goes back to live ([#278](https://github.com/highnet/swarm-arena/issues/278)) ([#280](https://github.com/highnet/swarm-arena/issues/280)) ([271811e](https://github.com/highnet/swarm-arena/commit/271811e55177ee5e12ad66f5153a6d654f446f11))
+* **web:** fleet graph fits a phone: sector grid from the positioning engine, labels that never overlap, header clear of the nav ([#272](https://github.com/highnet/swarm-arena/issues/272)) ([#282](https://github.com/highnet/swarm-arena/issues/282)) ([a5e0349](https://github.com/highnet/swarm-arena/commit/a5e0349f2c8d2a49a3f3907ee770c70bb3fdcd5b))
+* **web:** live boards link to their match, not the unstored game ([#262](https://github.com/highnet/swarm-arena/issues/262)) ([#267](https://github.com/highnet/swarm-arena/issues/267)) ([bab8f11](https://github.com/highnet/swarm-arena/commit/bab8f11c6f4f13e469caf43823796c46921f4902))
+* **web:** make it clear which engine plays which colour on every board ([#263](https://github.com/highnet/swarm-arena/issues/263)) ([#265](https://github.com/highnet/swarm-arena/issues/265)) ([22697fd](https://github.com/highnet/swarm-arena/commit/22697fde5e011460f0af22188b2b9ddd67319a4d))
+* **web:** page every site list past PostgREST's 1,000-row cap ([#251](https://github.com/highnet/swarm-arena/issues/251)) ([f1794db](https://github.com/highnet/swarm-arena/commit/f1794dbd5c2959e9828f00e16070b84a630c850d))
+* **web:** put the fleet graph at the top of /fleet ([#266](https://github.com/highnet/swarm-arena/issues/266)) ([1319873](https://github.com/highnet/swarm-arena/commit/1319873219ed23afc94835ff5793788bd82866d4)), closes [#264](https://github.com/highnet/swarm-arena/issues/264)
+* **web:** real 404 for unknown ids on detail routes ([#268](https://github.com/highnet/swarm-arena/issues/268)) ([#270](https://github.com/highnet/swarm-arena/issues/270)) ([fd6b203](https://github.com/highnet/swarm-arena/commit/fd6b2031d989ca4ce881e0a9c63dbe1cff94a31b))
+* **web:** stale working agents leave the fleet graph; each agent gets its own animal ([#200](https://github.com/highnet/swarm-arena/issues/200)) ([#269](https://github.com/highnet/swarm-arena/issues/269)) ([8e83fd7](https://github.com/highnet/swarm-arena/commit/8e83fd7a146b333cd15adc0d8813053de53c29b2))
+* **web:** stop horizontal overflow on mobile ([#249](https://github.com/highnet/swarm-arena/issues/249)) ([#260](https://github.com/highnet/swarm-arena/issues/260)) ([3ae31bb](https://github.com/highnet/swarm-arena/commit/3ae31bb04eec44b22ec3bcbe80296dc194bb0548))
+
+
+### Performance Improvements
+
+* **db:** skip bcrypt for an already-verified arena password ([#224](https://github.com/highnet/swarm-arena/issues/224)) ([#255](https://github.com/highnet/swarm-arena/issues/255)) ([fb9e0cc](https://github.com/highnet/swarm-arena/commit/fb9e0ccf639e728d570471954ae4f3b7afeaa757))
+
 ## [0.5.0](https://github.com/highnet/swarm-arena/compare/platform-v0.4.0...platform-v0.5.0) (2026-11-25)
 
 
