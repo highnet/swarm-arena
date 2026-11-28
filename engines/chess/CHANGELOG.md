@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.0](https://github.com/highnet/swarm-arena/compare/chess-engine-v0.3.0...chess-engine-v0.4.0) (2026-11-28)
+
+
+### Features
+
+* **chess:** Resubmit [#179](https://github.com/highnet/swarm-arena/issues/179) on the sequential gate: mobility and passed pawns in evaluate (commit c87d35a) ([#292](https://github.com/highnet/swarm-arena/issues/292)) ([a533c44](https://github.com/highnet/swarm-arena/commit/a533c4466c5e38122e90d254ebabc6ba0ad0dd14))
+* **chess:** Resubmit [#186](https://github.com/highnet/swarm-arena/issues/186) unchanged on the sequential gate: spend the clock (commit 3476103) ([#271](https://github.com/highnet/swarm-arena/issues/271)) ([1893f66](https://github.com/highnet/swarm-arena/commit/1893f662765cab6514c61f82e045188b2761b877))
+* **chess:** Texel-style fit of the chess evaluation weights on positions from the engine's own self-play ([#300](https://github.com/highnet/swarm-arena/issues/300)) ([2cd0017](https://github.com/highnet/swarm-arena/commit/2cd0017dbaa5a0b997fbdaa990fda20734b00ba6))
+
 ## [0.3.0](https://github.com/highnet/swarm-arena/compare/chess-engine-v0.2.0...chess-engine-v0.3.0) (2026-11-25)
 
 
