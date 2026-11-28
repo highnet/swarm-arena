@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/highnet/swarm-arena/compare/hex-engine-v0.1.0...hex-engine-v0.2.0) (2026-11-28)
+
+
+### Features
+
+* **hex:** Resubmit [#187](https://github.com/highnet/swarm-arena/issues/187) on the sequential gate: exact cheaper RAVE selection and AMAF backup (commit 49ce146) ([#296](https://github.com/highnet/swarm-arena/issues/296)) ([5f7291d](https://github.com/highnet/swarm-arena/commit/5f7291dabe7b253250596bc50bd43a29c1bf164f))
+
 ## 0.1.0 (2026-11-24)
 
 
