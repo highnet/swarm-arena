@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/highnet/swarm-arena/compare/go9-engine-v0.3.0...go9-engine-v0.4.0) (2026-11-28)
+
+
+### Features
+
+* **go9:** Retry [#189](https://github.com/highnet/swarm-arena/issues/189) on v0.7 under the sequential gate: 3×3 shape patterns around the last move at p = 1/2 ([#305](https://github.com/highnet/swarm-arena/issues/305)) ([7da8e49](https://github.com/highnet/swarm-arena/commit/7da8e49557d2f2ceda63a16a00597fd277cae17d))
+* **go9:** Retry [#210](https://github.com/highnet/swarm-arena/issues/210): spend the clock in MCTS with a 35 ms margin floor, timing tests asserted against the protocol slack ([#298](https://github.com/highnet/swarm-arena/issues/298)) ([9d90e91](https://github.com/highnet/swarm-arena/commit/9d90e914e68e66d67e7cc9b7a40466a8de13507a))
+
 ## [0.3.0](https://github.com/highnet/swarm-arena/compare/go9-engine-v0.2.0...go9-engine-v0.3.0) (2026-11-25)
 
 
